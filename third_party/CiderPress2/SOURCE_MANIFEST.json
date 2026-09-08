@@ -1,0 +1,838 @@
+{
+  "repository": "https://github.com/fadden/CiderPress2",
+  "revision": "7a055a200e31f752f3a92bb9fe6ae6f67cd55534",
+  "files": [
+    {
+      "path": "CommonUtil/AppHook.cs",
+      "sha256": "7e6d0d53fd0db2ec331ccb209a0ce2af93d14781b6d6842ca3871f1623146b13"
+    },
+    {
+      "path": "CommonUtil/ASCIIUtil.cs",
+      "sha256": "cd90a179c18365be31a31e8c14dea96785c8e51d303a20dda08b36db19ed89b8"
+    },
+    {
+      "path": "CommonUtil/BitTwiddle.cs",
+      "sha256": "9e6a1846b7dcdd1466f9427d8ab1f32b99469e6f5e50a8bbed5fd8be0821f872"
+    },
+    {
+      "path": "CommonUtil/CassetteDecoder.cs",
+      "sha256": "8e4e7025ad75b370bd96baad22bb93d64b6db926d91fd144a9eee67851c7a595"
+    },
+    {
+      "path": "CommonUtil/CircularBitBuffer.cs",
+      "sha256": "50066b2adfba32de44df7e681d2cbbd2084207edf2066e82c965c93a76bf19d9"
+    },
+    {
+      "path": "CommonUtil/CommonUtil.csproj",
+      "sha256": "6e8b7f7ad4c0cfc066d0b04828a6917b1000385c1f579cf26a0777c0372287ac"
+    },
+    {
+      "path": "CommonUtil/CP437.cs",
+      "sha256": "c3fa1844a4d95cf50161a36a3241c0cb2818651739fd684e71a07c8599fd45ed"
+    },
+    {
+      "path": "CommonUtil/Crash.cs",
+      "sha256": "388e7f20207d1403034e01bf1855002d4712f33e17f263cab075fd1de7e1587d"
+    },
+    {
+      "path": "CommonUtil/CRC16.cs",
+      "sha256": "a2fffe4102e544427ebdce4a104bfcbc3948e3cae5a1168016299e117424370d"
+    },
+    {
+      "path": "CommonUtil/CRC32.cs",
+      "sha256": "2088ac344445e4fa5ead609b2f4c964e18a201a3e403471a7c253480378f0246"
+    },
+    {
+      "path": "CommonUtil/FileUtil.cs",
+      "sha256": "6792dc39d0d9189aabc9b0924c5dd39abd7a4d6f2321d9eac37e259e82a8b82e"
+    },
+    {
+      "path": "CommonUtil/FixedLengthStream.cs",
+      "sha256": "48961b9fe259218fb59bd21804b07832bf5cfd4cc2b9299404fe68a9bf274dfb"
+    },
+    {
+      "path": "CommonUtil/Formatter.cs",
+      "sha256": "cc0a4c45417e152a86584451b977e5b3d078db25e116db8bcef00859781ec8c5"
+    },
+    {
+      "path": "CommonUtil/Glob.cs",
+      "sha256": "4a24e47fc5407fc6f8a67030c9ac64c4af05cded3b6b3c1b497124b876853beb"
+    },
+    {
+      "path": "CommonUtil/GroupBool.cs",
+      "sha256": "b068af49ed879d032052d8a86611eeba75d747fb19cd9a9dfbe0458a46d1ab5b"
+    },
+    {
+      "path": "CommonUtil/MacBoot.cs",
+      "sha256": "486e782b6769e0394ca36b63a2b2f1ddcae0d875d5f5f1f3f97f8e60c46d1162"
+    },
+    {
+      "path": "CommonUtil/MacChar.cs",
+      "sha256": "77cfc611991e058cc94c1a4cfbdd582deeea711df3ed5a12fd6f8e27d3af2226"
+    },
+    {
+      "path": "CommonUtil/MessageLog.cs",
+      "sha256": "23689322d73680f5e32a56a5e25e7dc2e31d62440d5e3f5140af67fa85d119aa"
+    },
+    {
+      "path": "CommonUtil/Mirror.cs",
+      "sha256": "7723d117ff44863cf32a58e39b42f7183e5f0de9d8ae15f056cdee14b65091d6"
+    },
+    {
+      "path": "CommonUtil/MouseTextChar.cs",
+      "sha256": "0225b62f76fb801847b51cab282fe934b16bd86fa2060f6023e1dd9c0cc7c134"
+    },
+    {
+      "path": "CommonUtil/Notes.cs",
+      "sha256": "cd58361f76999db013e2f45d227f1872f3f11f8db4f2db460ac2546d2f26c159"
+    },
+    {
+      "path": "CommonUtil/PathName.cs",
+      "sha256": "9365d4057ee74db0d6dad0b414b547ed26efcfb362f348835b0a9ac0ac1eaeba"
+    },
+    {
+      "path": "CommonUtil/PhysicalDriveAccess.cs",
+      "sha256": "2504ec0133745bd5a972f9b1315a2d249f4323d437ba345a61c129d8285cdfb7"
+    },
+    {
+      "path": "CommonUtil/RangeSet.cs",
+      "sha256": "ae4cbf9ce2938e45ef070f9ddc26ac82df40b17239fa697b900f772a5a624a6b"
+    },
+    {
+      "path": "CommonUtil/RawData.cs",
+      "sha256": "3a2f96945f4a3c35d977ce4e6243929b1103a55ad6684a5574cf8eaf9195ecb9"
+    },
+    {
+      "path": "CommonUtil/SettingsHolder.cs",
+      "sha256": "b5181676cd10b8da5f3916814ed0cae51708fd7e94c000c3486986d1124e7815"
+    },
+    {
+      "path": "CommonUtil/ShellCommand.cs",
+      "sha256": "d9c5481546971d3b6c6489ec4fce4a2cb3b6a6e231ab09402d00d8f1df37b2df"
+    },
+    {
+      "path": "CommonUtil/StringToValue.cs",
+      "sha256": "cfa3094b25741162a04611c8ad14807c9db6d3da4a774c9d0e89436f4aa85e7a"
+    },
+    {
+      "path": "CommonUtil/SystemXAttr.cs",
+      "sha256": "8e9214de1bf1d515afcd99db522a966c2b925a191be4d15ffcf34270bab62c3c"
+    },
+    {
+      "path": "CommonUtil/TempFile.cs",
+      "sha256": "d471666217f6eeba5a553276a7e550f9c2a0615e2709a9fbab55853b6334aa1e"
+    },
+    {
+      "path": "CommonUtil/TimeStamp.cs",
+      "sha256": "09513f02067da54c20a6114d40896c1b1a687c16b813c920b8d9241a9016a722"
+    },
+    {
+      "path": "CommonUtil/UnpackedGif.cs",
+      "sha256": "659c578458003e81a0092ad232ba530c7069808e1e608ffc840fc481d228be69"
+    },
+    {
+      "path": "CommonUtil/Version.cs",
+      "sha256": "8240aa867d2ff6a7c7c946b11ce22b839cac98cd60fb1c41ab910c34d3727e19"
+    },
+    {
+      "path": "CommonUtil/WAVFile.cs",
+      "sha256": "971aab78c2c6b62b29a7f623bc09db54e235cc39f2ba6a3cb20118214f3d77a5"
+    },
+    {
+      "path": "CommonUtil/ZeroStream.cs",
+      "sha256": "3171cc1d2528002c59d734600bb1208e32baf4721563696b5f0de81b4e7dc0cf"
+    },
+    {
+      "path": "DiskArc/ArcReadStream.cs",
+      "sha256": "4629547d38c78757b502aa76069c28807e6260bdbb53cff3b2438bdfa88cd597"
+    },
+    {
+      "path": "DiskArc/BadBlockException.cs",
+      "sha256": "82b4d308da4224b35f6aa939f3dbf1f6498fadcd4dec45f94bcd1bcb95b03b31"
+    },
+    {
+      "path": "DiskArc/Checker.cs",
+      "sha256": "744a874c78b34bb676311e6e7a23326b6ea2edd152b98685d8dbb8048192dfcd"
+    },
+    {
+      "path": "DiskArc/DAAppHook.cs",
+      "sha256": "b10af58ee6478f67845549e38cd603b0fb8a9dca2ab23591a1f116c25cd56e80"
+    },
+    {
+      "path": "DiskArc/DAException.cs",
+      "sha256": "ff0d9e549e0ff625c0cf2262caf9affba8f3533e3156b2bb346687c76bdcc09b"
+    },
+    {
+      "path": "DiskArc/DAExtensions.cs",
+      "sha256": "6b9ec4f2e326ee249669f999416d3e00ca467b601283a26bce1db2b8eb5f4d41"
+    },
+    {
+      "path": "DiskArc/Defs.cs",
+      "sha256": "604d97032ebc7560855f87f76c25f02822d93287a25a3f0f0713a8afc345c1c4"
+    },
+    {
+      "path": "DiskArc/DiskArc.csproj",
+      "sha256": "f0a8ed0fb7d400fb764467e55f74cf65a45cb523e622de7b4b82bcbc59a35bb4"
+    },
+    {
+      "path": "DiskArc/DiskFileStream.cs",
+      "sha256": "ec12d08ea241f1e31b2c09d0fb450b13095503920fb2697d6e498b463c2c5325"
+    },
+    {
+      "path": "DiskArc/DiskFullException.cs",
+      "sha256": "c275324bd2719d62e53cfdc4c75b5f16f1f3150b21163807624362ca81f22653"
+    },
+    {
+      "path": "DiskArc/FileAnalyzer.cs",
+      "sha256": "263b0bb2aa8627a988653f98b751e63a2e348a161fcdf96d94db213807286d78"
+    },
+    {
+      "path": "DiskArc/FileAttribs.cs",
+      "sha256": "a20b7ee9e07224423fb76f4af77df1c7810122135e55d7fbb41ba6963fbf38ed"
+    },
+    {
+      "path": "DiskArc/GatedChunkAccess.cs",
+      "sha256": "7039be830264f04536d6e0817fc6d4145f1e2082a92eec7df460ea29a1fc2160"
+    },
+    {
+      "path": "DiskArc/GeneralChunkAccess.cs",
+      "sha256": "782cb8439853a53a42a9fd6f26351565f65fa8b97554d352bfa7bcc8a04f0a22"
+    },
+    {
+      "path": "DiskArc/IArchive.cs",
+      "sha256": "54fa67dcc80bd88538c4c1c25250d5715d006abee8bc42df424ac0926c01453e"
+    },
+    {
+      "path": "DiskArc/IArchiveExt.cs",
+      "sha256": "0a60103b0c81f1660167ba94111194f4a4ede23a9ab06cef30493a7c14d4abef"
+    },
+    {
+      "path": "DiskArc/IChunkAccess.cs",
+      "sha256": "a7931185ebfb96e6bc62693e4610f636ab0cd44e1a6e43501c5e17fc81263c02"
+    },
+    {
+      "path": "DiskArc/IDiskContents.cs",
+      "sha256": "6a60f8ae82eff7811e7055f0ca2ed01f9b3926aa49d135cac510b08f87da6358"
+    },
+    {
+      "path": "DiskArc/IDiskImage.cs",
+      "sha256": "3dba14fdc34da67dc092854c42ffe475de43f8805dff27ac5cd8d416e15ed84a"
+    },
+    {
+      "path": "DiskArc/IFileEntry.cs",
+      "sha256": "9477a977b64795b4c1935c47fe49d0e251290fc7de6570d19b801e251e20e072"
+    },
+    {
+      "path": "DiskArc/IFileEntryExt.cs",
+      "sha256": "feb3736d86ce1f7de90979298d60350a7bdbeca39327b7049f832e7cb884eecf"
+    },
+    {
+      "path": "DiskArc/IFileSystem.cs",
+      "sha256": "dfbfb157f5e2f738e61697ee067a469c977ecc1fd9cf58df4d4ae9ca21e8dd6b"
+    },
+    {
+      "path": "DiskArc/IMetadata.cs",
+      "sha256": "ff77d6d569625b5b68af8892c671a9e0a5c47be41bd1d9d62975fbf8d3c0c271"
+    },
+    {
+      "path": "DiskArc/IMultiPart.cs",
+      "sha256": "ca528d01a9194ae83769ed19c4b9df4c1fadfffef01978154540c5309ee4adfa"
+    },
+    {
+      "path": "DiskArc/IPartSource.cs",
+      "sha256": "21a448f8ea5b6bf60ebbda1ec3df4d3ea8876e886ed35766238b3c6154889e57"
+    },
+    {
+      "path": "DiskArc/NibbleChunkAccess.cs",
+      "sha256": "ff8ee1e9c6e96af9c34c4cf7c81f800c69b4ca6229d8e207c06cda96f2789d5e"
+    },
+    {
+      "path": "DiskArc/README.md",
+      "sha256": "5e7cc3f8a74ec3ad208b0c33beebc0ae671a52f5d24b0c85d24801c84e5c916e"
+    },
+    {
+      "path": "DiskArc/SectorCodec.cs",
+      "sha256": "ab1ef00980331788d41dc63ad1cb0e279649e5af22ce342c73f344096ed3db3d"
+    },
+    {
+      "path": "DiskArc/VolumeUsage.cs",
+      "sha256": "23664018a8aeb3ce24b9156a84de02a0de91853ba4a52f2b3ab1a43056449698"
+    },
+    {
+      "path": "DiskArc/Arc/AppleLink_FileEntry.cs",
+      "sha256": "99287c096b336ae7ea9db6b2064186e1bae6618d13f477be5944dee11e837f26"
+    },
+    {
+      "path": "DiskArc/Arc/AppleLink-notes.md",
+      "sha256": "016cb111e6dc51e3baeac0067c1f3f4f01670807d955ea9eab2f90cdc870a851"
+    },
+    {
+      "path": "DiskArc/Arc/AppleLink.cs",
+      "sha256": "19138b6c171e7360deea41bc3f5c2f3176dc809e4d62648d1dfc9023b8fc28ac"
+    },
+    {
+      "path": "DiskArc/Arc/AppleSingle_FileEntry.cs",
+      "sha256": "590c195545707f3e03398dfc3f24024295d66154d2859a3da2b28f7a71dc161b"
+    },
+    {
+      "path": "DiskArc/Arc/AppleSingle-notes.md",
+      "sha256": "ce2f696484109105c866419b65b5ef84a55e5a7f3f8a9dfacef0d03851e10664"
+    },
+    {
+      "path": "DiskArc/Arc/AppleSingle.cs",
+      "sha256": "ec760c8d8c5eb0fcff31dcae0ac73ceeb1b1fe2932716fb09cb71655a8e0c0c3"
+    },
+    {
+      "path": "DiskArc/Arc/ArcCharacteristics.cs",
+      "sha256": "835825c3d5055a21c196a52a1b4ec28b6285f45aa2a936c4f6412ed93abc48e5"
+    },
+    {
+      "path": "DiskArc/Arc/ArcUtil.cs",
+      "sha256": "5baec9bc7ce6704668f8df7e71c5974d746f0e5a1c927c6e9a24c4e8aed9ad63"
+    },
+    {
+      "path": "DiskArc/Arc/AudioRecording_FileEntry.cs",
+      "sha256": "a7a1a1be113ec0dbffc6650b04a4260fcd51d3f731f5da694e0ed586321697c9"
+    },
+    {
+      "path": "DiskArc/Arc/AudioRecording-notes.md",
+      "sha256": "39c8aa6d04d35eea1842c98207060c61b16b4c88eae19c8719b86fdd0f00e472"
+    },
+    {
+      "path": "DiskArc/Arc/AudioRecording.cs",
+      "sha256": "49236a4e6d60c72a36ebd64b83462b6320e23ad83e4b312d539a9a9a4700dcca"
+    },
+    {
+      "path": "DiskArc/Arc/Binary2_FileEntry.cs",
+      "sha256": "7aee7fed9a3ecafafd0f39e37e1fc7f01203f75be02ea5b4f4640db71518929e"
+    },
+    {
+      "path": "DiskArc/Arc/Binary2-notes.md",
+      "sha256": "91e2ed9ceb7aa3823b3567dfc4effb51c1dd832b7e361a7c319652464cbc31db"
+    },
+    {
+      "path": "DiskArc/Arc/Binary2.cs",
+      "sha256": "b7e128f6dda9d7e147f395ad05679507948b30d6ca9ae6bd08a3a6ba40dddd37"
+    },
+    {
+      "path": "DiskArc/Arc/GZip_FileEntry.cs",
+      "sha256": "f6504c74cefa8a8a42426ecdc2f40de525caa74c421271d185fc2ae2edaa2db8"
+    },
+    {
+      "path": "DiskArc/Arc/GZip-notes.md",
+      "sha256": "999cd0b3733f467e6488016bb5fbb693caae2e46b0420d19b445e1e331bd694b"
+    },
+    {
+      "path": "DiskArc/Arc/GZip.cs",
+      "sha256": "1ba9730a88865bda7de5d7542ba5bc4958adca43d57cf92a2a167571b4b62aa6"
+    },
+    {
+      "path": "DiskArc/Arc/MacBinary_FileEntry.cs",
+      "sha256": "61b3f967409160321f76f683d0af64e94045907782c3520fa13dbc1ccb179587"
+    },
+    {
+      "path": "DiskArc/Arc/MacBinary-notes.md",
+      "sha256": "4af042c42f7138f44742804f6824843c0ee170bebddd2e2f43715eb7cfec86b1"
+    },
+    {
+      "path": "DiskArc/Arc/MacBinary.cs",
+      "sha256": "e5aa95d900d2afa4610868847a73a238bab13fc8d3386f9fe663dd3ad921738e"
+    },
+    {
+      "path": "DiskArc/Arc/NuFX_FileEntry.cs",
+      "sha256": "90c98ee4b9affe572c24f1b819324924893f7be3d8199a9c06657a0a5f2a2257"
+    },
+    {
+      "path": "DiskArc/Arc/NuFX-notes.md",
+      "sha256": "61d49f7af21149251a0815610b29ed45a44995ab46433b077a93bba2d540b625"
+    },
+    {
+      "path": "DiskArc/Arc/NuFX.cs",
+      "sha256": "e43883e10b0881759bb1a02e450744b051e8fb45ce53fc1ebff482c17318098e"
+    },
+    {
+      "path": "DiskArc/Arc/OpenStreamTracker.cs",
+      "sha256": "9ef4543f9e91102ff63047d0ed59b5c2bf21af12216e7e58143f6608f751c2e6"
+    },
+    {
+      "path": "DiskArc/Arc/README.md",
+      "sha256": "f0c357bc9f34b03d90d74eddb42cab68da53debd59fae0d5e898335a606fb104"
+    },
+    {
+      "path": "DiskArc/Arc/StuffIt-notes.md",
+      "sha256": "8c0580b0066593e2f91fc8d5b69fb87b472f7b8992858e51f1767c05094f75e6"
+    },
+    {
+      "path": "DiskArc/Arc/Zip_FileEntry.cs",
+      "sha256": "3994ecfc668090e03061746701efd7b6f02a027e15f0ba11c04ae5e419236851"
+    },
+    {
+      "path": "DiskArc/Arc/Zip-notes.md",
+      "sha256": "8d8937cc6dfcb02ad339829a9bdfb7008dd17cb19254ec195dd4f812cabf2505"
+    },
+    {
+      "path": "DiskArc/Arc/Zip.cs",
+      "sha256": "1d8abd4e9989144d3a6a23247e81bd8edf5e3eff11b0b3622dbdb18ea84f6b91"
+    },
+    {
+      "path": "DiskArc/Comp/LZC-notes.md",
+      "sha256": "dfb4b8947138a2e079bc9b5bdedd7df97d72196a4aa2581a6c7a9a6f123cccee"
+    },
+    {
+      "path": "DiskArc/Comp/LZCStream.cs",
+      "sha256": "c263b087d26805bae6dc0c47347f08c282905a5fd510586dd1ffa088d11b2c6b"
+    },
+    {
+      "path": "DiskArc/Comp/LZHuf-notes.md",
+      "sha256": "38f3008b953c3724d7b612e708d1703c988b36eb3004a1fbf9a3392cfe97f035"
+    },
+    {
+      "path": "DiskArc/Comp/LZHufStream.cs",
+      "sha256": "83df0bd80e88fa3f671bd00dfb913c0bfe19e1f6263ce9b9222a537589a681b1"
+    },
+    {
+      "path": "DiskArc/Comp/NuLZW-notes.md",
+      "sha256": "67efc30abee1f989207e192ae75b8c7caaef551f5391bd68a11547a0334977fb"
+    },
+    {
+      "path": "DiskArc/Comp/NuLZWStream.cs",
+      "sha256": "1ac52210b52c381d3d1e48efd1018312c43f48ad601cb081e3b5eb26b5d947de"
+    },
+    {
+      "path": "DiskArc/Comp/README.md",
+      "sha256": "6b814f1394216c7d769e10a997dd54c6b50deb29106599b6bef8af95ecad4dd9"
+    },
+    {
+      "path": "DiskArc/Comp/Squeeze-notes.md",
+      "sha256": "eb14b8c5e6fa121ae4bafa12054d374fcfd7dc538f51e7ac33c37d0cb1b7d9eb"
+    },
+    {
+      "path": "DiskArc/Comp/SqueezeStream.cs",
+      "sha256": "40ae032a15653af8b6ffebe89860645664d74a6e5362cdc37bb180a184bdb1d1"
+    },
+    {
+      "path": "DiskArc/Comp/ZX0-notes.md",
+      "sha256": "ddce9179cb31c5d23e1c15ec3405d242f14aaac0672d1a684168f64b8d9e37c6"
+    },
+    {
+      "path": "DiskArc/Comp/ZX0Stream.cs",
+      "sha256": "47b9b1f822e845f3747b176a777a0d47788ecf4a32f0cd280a2239abf86372f0"
+    },
+    {
+      "path": "DiskArc/Disk/DART-notes.md",
+      "sha256": "61a85b3f3b728e1a4442c109810db839f80f24b44b45e6f9e1d876cc30932667"
+    },
+    {
+      "path": "DiskArc/Disk/DART.cs",
+      "sha256": "c593d1d18c02c2e1352e48d89d77ac57c61af4c9f862f59aba925f7dd6b1c418"
+    },
+    {
+      "path": "DiskArc/Disk/DiskCopy-notes.md",
+      "sha256": "46b23ca61196a94bc360f33e7aa2e02ee2793611d8de8ae9e1a3701a26e3d0c3"
+    },
+    {
+      "path": "DiskArc/Disk/DiskCopy.cs",
+      "sha256": "8ceb03eba5cdded9e1298ce53ddbb68c86b17297e51be9dfab6e2cf9435cc7b9"
+    },
+    {
+      "path": "DiskArc/Disk/INibbleDataAccess.cs",
+      "sha256": "7a0840e3026db4c04697b2b696d6083a5fd54fb86ffa44914145d39606821cf9"
+    },
+    {
+      "path": "DiskArc/Disk/Moof_Info.cs",
+      "sha256": "0cbd270aeba34b29fb242190b022148ff1e0f902e9ddb7d1d09f4becc948761c"
+    },
+    {
+      "path": "DiskArc/Disk/Moof-notes.md",
+      "sha256": "bd06d5ae5c04d7730d03244ffd1208c5e5f70432b76909584043c2a39d310701"
+    },
+    {
+      "path": "DiskArc/Disk/Moof.cs",
+      "sha256": "71e4801ef6394c3402fdbc8dd3342fdf15854af128a069f65d0c1756ead0843b"
+    },
+    {
+      "path": "DiskArc/Disk/Nibble-notes.md",
+      "sha256": "bbebf052ebd9e90aa70f0f4316d39223d5a6e59b4c4f5ff48262bd084233f326"
+    },
+    {
+      "path": "DiskArc/Disk/NibCharacteristics.cs",
+      "sha256": "491727001282ae73682f7b1ffa6fcc02a3580ba5e9bf8dcb1d4ca93cfebd88d0"
+    },
+    {
+      "path": "DiskArc/Disk/README.md",
+      "sha256": "3e82ffc757bb0f313b1227df0f41e863fad8f83cc5ead2933fc05b40351fc458"
+    },
+    {
+      "path": "DiskArc/Disk/SectorPtr.cs",
+      "sha256": "2ed78b1c4546b41209be8973c3b7d7ed44245fce895aee4743b777f3421959c3"
+    },
+    {
+      "path": "DiskArc/Disk/StdSectorCodec.cs",
+      "sha256": "5a2ba75dbaf9166fb7ec4b199a293d3825c7bb3e1d9013d56d543c3670106e69"
+    },
+    {
+      "path": "DiskArc/Disk/TrackInit.cs",
+      "sha256": "e496ffc4004c1225432d0cf53d397e7fe3e8c6de0da26ac72058eb8b17ed44d2"
+    },
+    {
+      "path": "DiskArc/Disk/Trackstar-notes.md",
+      "sha256": "d08bcc1f4554d720ee4868f1139176e8a68c2248ecde39682c1c72245b829de0"
+    },
+    {
+      "path": "DiskArc/Disk/Trackstar.cs",
+      "sha256": "b3bf8f361f512b758e5edfd58e17597fa064eb391b7a5a12b7da99588a3e5966"
+    },
+    {
+      "path": "DiskArc/Disk/TwoIMG_Nibble.cs",
+      "sha256": "4a96f2daca29995354d0eef65096ee12aa09af70f185cc8275f0eb9b454bd702"
+    },
+    {
+      "path": "DiskArc/Disk/TwoIMG-notes.md",
+      "sha256": "06d6064c951dda0516588ece778ba350ddd54c937e00bba2ab93f4c22d27f8a2"
+    },
+    {
+      "path": "DiskArc/Disk/TwoIMG.cs",
+      "sha256": "e866d2ea827b062ccb4820ec6ec4bc979d1a60475ac4ccb95594776895889ec5"
+    },
+    {
+      "path": "DiskArc/Disk/Unadorned-notes.md",
+      "sha256": "4d12769695c595b1611c926dcac79c5123bba31bba29828cb673b6c9dc53a693"
+    },
+    {
+      "path": "DiskArc/Disk/UnadornedNibble525.cs",
+      "sha256": "e7b9646846c5ccc42b77772d4087a5f7365e507a2665c531bdc3fd2ddf92ef70"
+    },
+    {
+      "path": "DiskArc/Disk/UnadornedSector.cs",
+      "sha256": "8216601d42b28e8ee92a06b8e88a4f365dae5bb540a3b6224794bdf7c9f1a837"
+    },
+    {
+      "path": "DiskArc/Disk/Woz_Info.cs",
+      "sha256": "50effb588ad1160b1f1e3b6e9451931ca978f85fc09b6ed012b393a2f0980c1e"
+    },
+    {
+      "path": "DiskArc/Disk/Woz-notes.md",
+      "sha256": "4baa41761e87994041b48a9810182f273dff0f99db4c27494b89fdc342cdab5f"
+    },
+    {
+      "path": "DiskArc/Disk/Woz.cs",
+      "sha256": "b8840130855d0ea31da50ff2dfbd125b607b705696b8a8b3656b0685d3f49334"
+    },
+    {
+      "path": "DiskArc/Disk/Wozoof_Info.cs",
+      "sha256": "6e257cb0052fb33bc109943c754a5bfa050e83ba3c16149a10605356e9b097d7"
+    },
+    {
+      "path": "DiskArc/Disk/Wozoof_Meta.cs",
+      "sha256": "163e13e1cbe208183e71faa543d119d55cf3ecfab78c0eeaec1420c174e93752"
+    },
+    {
+      "path": "DiskArc/Disk/Wozoof.cs",
+      "sha256": "994b4a41b3c607cb1a2654fcb9c9a22856273d3fd85a40536b76490d46b6964e"
+    },
+    {
+      "path": "DiskArc/FS/CPM_AllocMap.cs",
+      "sha256": "8134591805819b06fdf76933d2dc02133091a12e4eab2314284d2243c6c6c3a1"
+    },
+    {
+      "path": "DiskArc/FS/CPM_FileDesc.cs",
+      "sha256": "79957f5cd0bc185e8f23a2b00054323da16c45ec30e63dd4104ac5d101c03931"
+    },
+    {
+      "path": "DiskArc/FS/CPM_FileEntry.cs",
+      "sha256": "bdf85ab7158fb099416bb0d5d4643665d30520449d9d43d7ebd56889ddbcdc0f"
+    },
+    {
+      "path": "DiskArc/FS/CPM-notes.md",
+      "sha256": "f32454f2d94f5ca6793d02846108b9aa14dcb259aa466d9500350baca41ddad1"
+    },
+    {
+      "path": "DiskArc/FS/CPM.cs",
+      "sha256": "101f5ba0c51827b5e69df0395ff3d6a4b588be4548fe5d2a8c1cd8dca68e65ab"
+    },
+    {
+      "path": "DiskArc/FS/DOS_FileDesc.cs",
+      "sha256": "216110df02d195a942eb93e6a6a6cde314a1a6fec51646bc81447d82e07a5a52"
+    },
+    {
+      "path": "DiskArc/FS/DOS_FileEntry.cs",
+      "sha256": "065ed7e4a5c82cd7314750108437a8c365fdd6d51a6f590868a5b08410f14a4d"
+    },
+    {
+      "path": "DiskArc/FS/DOS_Hybrid.cs",
+      "sha256": "37ee21ee06a8e306f1bc57a80df6b893095d8e3a3373b2459da16a8d15617576"
+    },
+    {
+      "path": "DiskArc/FS/DOS_OSImage.cs",
+      "sha256": "cef5f9d64c9ee8536b2b67e2cd26059e7a372bfefd8e8661930726d848ccc240"
+    },
+    {
+      "path": "DiskArc/FS/DOS_VTOC.cs",
+      "sha256": "cbf76ea39b633ad084efa4fbbf50e76c130b323be9eccdaeb4267b23d7bcffda"
+    },
+    {
+      "path": "DiskArc/FS/DOS-notes.md",
+      "sha256": "f2ba157ae8cbbd0daaaa1cfc616c5e70ad1675aea577d2de3357f2bd830b0816"
+    },
+    {
+      "path": "DiskArc/FS/DOS.cs",
+      "sha256": "6fc31132a0ced6312eeec8f41bb4f8057f015eca82a99856cd40521c871834f2"
+    },
+    {
+      "path": "DiskArc/FS/FSCharacteristics.cs",
+      "sha256": "3b1ca56089db4cc74f39d5b9b206e1d1f3e165b75b5705a12156172a245dcbbb"
+    },
+    {
+      "path": "DiskArc/FS/FSUtil.cs",
+      "sha256": "15db8f4637ce114e7fe01cd1394d16d8e06a23a71a5537b020be2f982cb1785f"
+    },
+    {
+      "path": "DiskArc/FS/Gutenberg_FileDesc.cs",
+      "sha256": "3ab31bb2452636c7f25d85f61d4fb4bd560ac8a4aeb5cf4610542fb818d9ea55"
+    },
+    {
+      "path": "DiskArc/FS/Gutenberg_FileEntry.cs",
+      "sha256": "37bba465cde9ac39417dec42c11703d8679f9f0e34ed591e19860227f78b61e4"
+    },
+    {
+      "path": "DiskArc/FS/Gutenberg-notes.md",
+      "sha256": "952afaec7b6ddd7517ea279aee10778ca9769268f8660b94a459c9985ab699d3"
+    },
+    {
+      "path": "DiskArc/FS/Gutenberg.cs",
+      "sha256": "797eb01a8286a52f1e91f467242c8aa970a2d850edaed1a3bb300cde5f235204"
+    },
+    {
+      "path": "DiskArc/FS/HFS_BTree.cs",
+      "sha256": "e53455b17ab27c71f37cb1a8e85b1fc2b9286cd479899d6f5f383870c7a758fe"
+    },
+    {
+      "path": "DiskArc/FS/HFS_Dump.cs",
+      "sha256": "9c4051b18be8e1f057c3932dc32a075b073873a3adbe125199354d30be6d8a79"
+    },
+    {
+      "path": "DiskArc/FS/HFS_FileDesc.cs",
+      "sha256": "b6271ef67473f7728d5589e68f01ec513f6f0fc441ece92b9bae6e5ef1b3d4e9"
+    },
+    {
+      "path": "DiskArc/FS/HFS_FileEntry.cs",
+      "sha256": "7dc6b7d5d0b3d23aad59354f44483a9bc1ef3b4839f36f37e574590054bf20de"
+    },
+    {
+      "path": "DiskArc/FS/HFS_FileStorage.cs",
+      "sha256": "149ded22bed73e7c5b92699321a41e25fab8fca669141aadbb2f621ec845a1c7"
+    },
+    {
+      "path": "DiskArc/FS/HFS_MDB.cs",
+      "sha256": "fc5bd17e653d12db93b3876c73c86527f1c4e6f76549d7cf982e6ca1ac03246b"
+    },
+    {
+      "path": "DiskArc/FS/HFS_Node.cs",
+      "sha256": "3382c15b06549af27307f8b7a1826b48584098da6a546705c93c93f4eef64ee3"
+    },
+    {
+      "path": "DiskArc/FS/HFS_Record.cs",
+      "sha256": "fdafecee9a28d8af1897e5843d3482ee4e3812d2689cb76a4f419087dd08e7ca"
+    },
+    {
+      "path": "DiskArc/FS/HFS_Struct.cs",
+      "sha256": "b4c891d959743ddaf709b04d9a7a7cc80d72c230c5b82b6036c6ad2f0730b203"
+    },
+    {
+      "path": "DiskArc/FS/HFS_VolBitmap.cs",
+      "sha256": "4e959540d3e0ba59682198dbcd2bc362f8a30cf8a08ae6f87a38608672c9dc41"
+    },
+    {
+      "path": "DiskArc/FS/HFS-notes.md",
+      "sha256": "2178288fdfa6fd8b3c7c4a8c87a6ff80e37f5901a84b6d3f5f3c558a06415cb2"
+    },
+    {
+      "path": "DiskArc/FS/HFS.cs",
+      "sha256": "396082d0b2d1e76011e770d718ad2e4f7db7348b8cc151929101a7b079126843"
+    },
+    {
+      "path": "DiskArc/FS/Hybrid-notes.md",
+      "sha256": "a1881fe55c9824f4f68ffc7d770aac3f05ddeb65e3abd418ab3391db18824c4f"
+    },
+    {
+      "path": "DiskArc/FS/MFS_FileDesc.cs",
+      "sha256": "08055c8095649a3a521d3746e41ebe5bccac7e9727f29c156ba929a29781a823"
+    },
+    {
+      "path": "DiskArc/FS/MFS_FileEntry.cs",
+      "sha256": "81cdbf072030dac060ada56f7923d4bba7c10bff2fb909bb3f0e18527c8cc128"
+    },
+    {
+      "path": "DiskArc/FS/MFS_MDB.cs",
+      "sha256": "deb5346a3a50de638f8921024ffd63d564dce3902e11a9a977211ec77a39e907"
+    },
+    {
+      "path": "DiskArc/FS/MFS-notes.md",
+      "sha256": "fc691ed7b204e4ca5af75549f80c93ed5f485bcbfc08bd07dd7ffb7684da2ab9"
+    },
+    {
+      "path": "DiskArc/FS/MFS.cs",
+      "sha256": "a0e9769284116a2ca145e804758fafd28af377db06c02f084e3d0d2f2965d3b4"
+    },
+    {
+      "path": "DiskArc/FS/OpenFileTracker.cs",
+      "sha256": "85a4f37f72e8909569bc4637e6a67bdf9a4e4d205ef11eeb8e3eccf182877444"
+    },
+    {
+      "path": "DiskArc/FS/Pascal_FileDesc.cs",
+      "sha256": "7a248af40fae7217a1b7b5ee7e97c852c0a096ee84cf2f5d0baa09ff1090449a"
+    },
+    {
+      "path": "DiskArc/FS/Pascal_FileEntry.cs",
+      "sha256": "410ad1f7dee452f447df78c95e044f1325ea9f6c927781922ecbfcda69487f0d"
+    },
+    {
+      "path": "DiskArc/FS/Pascal-notes.md",
+      "sha256": "6ffe0dfd3530d446028dd095ad678e445e018d57e8a3beafacb15bbbed2b35da"
+    },
+    {
+      "path": "DiskArc/FS/Pascal.cs",
+      "sha256": "69b9effa4e60e8174c1e78fdaa7d4470ba854f4cb1a5f4a961c6f17fbbad40b6"
+    },
+    {
+      "path": "DiskArc/FS/ProDOS_Embedded.cs",
+      "sha256": "28fd74a01e62a9654104ff696378ae0ba0b4cda80c829121149575738e25b8c7"
+    },
+    {
+      "path": "DiskArc/FS/ProDOS_FileDesc.cs",
+      "sha256": "9df10894c398f1788c01d8b8c8b2263cc0cf762bf17f29603cf1e75e5a16c7dd"
+    },
+    {
+      "path": "DiskArc/FS/ProDOS_FileEntry.cs",
+      "sha256": "02ad3af3211a1fefd54ed93a551d872b13c4b8d1439d3deb30c0040305c3f66a"
+    },
+    {
+      "path": "DiskArc/FS/ProDOS_VolBitmap.cs",
+      "sha256": "9d65c088b2d42f31aa600cea09eadba8b4d2f621897f4d005f0a88854acae22b"
+    },
+    {
+      "path": "DiskArc/FS/ProDOS-notes.md",
+      "sha256": "51c59e5ecf760d7021f00f71e47ff93e662dd44dc347b32d678f7254ea44acd8"
+    },
+    {
+      "path": "DiskArc/FS/ProDOS.cs",
+      "sha256": "73aceba0e1b2cf2c82144735ff0003e3b51e54a27a4a915337eaa6ce2c1609f0"
+    },
+    {
+      "path": "DiskArc/FS/RDOS_FileDesc.cs",
+      "sha256": "3432c9c5026527ec433639acbd6f173f7da7290795ad2417e7d522b769604f8a"
+    },
+    {
+      "path": "DiskArc/FS/RDOS_FileEntry.cs",
+      "sha256": "17889530deeab675b372d2ad0877cdf38653f683ca49f45ef02d30c9b699e3b0"
+    },
+    {
+      "path": "DiskArc/FS/RDOS-notes.md",
+      "sha256": "89c7a933e152efb2a82fba51bc8de08fd7d1c4032a6fff28ebf570aa948f59e0"
+    },
+    {
+      "path": "DiskArc/FS/RDOS.cs",
+      "sha256": "8d8c9966b5a86bcefc21cd076372f250240bb4af00a088816d1878e7b2cac874"
+    },
+    {
+      "path": "DiskArc/FS/README.md",
+      "sha256": "589350734bc4b70609f2c681d6ba110cde49b34df45a9e03b5e54227c54547ed"
+    },
+    {
+      "path": "DiskArc/Misc/BinSCII-notes.md",
+      "sha256": "95e68574c2832a1acfdf0fa15dbcaa98535b294295a22b070eb5beb25023549d"
+    },
+    {
+      "path": "DiskArc/Misc/BinSCII.cs",
+      "sha256": "be47c50972635e0c9636529383b727ef0d9221c36e16c8dd62390d4c0761644e"
+    },
+    {
+      "path": "DiskArc/Misc/README.md",
+      "sha256": "d05077ef0db9a95f36349137c039911edbe66e6143da79dd41216e8fc15c05e1"
+    },
+    {
+      "path": "DiskArc/Multi/AmUniDOS.cs",
+      "sha256": "4c4701ce0eb1c136d593ca10cb67a2f79806aebc6a36cf4f53172c824f9d3c05"
+    },
+    {
+      "path": "DiskArc/Multi/APM_Partition.cs",
+      "sha256": "e7d65ba11671d5eee528f00196ba4e236f9c0a0b7d9d2cd84330ca529caec093"
+    },
+    {
+      "path": "DiskArc/Multi/APM-notes.md",
+      "sha256": "1419a5199d132080744d3a229906a24d762d1ff84cb70e53bdb7da4099c95010"
+    },
+    {
+      "path": "DiskArc/Multi/APM.cs",
+      "sha256": "d8fda0263a200e23c628b177b54faf6e149baf5fc0964d604142ce778ee244bd"
+    },
+    {
+      "path": "DiskArc/Multi/CFFA-notes.md",
+      "sha256": "a2fcbdb225ff7a5eb04209c3e87acafe1e54db19948c043ae397de67637095bb"
+    },
+    {
+      "path": "DiskArc/Multi/CFFA.cs",
+      "sha256": "931565f1cd825fbf70a7f2ebdb7bc8d2d9104612aac62e8e12321eecca2ac36d"
+    },
+    {
+      "path": "DiskArc/Multi/ChunkSubset.cs",
+      "sha256": "25adb1e14bb158d1e75dba1d81a5f3a6152503fbceb2babe216fa9b3792e3842"
+    },
+    {
+      "path": "DiskArc/Multi/DOS800-notes.md",
+      "sha256": "8721ce899789604ba42e134e636bc959d30080cc5356a8994345d04d7d076fcd"
+    },
+    {
+      "path": "DiskArc/Multi/DOS800.cs",
+      "sha256": "ca0c31bbe3f80ca54e879a55e40a2c2a7dae1302affb4403833dbcbaf856293c"
+    },
+    {
+      "path": "DiskArc/Multi/FocusDrive_Partition.cs",
+      "sha256": "602ac2de6f5b4a873c989253c8fabfc8d6db74651fbccac6f9b652267911fa35"
+    },
+    {
+      "path": "DiskArc/Multi/FocusDrive-notes.md",
+      "sha256": "0efaa7b372d570686aeca0c19efb45561ae435e29361f887d41f58f12a1f0d08"
+    },
+    {
+      "path": "DiskArc/Multi/FocusDrive.cs",
+      "sha256": "76ae6e61240fffdc43b66103d6d78c550055ad3241616d4a002757dc568c43cb"
+    },
+    {
+      "path": "DiskArc/Multi/MacTS-notes.md",
+      "sha256": "9e7d994a898623d3ef52cfbf7e06942a2a2edcad31f8ad0c04e7d2b74600683e"
+    },
+    {
+      "path": "DiskArc/Multi/MacTS.cs",
+      "sha256": "c1b453b601a4f6aa284c9316a9bf773e0c0d5a2f23b9871b76611d1d89bdad63"
+    },
+    {
+      "path": "DiskArc/Multi/MicroDrive-notes.md",
+      "sha256": "f8e87b9dbc24600aab849bd68874802f9d66031bb3bc2b2d0e9361e4724e1dc7"
+    },
+    {
+      "path": "DiskArc/Multi/MicroDrive.cs",
+      "sha256": "4734024328e62ccf6abce5275cbf96cf0401cf939f9663edd4ee5ce94bc7ee1e"
+    },
+    {
+      "path": "DiskArc/Multi/OzDOS.cs",
+      "sha256": "77aa62cb0327e3ab3ba7a79caa215a621330afb04b26db29f32d0b74b3fb53a3"
+    },
+    {
+      "path": "DiskArc/Multi/Partition.cs",
+      "sha256": "ff8b4a5e268b3106307bc9112d190c600fc62d42930106e6f03c15a9e969d8c3"
+    },
+    {
+      "path": "DiskArc/Multi/PPM_Partition.cs",
+      "sha256": "645579e3e57118f4c632cdaa64458ab45fabcea69647ead5b878579141600df8"
+    },
+    {
+      "path": "DiskArc/Multi/PPM-notes.md",
+      "sha256": "3bbfc740e307f4a5b1ec0e889f70d82a9b89083c769ba58c28ceedefcfb4e3de"
+    },
+    {
+      "path": "DiskArc/Multi/README.md",
+      "sha256": "b8b5a710cc1aa619ec70785b541fe8f253adcc1066110c3fa73fc0bcd676b52e"
+    }
+  ]
+}

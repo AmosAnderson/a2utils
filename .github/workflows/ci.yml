@@ -1,0 +1,49 @@
+name: Build and test
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+      - run: dotnet restore A2Utils.slnx --locked-mode
+      - run: dotnet format A2Utils.slnx --verify-no-changes --no-restore --exclude third_party
+      - run: dotnet test A2Utils.slnx -c Release --no-restore --logger trx
+      - name: Package local artifacts
+        shell: pwsh
+        run: ./eng/Package.ps1 -SkipTests
+      - name: Test installed tool and published executable
+        shell: pwsh
+        run: |
+          dotnet tool install A2Utils.Tool --version 0.1.0-dev --add-source artifacts/packages --tool-path artifacts/tools --configfile NuGet.Config
+          if ($LASTEXITCODE -ne 0) { throw 'Tool installation failed' }
+          & ./artifacts/tools/a2 disk ls tests/TestData/independent-dos33.do --json
+          if ($LASTEXITCODE -ne 0) { throw 'Installed tool smoke test failed' }
+          $runtime = [System.Runtime.InteropServices.RuntimeInformation]::RuntimeIdentifier
+          & "./artifacts/publish/$runtime/a2" disk verify tests/TestData/independent-dos33.do
+          if ($LASTEXITCODE -ne 0) { throw 'Published binary smoke test failed' }
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: results-${{ matrix.os }}
+          path: |
+            artifacts/*.zip
+            artifacts/*.tar.gz
+            artifacts/packages/*.nupkg
+            **/TestResults/*.trx

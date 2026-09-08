@@ -1,0 +1,11 @@
+**/bin/
+**/obj/
+.vs/
+.idea/
+.packages/
+.build-home/
+artifacts/
+TestResults/
+*.user
+*.suo
+*.tmp

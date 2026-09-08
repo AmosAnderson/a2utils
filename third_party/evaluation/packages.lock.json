@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "dependencies": {
+    "net10.0": {
+      "a2utils.core": {
+        "type": "Project",
+        "dependencies": {
+          "DiskArc": "[0.1.0-dev, )"
+        }
+      },
+      "commonutil": {
+        "type": "Project"
+      },
+      "diskarc": {
+        "type": "Project",
+        "dependencies": {
+          "CommonUtil": "[0.1.0-dev, )"
+        }
+      }
+    }
+  }
+}

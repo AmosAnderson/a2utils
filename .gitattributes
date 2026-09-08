@@ -1,0 +1,20 @@
+* text=auto
+
+*.cs text eol=lf
+*.csproj text eol=lf
+*.slnx text eol=lf
+*.props text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.yml text eol=lf
+*.ps1 text eol=lf
+
+# Preserve pinned upstream bytes so SOURCE_MANIFEST hashes survive checkout.
+third_party/CiderPress2/** -text
+
+# Disk fixtures must never undergo newline conversion.
+*.do -text
+*.po -text
+*.dsk -text
+*.2mg -text
+*.2img -text

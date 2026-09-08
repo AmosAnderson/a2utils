@@ -1,0 +1,14 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/A2Utils.Core/A2Utils.Core.csproj" />
+    <Project Path="src/A2Utils.Cli/A2Utils.Cli.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/A2Utils.Core.Tests/A2Utils.Core.Tests.csproj" />
+    <Project Path="tests/A2Utils.Cli.Tests/A2Utils.Cli.Tests.csproj" />
+  </Folder>
+  <Folder Name="/third_party/">
+    <Project Path="third_party/CiderPress2/CommonUtil/CommonUtil.csproj" />
+    <Project Path="third_party/CiderPress2/DiskArc/DiskArc.csproj" />
+  </Folder>
+</Solution>

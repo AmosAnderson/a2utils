@@ -26,6 +26,13 @@ defines the extracted byte count. Filesystem allocation locations and unused
 whole-disk space are not part of file extraction; retain the original image
 when a complete disk-level copy is needed.
 
+`disk export` writes the logical payload, removing DOS binary/BASIC headers
+where applicable. DOS S/R/AA/BB files lack a reliable EOF, so their payload can
+include sector padding. `--format text` explicitly converts TXT content to
+UTF-8. `disk copy` requires matching source and destination filesystems. ProDOS copies and manifest
+restores may turn allocated all-zero blocks into sparse holes; logical bytes,
+EOF, and supported metadata remain preserved.
+
 NIB/WOZ, 13-sector DOS, DiskCopy, partitions, hybrid writes, and forked-file
 operations are unsupported. Preserve such images for inspection with a tool
 that explicitly supports their structures.

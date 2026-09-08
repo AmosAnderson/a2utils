@@ -95,10 +95,11 @@ public static class FileTransfer
     }
 
     public static void Restore(DiskSession session, string manifestPath,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default, string? outputPath = null)
     {
         string manifestFile = Path.GetFullPath(manifestPath);
         RejectLinks(manifestFile);
+        if (outputPath is not null) ImageTransactions.EnsureDistinctPaths(manifestFile, outputPath);
         ExtractionManifest manifest;
         try
         {
@@ -147,6 +148,7 @@ public static class FileTransfer
             }
             string payloadPath = Path.Combine(parent, file.HostFile);
             RejectLinks(payloadPath);
+            if (outputPath is not null) ImageTransactions.EnsureDistinctPaths(payloadPath, outputPath);
             byte[] data = File.ReadAllBytes(payloadPath);
             if (!string.Equals(Convert.ToHexString(SHA256.HashData(data)), file.Sha256,
                 StringComparison.OrdinalIgnoreCase))

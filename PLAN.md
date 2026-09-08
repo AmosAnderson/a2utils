@@ -16,6 +16,14 @@ The original proposal below now has a working implementation. The workspace star
 
 See `README.md` for actual commands and supported limits. This is a development preview, not a stable release. No remote repository, public package, or release has been created.
 
+Preview 0.2 adds logical payload export, explicit UTF-8/Apple text conversion,
+same-filesystem copies within and between images, directory moves, recursive
+ProDOS directory creation, and atomic host-directory import. Tests cover
+metadata preservation, text round trips, collisions, source/output aliases,
+and rollback after import failure. BASIC conversion and cross-filesystem file
+migration remain separate work; Linux/macOS execution of the new import path
+still requires the configured CI checks.
+
 Use modern .NET 10 with the SDK's default C# language version, nullable reference types, and Windows, macOS, and Linux support. This interprets “.NET” as modern .NET; targeting the older Windows-only .NET Framework would require a different baseline. .NET 10 is an LTS release supported through November 2028. Pin the SDK in `global.json` when implementation begins. [Microsoft support policy](https://dotnet.microsoft.com/en-us/platform/support/policy)
 
 Use `A2Utils` for the solution and library names, with the proposed executable name `a2` and a `disk` command group. The command group leaves room for future `a2 basic`, `a2 archive`, and `a2 graphics` utilities.
@@ -148,6 +156,6 @@ Build and test on Windows, Linux, and macOS in CI. Package a .NET tool and self-
 
 Completion criterion: a reproducible release with passing tests, installable artifacts, sample workflows, and no advertised write operation lacking preservation and failure-path coverage.
 
-Future work should be added as separate milestones: DOS 3.2/13-sector disks; other filesystems such as Pascal; NIB and WOZ inspection followed by carefully scoped editing; ShrinkIt and Binary II archives; text/BASIC import and export; graphics conversion; sector inspection; and explicit filesystem repair/recovery. WOZ captures track-level information beyond sector images, including timing-related details, so it needs a dedicated design rather than another filename handler. [WOZ specification](https://applesaucefdc.com/woz/reference2/)
+Future work should be added as separate milestones: DOS 3.2/13-sector disks; other filesystems such as Pascal; NIB and WOZ inspection followed by carefully scoped editing; ShrinkIt and Binary II archives; BASIC import and export; graphics conversion; sector inspection; and explicit filesystem repair/recovery. WOZ captures track-level information beyond sector images, including timing-related details, so it needs a dedicated design rather than another filename handler. [WOZ specification](https://applesaucefdc.com/woz/reference2/)
 
 The first implementation task is the disk-engine evaluation and the `info` → `ls` → `extract` vertical slice on one known DOS 3.3 image. That establishes a useful utility and validates the architecture before enabling writes.

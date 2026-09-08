@@ -9,6 +9,19 @@ public sealed record ImageWriteResult(string OutputPath, string? BackupPath);
 /// <summary>Stages complete files beside the destination before replacing a directory entry.</summary>
 public static class ImageTransactions
 {
+    /// <summary>Rejects linked paths and destinations that identify the source file.</summary>
+    public static void EnsureDistinctPaths(string sourcePath, string destinationPath)
+    {
+        string source = Path.GetFullPath(sourcePath);
+        string destination = Path.GetFullPath(destinationPath);
+        CheckPath(source);
+        CheckPath(destination);
+        if (PathsEqual(source, destination) || WindowsFilesEqual(source, destination))
+        {
+            throw new DiskException("write.source_alias", "The destination refers to the source file.");
+        }
+    }
+
     public static ImageWriteResult Write(
         string inputPath,
         string? outputPath,

@@ -7,7 +7,7 @@ using static DiskArc.Defs;
 namespace A2Utils.Core.Backends;
 
 /// <summary>Disk engine adapter. Writable sessions must target a transaction's staging file.</summary>
-public sealed class DiskSession : IDisposable
+public sealed partial class DiskSession : IDisposable
 {
     private readonly FileStream _stream;
     private readonly IDiskImage _disk;

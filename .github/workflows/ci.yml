@@ -31,7 +31,7 @@ jobs:
       - name: Test installed tool and published executable
         shell: pwsh
         run: |
-          dotnet tool install A2Utils.Tool --version 0.1.0-dev --add-source artifacts/packages --tool-path artifacts/tools --configfile NuGet.Config
+          dotnet tool install A2Utils.Tool --version 0.2.0-dev --add-source artifacts/packages --tool-path artifacts/tools --configfile NuGet.Config
           if ($LASTEXITCODE -ne 0) { throw 'Tool installation failed' }
           & ./artifacts/tools/a2 disk ls tests/TestData/independent-dos33.do --json
           if ($LASTEXITCODE -ne 0) { throw 'Installed tool smoke test failed' }

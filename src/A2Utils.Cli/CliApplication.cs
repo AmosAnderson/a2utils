@@ -8,7 +8,7 @@ using A2Utils.Core.Operations;
 namespace A2Utils.Cli;
 
 /// <summary>The CLI boundary; output is injectable for tests and embedding.</summary>
-public sealed class CliApplication
+public sealed partial class CliApplication
 {
     private readonly TextWriter _output;
     private readonly TextWriter _error;
@@ -94,6 +94,7 @@ public sealed class CliApplication
         AddMutationCommands(disk);
         AddAttributeCommand(disk);
         AddConvertCommand(disk);
+        AddTransferCommands(disk);
         return root;
     }
 
@@ -211,9 +212,10 @@ public sealed class CliApplication
         Option<string?> address = new("--load-address") { Description = "DOS binary load address, e.g. 0x2000." };
         Option<string?> auxiliary = new("--aux-type") { Description = "ProDOS auxiliary type, e.g. 0x2000." };
         Option<string?> manifest = new("--manifest") { Description = "Restore stored files and metadata from a2-manifest.json." };
+        Option<string?> format = new("--format") { Description = "binary payload (default) or UTF-8 text converted for the target filesystem." };
         command.Arguments.Add(image);
         command.Arguments.Add(host);
-        foreach (Option option in new Option[] { name, type, address, auxiliary, manifest })
+        foreach (Option option in new Option[] { name, type, address, auxiliary, manifest, format })
         {
             command.Options.Add(option);
         }
@@ -225,14 +227,19 @@ public sealed class CliApplication
             if (manifestFile is not null)
             {
                 if (hostFile is not null || parse.GetValue(name) is not null || parse.GetValue(type) is not null
-                    || parse.GetValue(address) is not null || parse.GetValue(auxiliary) is not null)
+                    || parse.GetValue(address) is not null || parse.GetValue(auxiliary) is not null
+                    || parse.GetValue(format) is not null)
                 {
                     throw new DiskException("invalid_arguments", "--manifest cannot be combined with payload import options.", 2);
                 }
                 return Mutate("add", parse, image, write,
-                    session => FileTransfer.Restore(session, manifestFile, _cancellationToken));
+                    session => FileTransfer.Restore(session, manifestFile, _cancellationToken,
+                        WriteDestination(parse, image, write)));
             }
-            if (hostFile is null || parse.GetValue(name) is null || parse.GetValue(type) is null)
+            string contentFormat = parse.GetValue(format) ?? "binary";
+            ValidateChoice(contentFormat, "--format", "binary", "text");
+            string? fileType = parse.GetValue(type) ?? (contentFormat == "text" ? "TXT" : null);
+            if (hostFile is null || parse.GetValue(name) is null || fileType is null)
             {
                 throw new DiskException("invalid_arguments", "Payload import requires HOSTFILE, --name, and --type.", 2);
             }
@@ -240,10 +247,14 @@ public sealed class CliApplication
             {
                 throw new DiskException("invalid_arguments", "Specify --load-address or --aux-type, not both.", 2);
             }
+            if (WriteDestination(parse, image, write) is { } destination)
+            {
+                ImageTransactions.EnsureDistinctPaths(hostFile, destination);
+            }
             byte[] bytes = File.ReadAllBytes(hostFile);
             return Mutate("add", parse, image, write, session =>
             {
-                if (session.Info.FileSystem == "dos33" && IsDosBinaryType(parse.GetValue(type)!)
+                if (session.Info.FileSystem == "dos33" && IsDosBinaryType(fileType)
                     && parse.GetValue(address) is null)
                 {
                     throw new DiskException("invalid_arguments", "DOS binary import requires --load-address.", 2);
@@ -253,7 +264,12 @@ public sealed class CliApplication
                 {
                     throw new DiskException("invalid_arguments", "Use --load-address for DOS and --aux-type for ProDOS.", 2);
                 }
-                session.Add(parse.GetValue(name)!, bytes, parse.GetValue(type)!,
+                if (parse.GetValue(address) is not null && !IsDosBinaryType(fileType))
+                {
+                    throw new DiskException("invalid_arguments", "--load-address requires a DOS binary file type.", 2);
+                }
+                byte[] payload = contentFormat == "text" ? EncodeText(bytes, session, fileType) : bytes;
+                session.Add(parse.GetValue(name)!, payload, fileType,
                     ParseUShort(parse.GetValue(address) ?? parse.GetValue(auxiliary) ?? "0"));
             });
         });
@@ -275,6 +291,8 @@ public sealed class CliApplication
             Argument<string> path = new("PATH");
             Argument<string> value = new(name == "replace" ? "HOSTFILE" : "NEWNAME");
             Option<bool> recursive = new("--recursive") { Description = "Explicitly delete directory contents." };
+            Option<bool> parents = new("--parents") { Description = "Create missing ProDOS parent directories; existing directories are accepted." };
+            Option<string> format = new("--format") { DefaultValueFactory = _ => "binary", Description = "binary payload or UTF-8 text." };
             command.Arguments.Add(image);
             command.Arguments.Add(path);
             if (name is "replace" or "rename")
@@ -285,16 +303,40 @@ public sealed class CliApplication
             {
                 command.Options.Add(recursive);
             }
+            if (name == "mkdir")
+            {
+                command.Options.Add(parents);
+            }
+            if (name == "replace")
+            {
+                command.Options.Add(format);
+            }
             WriteOptions write = AddWriteOptions(command);
             command.SetAction(parse => Mutate(name, parse, image, write, session =>
             {
                 string entryPath = parse.GetValue(path)!;
                 switch (name)
                 {
-                    case "replace": session.Replace(entryPath, File.ReadAllBytes(parse.GetValue(value)!)); break;
+                    case "replace":
+                        string contentFormat = parse.GetValue(format)!;
+                        ValidateChoice(contentFormat, "--format", "binary", "text");
+                        if (WriteDestination(parse, image, write) is { } destination)
+                        {
+                            ImageTransactions.EnsureDistinctPaths(parse.GetValue(value)!, destination);
+                        }
+                        byte[] payload = File.ReadAllBytes(parse.GetValue(value)!);
+                        if (contentFormat == "text")
+                        {
+                            payload = EncodeText(payload, session, session.GetEntry(entryPath).Type);
+                        }
+                        session.Replace(entryPath, payload);
+                        break;
                     case "delete": session.Delete(entryPath, parse.GetValue(recursive)); break;
                     case "rename": session.Rename(entryPath, parse.GetValue(value)!); break;
-                    default: session.Mkdir(entryPath); break;
+                    default:
+                        if (parse.GetValue(parents)) session.EnsureDirectory(entryPath);
+                        else session.Mkdir(entryPath);
+                        break;
                 }
             }));
             disk.Subcommands.Add(command);

@@ -14,7 +14,7 @@ The original proposal below now has a working implementation. The workspace star
 | ProDOS operations | Implemented with directories, metadata restore, sparse files, and larger volumes; emulator release check remains |
 | Packaging and release | Local packaging and three-OS CI workflow implemented; hosted CI execution, emulator checks, and original-code license selection remain before public/stable release |
 
-See `README.md` for actual commands and supported limits. This is a development preview, not a stable release. No remote repository, public package, or release has been created.
+See `README.md` for actual commands and supported limits. This is a development preview, not a stable release. The [GitHub repository](https://github.com/AmosAnderson/a2utils) is private; no public package or release has been created.
 
 Preview 0.2 adds logical payload export, explicit UTF-8/Apple text conversion,
 same-filesystem copies within and between images, directory moves, recursive

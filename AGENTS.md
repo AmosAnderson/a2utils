@@ -14,6 +14,8 @@ This C#/.NET 10 utility handles DOS 3.3/ProDOS disks, 6502 assembly, and Appleso
 
 Keep disk logic independent of console output and host filename conventions. Use the DiskArc adapter; record dependency changes in the architecture decision.
 
+See [the development guide](docs/development.md) for architecture, library examples, dependency maintenance, and packaging details.
+
 ## Build, Test, and Development Commands
 
 Use the SDK pinned in `global.json`. Run from the repository root:

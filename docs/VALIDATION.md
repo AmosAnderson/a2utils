@@ -51,5 +51,24 @@ contain no boot code. The emulator catalog/load smoke check has not been run.
 
 Before a stable/public release, run the configured hosted CI matrix, validate
 generated data disks in independent DOS and ProDOS emulator environments, and
-select a license for original A2Utils code. No remote repository or public
-package was created during this implementation.
+select a license for original A2Utils code. Initial implementation and validation
+were performed locally. A private [GitHub repository](https://github.com/AmosAnderson/a2utils)
+has since been created; no public package has been published.
+
+## Documentation verification
+
+The expanded guides were checked locally on Windows on September 8, 2026:
+
+- All 20 command help pages were compared with the command reference.
+- All 37 command lines in the disk workflows ran against temporary images;
+  conversion retained expected bytes and the reference fixture was unchanged.
+- All 21 `a2` command lines in the getting-started guide ran successfully;
+  rebuilt assembly and Applesoft payloads matched their originals byte for byte.
+- Both C# library examples compiled and ran, including staged image editing
+  with structural and content validation.
+- The PowerShell JSON example returned the expected unlocked fixture entry.
+- Local Markdown links, heading references, and code-fence pairing were checked.
+
+Bash/zsh and `jq` examples were reviewed but not executed on this Windows host.
+The 458-test result above records the preceding implementation validation;
+documentation verification did not rerun the full solution test suite.

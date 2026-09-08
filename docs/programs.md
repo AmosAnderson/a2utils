@@ -1,99 +1,236 @@
 # Apple II program tools
 
-The `asm` and `basic` groups compile UTF-8 source files and decompile host
-programs or image entries. They are native C# library operations with no
-external assembler dependency. All host outputs are staged, verified, and
-committed atomically; existing files require `--overwrite`. An output cannot
-replace its input source or disk image. `--json`, `--quiet`, and `--verbose`
-work with both groups.
+`a2 asm` assembles source into machine code and disassembles binaries into
+reassemblable listings. `a2 basic` tokenizes and lists Applesoft BASIC for its
+interpreter. Both are native C# operations; no external assembler is required.
+Disassembly cannot recover original symbols, comments, or high-level source.
+Neither group executes programs.
 
-Host inputs must be regular files. Linux and macOS use `/usr/bin/stat` to
-reject pipes, sockets, and devices before opening them.
+Install the tool using [Getting started](getting-started.md). See the
+[CLI reference](cli-reference.md) for all commands and [Scripting](scripting.md)
+for JSON and exit codes.
 
-## Assembly and machine code
+## Commands and output handling
+
+| Command | Alias | Input and result |
+| --- | --- | --- |
+| `asm compile INPUT --to OUTPUT` | `assemble` | UTF-8 assembly to machine code |
+| `asm decompile INPUT --to OUTPUT` | `disassemble` | Machine code to UTF-8 assembly |
+| `basic compile INPUT --to OUTPUT` | `tokenize` | Numbered UTF-8 listing to Applesoft tokens |
+| `basic decompile INPUT --to OUTPUT` | `detokenize` | Applesoft tokens to UTF-8 listing |
+
+| Option | Applies to | Meaning |
+| --- | --- | --- |
+| `--to PATH` | All; required | Host output; its parent directory must exist |
+| `--format raw\|dos` | Host-file commands | Payload or DOS header plus payload; default `raw` |
+| `--origin ADDRESS` | All | Decimal, `0x` hex, or shell-quoted `$` hex address |
+| `--cpu 6502\|65c02\|w65c02` | Assembly | Instruction set; default `6502` |
+| `--from-image IMAGE` | Decompile | Read `INPUT` as an entry path in this image |
+| `--input-order dos\|prodos` | With `--from-image` | Override sector layout |
+| `--input-fs dos33\|prodos` | With `--from-image` | Override filesystem detection |
+| `--overwrite` | All | Permit replacing an existing host output |
+| `--json`, `--quiet`, `--verbose` | All | Structured results, suppressed normal text, diagnostic detail |
+
+Use `--help` on any command. Option values such as `65c02` are lowercase.
+`--format` cannot accompany `--from-image`; image overrides require it.
+
+Outputs are staged beside their destination and checked by length and SHA-256
+before replacement. Invalid input leaves existing output unchanged, even with
+`--overwrite`. Output must differ from its source file or image; linked paths
+are refused. Host inputs must be regular files. Linux/macOS require
+`/usr/bin/stat` to reject pipes, sockets, and devices before opening them.
+
+## Assemble, inspect, and rebuild
+
+From the repository root, with fresh output filenames:
 
 ```sh
 a2 asm compile examples/hello.asm --to hello.bin
 a2 asm decompile hello.bin --origin 0x2000 --to hello.dis.asm
 a2 asm compile hello.dis.asm --to rebuilt.bin
-a2 asm compile examples/hello.asm --format dos --to hello.dosbin
-a2 asm decompile hello.dosbin --format dos --to restored.asm
 ```
 
-`assemble` aliases `compile`; `disassemble` aliases `decompile`. Select the
-processor explicitly when using extensions:
+The [example](../examples/hello.asm) places code at `$2000`, prints `HELLO`
+through the monitor's `COUT` entry, and returns. Source supplies `.org`, so
+compilation needs no address option. Raw binaries store no load address, so
+disassembly requires `--origin`. Check the byte round trip in PowerShell:
 
-| `--cpu` | Instructions |
+```powershell
+if ((Get-FileHash hello.bin).Hash -ne (Get-FileHash rebuilt.bin).Hash) {
+    throw 'Rebuilt payload differs'
+}
+```
+
+Disassembly scans sequentially without identifying entry points, data regions,
+or control flow. Unknown opcodes and truncated instructions become `.byte`
+lines. Listings include `.org`, addresses, and original-byte comments.
+Use the **same CPU** to decompile and rebuild; emitted source preserves payload
+bytes, including absolute instructions referencing zero-page addresses.
+
+### Processor selection
+
+| CPU | Accepted encodings and additions |
 | --- | --- |
-| `6502` (default) | 151 documented NMOS 6502 encodings |
-| `65c02` | 178 Apple-compatible encodings for enhanced IIe/IIc |
-| `w65c02` | Adds RMB/SMB/BBR/BBS, WAI, and STP for newer WDC hardware |
+| `6502` | 151 documented NMOS 6502 encodings; default for original Apple II and unenhanced IIe code |
+| `65c02` | 178 encodings: adds `BRA`, `STZ`, `TSB`, `TRB`, `PHX/PLX`, `PHY/PLY`, accumulator `INC/DEC`, immediate and indexed `BIT`, zero-page indirect ALU/load/store forms, and `JMP (address,X)` |
+| `w65c02` | 212 encodings: adds `RMB0`–`RMB7`, `SMB0`–`SMB7`, `BBR0`–`BBR7`, `BBS0`–`BBS7`, `WAI`, and `STP` to the Apple-compatible set |
 
-The assembler accepts case-insensitive mnemonics and labels, `label:`, constants
-such as `COUT = $FDED`, and `;` comments. Supported directives are `.org`,
-`.byte`, `.word`, `.text`, and `.fill count[,value]`; `* = address` also sets
-the origin. Text is ASCII. `.word` stores little-endian values. Later `.org`
-directives fill forward gaps with zeroes; backward or overlapping origins fail.
+Use `65c02` for enhanced IIe/IIc instructions; WDC extensions require suitable
+hardware. CPU selection is never inferred from a program file or image metadata.
+Undocumented opcodes, additional NOP encodings, and 65816 instructions
+are unsupported. `BRK` emits one byte; supply a runtime signature byte separately
+with `.byte`.
 
-Expressions support decimal, `$`/`0x` hexadecimal, `%` binary, labels, constants,
-`*` for the current address, parentheses, addition/subtraction, and unary `<`
-and `>` for low/high bytes. Example: `LDA #<message`. Forward references are
-allowed for operands; origins and fill counts must resolve during layout.
-Source requires `.org` or `--origin`; conflicting initial values are rejected.
+### Source dialect
 
-Resolved addresses below `$0100` use zero-page instructions where available.
-Forward unresolved addresses retain absolute encoding where available, keeping
-layout deterministic. Prefix an operand with `z:` or `a:` to force its width,
-for example `LDA z:buffer` or `LDA a:$0010`. Branch distances and all operand
-widths are checked. No includes, macros, object files, or linking are supported.
+Mnemonics, directives, and symbols are case-insensitive. Symbol names start with
+an ASCII letter or `_`, followed by letters, digits, or `_`. Define labels with
+a colon (`loop:`) and constants with `=` (`COUT = $FDED`). Duplicate symbols,
+undefined references, and circular constants fail. Semicolons start comments
+outside quoted text. Put `.org` before the first label when omitting `--origin`.
 
-Disassembly scans bytes sequentially and includes addresses and original bytes
-as comments. Unknown opcodes and incomplete instructions become `.byte` lines.
-Using the same CPU, its listing reassembles to identical payload bytes,
-including absolute instructions that reference zero-page addresses. It does
-not infer entry points, data regions, symbols, or control flow, and cannot
-recover original high-level source or comments. `BRK` emits one opcode byte;
-its runtime signature byte must be supplied separately with `.byte`.
+| Directive | Example | Behavior |
+| --- | --- | --- |
+| `.org` or `* =` | `.org $2000` | Set address; later forward gaps contain zeroes |
+| `.byte` | `.byte $80,'A',"BC"` | Comma-separated byte expressions and ASCII strings |
+| `.word` | `.word start,$1234` | Numeric expressions, two little-endian bytes each |
+| `.text` | `.text "HELLO","\r"` | Quoted ASCII strings; no added terminator or high bits |
+| `.fill` | `.fill 16,$FF` | Repeat a byte count times; omitted value defaults to zero |
+
+Output is contiguous. Backward or overlapping origins fail. The initial source
+origin must agree with `--origin`; later origins can advance. Origins and fill
+counts must resolve during layout; instruction/data operands can reference later
+labels. Includes, macros, conditional assembly, relocation, object files, and
+linking are unsupported.
+
+Expressions accept decimal, `$`/`0x` hex, `%` binary, ASCII characters such as
+`'A'`, symbols, and `*` for the current address. Unary `+`, `-`, `<` (low
+byte), and `>` (high byte) bind more tightly than addition/subtraction; binary
+`+` and `-` associate left to right. Parentheses override precedence:
+`LDA #<(message+1)`. Multiplication, division, shifts, and bitwise operators are
+unsupported; `*` means an address, not multiplication.
+
+For instructions, `*` is the opcode address; in `.byte`/`.word` lists it advances
+to each item's address. Constants use their definition's address. Double-quoted
+strings support `\n`, `\r`, `\t`, `\0`, `\\`, and `\"`. Character literals
+contain one ASCII character without escapes. Use numeric `.byte` values above
+`$7F`.
+
+### Addressing modes and operand sizes
+
+Only combinations supported by the instruction and CPU are accepted.
+
+| Mode | Example | Availability |
+| --- | --- | --- |
+| Implied / accumulator | `RTS`, `ASL A` (or `ASL`) | All |
+| Immediate | `LDA #$41` | All |
+| Zero page / indexed | `LDA $10`, `LDA $10,X`, `LDX $10,Y` | All |
+| Absolute / indexed | `LDA $2000`, `LDA $2000,X`, `LDA $2000,Y` | All |
+| Indirect | `JMP ($2000)` | All |
+| Indexed indirect | `LDA ($10,X)` | All |
+| Indirect indexed | `LDA ($10),Y` | All |
+| Relative | `BNE loop` | All; `BRA` requires CMOS |
+| Zero-page indirect | `LDA ($10)` | `65c02`, `w65c02` |
+| Absolute indexed indirect | `JMP ($2000,X)` | `65c02`, `w65c02` |
+| Zero-page relative | `BBR3 $10,loop` | `w65c02` |
+
+Known addresses below `$0100` select zero-page encoding when available. An
+unresolved forward address stays absolute when both sizes exist. Force width with
+`z:` or `a:`, for example `LDA z:buffer`, `LDA a:$0010`, or `JMP (a:$0010)`.
+Writing `$0010` alone does not force absolute encoding.
+
+Byte/immediate/zero-page values must be `0..255`; words/addresses `0..65535`.
+Negative bytes are rejected: use `$FF` or `<(-1)` explicitly. Branch targets
+are addresses within signed displacement `-128..127` of the following instruction,
+accounting for 16-bit wrap. Output itself cannot wrap past `$FFFF`.
+Fill counts are `0..65536`, subject to the same output bounds.
+
+Assembly source is bounded to 4 MiB, 100,000 lines, 16,384 characters per line,
+and 65,536 symbols. Expressions have a 4,096-character limit, at most 128 binary
+operations, and bounded nesting/reference depth.
 
 ## Applesoft BASIC
 
 ```sh
 a2 basic compile examples/hello.bas --to hello.basbin
 a2 basic decompile hello.basbin --to hello.list.bas
-a2 basic compile examples/hello.bas --format dos --to hello.dosbas
-a2 basic decompile hello.dosbas --format dos --to hello.list.bas --overwrite
+a2 basic compile hello.list.bas --to rebuilt.basbin
 ```
 
-`tokenize` and `detokenize` are aliases. Compilation creates tokenized Applesoft
-programs for the interpreter, rather than native machine code. Use strictly
-increasing numbered lines from 0 through 63999. Keywords are case-insensitive;
-`?` abbreviates `PRINT`. Strings, `REM` comments, and `DATA` fields preserve
-literal text. Code whitespace is normalized using Applesoft tokenization rules.
-The default memory origin is `$0801`; use matching `--origin` values for
-programs stored elsewhere.
+The [example](../examples/hello.bas) prints a message and counts from one to three.
+Compilation produces interpreter tokens, not machine code. Use decimal line
+numbers `0..63999` in strictly increasing order. Blank physical lines are ignored;
+bare numbers are rejected because they represent interactive deletion.
 
-Source uses printable ASCII and tabs. Limits are 1 MiB of BASIC source,
-250 tokenized body bytes per line, and origins from `$0100` through `$FFFE`;
-the complete program must fit before the end of memory. Expanded source lines
-may exceed the original keyboard input limit when their tokens fit.
+### Tokenization rules
 
-Decompilation validates line pointers, terminators, line order, and tokens.
-Listings preserve representable tokenized contents, not the original source
-formatting. Noncanonical token streams that cannot survive listing and
-retokenization are rejected. The tokenizer does not execute programs or
-validate every expression's runtime grammar. Integer BASIC and custom BASIC
-extensions are unsupported.
+| Source example | Behavior |
+| --- | --- |
+| `10 pr int "Hello"` | Whitespace can occur within keywords; becomes `PRINT` |
+| `20 ?"Hello PRINT"` | `?` becomes `PRINT`; string retains spelling |
+| `30 REM Print:DATA ?` | Entire `REM` tail remains literal, including colons |
+| `40 DATA 1,"a:b",PRINT:PRINT "done"` | DATA is literal until an unquoted colon; following PRINT is tokenized |
+| `50 score=1` | Keywords match inside names: `OR` in `score` becomes a token |
 
-## Program files and disk images
+Spaces/tabs outside literals are discarded; remaining code letters are
+uppercased. Strings, `REM` tails, and `DATA` fields preserve case and whitespace.
+Matching follows ROM table order, including `HGR2` before `HGR` and the
+`AT`/`ATN` ambiguity rule. Avoid variable names containing keywords.
 
-Raw host files contain payload bytes only. DOS binary host files add a
-little-endian load address and length (four bytes); DOS BASIC host files add
-only a length (two bytes). `--format dos` requires the declared length to match
-exactly and rejects sector padding. Formats are explicit; filename extensions
-do not select one. Programs must fit the 16-bit address space. Raw binary
-disassembly requires `--origin`, while DOS binary headers supply it.
+Source accepts printable ASCII and tabs, UTF-8 with an optional leading BOM,
+and CR, LF, or CRLF endings. BASIC source is limited to 1 MiB of characters and
+each tokenized body to 250 bytes. Expanded source can exceed the original
+interactive keyboard limit. Empty source produces a two-byte terminator.
 
-Use raw output with existing disk commands; they create filesystem headers:
+Decompilation validates contiguous forward links, line order, tokens,
+terminators, and absence of trailing bytes. It retokenizes each listing line to
+check that its bytes remain unchanged. Noncanonical streams, unsupported high-bit
+literal data, Integer BASIC, and custom tokens are rejected. Listings normalize
+code formatting and use LF endings. Tokenization is not full syntax checking:
+malformed expressions or unterminated strings can tokenize successfully.
+
+### BASIC memory layout and origin
+
+Default origin is `$0801`; permitted origins are `$0100..$FFFE`, with room for
+the complete program and its terminator.
+
+| Field | Bytes |
+| --- | --- |
+| Next line's absolute address (or final terminator address) | 2, little-endian |
+| BASIC line number | 2, little-endian |
+| Tokenized body | 1–250 |
+| Line terminator | `00` |
+| After the final line | `00 00` program terminator |
+
+For `10 END` at `$0801`, the raw payload is `07 08 0A 00 80 00 00 00`:
+the next pointer is `$0807` and `END` is `$80`. Use matching `--origin`
+values when compiling/decompiling elsewhere. **Listings contain no origin
+directive**; pass `--origin` again when rebuilding at a nondefault address.
+Changing this option on decompilation does not relocate embedded links.
+
+## Host formats and disk integration
+
+Extensions do not select formats. `--format dos` is a host program wrapper:
+
+| Program | Raw format | DOS format |
+| --- | --- | --- |
+| Machine code | Payload | 2-byte load address + 2-byte payload length + payload |
+| Applesoft | Linked token payload | 2-byte payload length + payload; no load address |
+
+Header integers are little-endian. Declared lengths must match exactly; sector
+padding is rejected. DOS headers allow at most 65,535 payload bytes; every
+program must fit the 16-bit address space. A DOS binary header supplies the
+disassembly origin unless `--origin` overrides it.
+
+```sh
+a2 asm compile examples/hello.asm --format dos --to hello.dosbin
+a2 asm decompile hello.dosbin --format dos --to hello.dos.asm
+a2 basic compile examples/hello.bas --format dos --to hello.dosbas
+a2 basic decompile hello.dosbas --format dos --to hello.dos.bas
+```
+
+Import **raw compiled output** into disk images; disk commands create filesystem
+headers themselves. Do not apply text conversion to compiled payloads.
 
 ```sh
 a2 disk create work.do --fs dos33
@@ -104,19 +241,27 @@ a2 disk add work.po hello.bin --name HELLO --type BIN --aux-type 0x2000 --in-pla
 a2 disk add work.po hello.basbin --name DEMO --type BAS --aux-type 0x0801 --in-place
 a2 asm decompile HELLO --from-image work.po --to from-disk.asm
 a2 basic decompile DEMO --from-image work.do --to from-disk.bas
+a2 disk verify work.po
 ```
 
-`--from-image` reads logical contents directly and checks the entry's file type:
-DOS B/ProDOS BIN for assembly, DOS A/ProDOS BAS for Applesoft. Machine-code load
-addresses come from metadata. ProDOS BASIC uses a nonzero auxiliary address;
-DOS BASIC and zero auxiliary addresses default to `$0801`. An explicit
-`--origin` overrides these defaults. Image layout overrides `--input-order`
-and `--input-fs` are available here. Do not combine `--from-image` and `--format`.
+`--from-image` reads logical payloads, checks DOS B/ProDOS BIN or DOS A/ProDOS
+BAS types, and obtains machine-code addresses from metadata. ProDOS BASIC uses
+a nonzero auxiliary address; DOS BASIC and zero auxiliary values default to
+`$0801`. Explicit `--origin` takes precedence.
 
-The examples are original source, with no Apple boot code. Generated data
-disks require an existing DOS/ProDOS environment to load programs. Emulator
-execution remains a release check; compiling successfully is not proof that
-an arbitrary program is safe or correct to run.
+After editing and rebuilding, `a2 disk replace work.po HELLO rebuilt.bin --in-place`
+updates the payload while retaining the existing file's type and auxiliary address.
+Keep that address consistent with the assembly origin.
+
+Use `--from-image` when preservation extraction contains DOS headers and sector
+slack; alternatively, `disk export --format binary` produces a logical payload.
+See [Disk images](disk-images.md) for manifests, backups, and write semantics.
+Created images are data disks without Apple boot code and need an existing
+DOS/ProDOS environment to load programs. Emulator execution remains a
+[release validation check](VALIDATION.md).
+
+See [Troubleshooting](troubleshooting.md) for failures and
+[Development](development.md) for library APIs and tests.
 
 ## Format references
 
@@ -124,5 +269,5 @@ Opcode tables are checked against the [MOS MCS6500 programming manual](https://w
 [Apple IIe Technical Reference, Appendix A](https://www.applelogic.org/files/AIIETECHREF3.pdf),
 and [WDC W65C02S datasheet](https://www.westerndesigncenter.com/wdc/documentation/w65c02s.pdf).
 Applesoft behavior follows the [ROM token table and tokenizer](https://6502disassembly.com/a2-rom/Applesoft.html).
-DOS header structure is described in the pinned engine's
+DOS headers are described in the pinned engine's
 [DOS format notes](../third_party/CiderPress2/DiskArc/FS/DOS-notes.md).

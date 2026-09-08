@@ -7,7 +7,7 @@ namespace A2Utils.Cli.Tests;
 
 public sealed class ProgramWorkflowTests : IDisposable
 {
-    private readonly string _directory = Path.Combine(Path.GetTempPath(), $"a2-program-tests-{Guid.NewGuid():N}");
+    private readonly string _directory = Path.Combine(TestPaths.TemporaryRoot, $"a2-program-tests-{Guid.NewGuid():N}");
 
     public ProgramWorkflowTests() => Directory.CreateDirectory(_directory);
 

@@ -8,6 +8,11 @@ programs. The reusable core library is independent of console output.
 The current version is **0.3.0-dev**, a development preview. The
 [GitHub repository](https://github.com/AmosAnderson/a2utils) is private.
 
+Release builds run when a version tag such as `v0.3.0` is pushed for a commit
+on `main`. Successful builds attach Windows, Linux, and macOS binaries to
+[GitHub Releases](https://github.com/AmosAnderson/a2utils/releases). See
+[tagging and release downloads](docs/development.md#tagged-releases).
+
 ## Documentation
 
 | Guide | What you will find |
@@ -96,10 +101,11 @@ operation preserves and where physical allocation may change.
 
 ## Development status
 
-The Windows validation record reports **458 passing tests**, including known
+The Windows validation record reports **460 passing tests**, including known
 opcode/token vectors, independent disk fixtures, failed-write protection, and
-packaged program round trips. Linux/macOS hosted CI and emulator execution
-remain release checks; see [the validation record](docs/VALIDATION.md).
+packaged program round trips. The initial hosted run passed Windows and Linux;
+the macOS test setup was corrected and awaits a release-tag run. Emulator
+execution remains a release check; see [the validation record](docs/VALIDATION.md).
 
 The disk engine is pinned under [third_party/CiderPress2](third_party/CiderPress2),
 with source hashes and license notices. [THIRD_PARTY.md](THIRD_PARTY.md) describes

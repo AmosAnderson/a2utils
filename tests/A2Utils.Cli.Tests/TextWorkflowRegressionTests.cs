@@ -5,7 +5,7 @@ namespace A2Utils.Cli.Tests;
 
 public sealed class TextWorkflowRegressionTests : IDisposable
 {
-    private readonly string _directory = Path.Combine(Path.GetTempPath(), $"a2-text-regression-{Guid.NewGuid():N}");
+    private readonly string _directory = Path.Combine(TestPaths.TemporaryRoot, $"a2-text-regression-{Guid.NewGuid():N}");
 
     public TextWorkflowRegressionTests() => Directory.CreateDirectory(_directory);
 
@@ -160,7 +160,7 @@ public sealed class TextWorkflowRegressionTests : IDisposable
     public void Dispose()
     {
         string absolutePath = Path.GetFullPath(_directory);
-        if (!string.Equals(Path.GetDirectoryName(absolutePath), Path.GetFullPath(Path.GetTempPath()).TrimEnd(Path.DirectorySeparatorChar),
+        if (!string.Equals(Path.GetDirectoryName(absolutePath), TestPaths.TemporaryRoot,
                 StringComparison.OrdinalIgnoreCase)
             || !Path.GetFileName(absolutePath).StartsWith("a2-text-regression-", StringComparison.Ordinal))
         {

@@ -329,14 +329,15 @@ dotnet run --project third_party/evaluation/DiskEngineProbe.csproj -c Release
 
 The shared version is currently `0.3.0-dev` in
 [Directory.Build.props](../Directory.Build.props). When changing it, also update
-versioned installation examples and the explicit tool version in the CI
-workflow. The CLI package ID is `A2Utils.Tool`; its executable command is `a2`.
+versioned local installation examples. Release builds take their version from
+the Git tag instead. The CLI package ID is `A2Utils.Tool`; its command is `a2`.
 
 From the repository root:
 
 ```sh
 pwsh -File eng/Package.ps1
 pwsh -File eng/Package.ps1 -Runtime win-x64 -SkipTests
+pwsh -File eng/Package.ps1 -Runtime win-x64 -Version 0.3.0 -SkipTests
 ```
 
 The default runtime is the host's runtime identifier. Accepted explicit values
@@ -357,6 +358,12 @@ output, creates the archive, and prints its SHA-256 hash. Keep accompanying
 files and notices with the executable. Generated artifacts, `bin/`, and `obj/`
 are ignored by Git.
 
+`-Version` overrides the shared version for restore, tests, packing, and
+publishing. It accepts a version such as `0.3.0` or `0.3.0-rc.1`, without a
+leading `v` or build metadata. Versioned archives use
+`a2utils-<version>-<RID>.zip` or `.tar.gz`, and the tool package uses the same
+version. Omitting this option preserves the local artifact names above.
+
 Install the tool into this checkout:
 
 ```sh
@@ -369,20 +376,63 @@ to check the installed tool. A Windows x64 self-contained smoke check is
 `./artifacts/publish/win-x64/a2.exe disk verify tests/TestData/independent-dos33.do`.
 These commands use local artifacts and do not publish a package.
 
-## CI and release evidence
+## Tagged releases
 
-[The CI workflow](../.github/workflows/ci.yml) configures Windows, Ubuntu, and
-macOS jobs. Each restores locked dependencies, verifies formatting, runs tests
-with TRX output, packages artifacts, and exercises the installed tool and
-published executable. It uploads archives, the tool package, and test results.
+[The release workflow](../.github/workflows/release.yml) runs only when a `v*`
+tag is pushed. Branch pushes and pull requests do not run builds. Before any
+build, it validates `vMAJOR.MINOR.PATCH` (optionally `-rc.1`, `-beta.2`, etc.)
+and checks that the tagged commit belongs to `origin/main` history. Annotated
+and lightweight tags work; tags on unmerged branches are rejected. Numeric
+version identifiers cannot have leading zeroes; build metadata is unsupported.
 
-[VALIDATION.md](VALIDATION.md) records the current local Windows x64 evidence:
-**385 Core tests and 73 CLI tests (458 total)**, a clean warning-as-error build,
-formatting, fixture/vendor integrity, and packaged program/disk workflows.
-Those are recorded preview checks, not results for every supported runtime.
-Hosted CI execution, independent emulator catalog/load checks, and selection of
-a license for original A2Utils code remain release gates in [PLAN.md](../PLAN.md).
-Update the validation record when those checks are actually performed.
+To release a reviewed commit, update your checkout and push a new version tag.
+For example, when `0.3.0` is the intended next version:
+
+```sh
+git switch main
+git pull --ff-only origin main
+git tag -a v0.3.0 -m "Release 0.3.0"
+git push origin v0.3.0
+```
+
+The tag supplies the package and binary version; editing `Directory.Build.props`
+is unnecessary. Use a prerelease tag such as `v0.3.0-rc.1` to mark the GitHub
+Release as a prerelease. Push one release tag at a time and keep existing
+release tags unchanged.
+
+Each platform restores locked dependencies, verifies formatting, runs tests,
+builds packages, and smoke-tests the installed tool and executable extracted
+from its archive. Only after all platforms pass does publication begin.
+
+| Release asset | Platform or purpose |
+| --- | --- |
+| `a2utils-<version>-win-x64.zip` | Windows x64, self-contained |
+| `a2utils-<version>-linux-x64.tar.gz` | Linux x64, self-contained |
+| `a2utils-<version>-osx-arm64.tar.gz` | macOS Apple Silicon, self-contained |
+| `A2Utils.Tool.<version>.nupkg` | Portable .NET tool; requires .NET 10 |
+| `SHA256SUMS.txt` | SHA-256 hashes of the four downloads |
+
+Downloads and generated release notes appear in the repository's
+[Releases section](https://github.com/AmosAnderson/a2utils/releases). The
+repository remains private, and publication refuses a public repository.
+The workflow uses GitHub's built-in token, with write access only in the
+publication job; no additional secret or NuGet publishing account is needed.
+TRX reports remain workflow artifacts, separate from release downloads.
+
+Publication uploads and verifies assets in a draft before publishing it. If
+uploading fails, rerun the failed job to complete that draft. Published releases
+are preserved; use a new version tag for changed binaries. Missing packages,
+unexpected draft assets, or a tag moved since validation stop publication.
+
+Run `pwsh -File eng/Test-Release.ps1` to test the release guards and simulated
+upload/retry paths locally. It creates disposable fixtures under `artifacts/`
+and never calls GitHub. The initial hosted run passed Windows/Linux and exposed
+a macOS temporary-directory alias issue. Test fixtures now resolve system
+aliases while preserving image-write link protections. Local validation passed
+**387 Core tests and 73 CLI tests (460 total)** with a linked temporary root.
+Native macOS execution and actual release upload await the first release tag;
+see [VALIDATION.md](VALIDATION.md) for evidence and remaining emulator/license
+checks in [PLAN.md](../PLAN.md).
 
 For a contribution, use a focused imperative commit subject and explain the
 problem, resulting behavior, affected formats, and validation in the pull request.

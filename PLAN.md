@@ -12,7 +12,7 @@ The original proposal below now has a working implementation. The workspace star
 | Read-only DOS slice | Implemented and tested against independent synthetic DO/PO fixtures |
 | DOS writes | Implemented with staged commits, backups, conversion, and failure tests; emulator release check remains |
 | ProDOS operations | Implemented with directories, metadata restore, sparse files, and larger volumes; emulator release check remains |
-| Packaging and release | Local packaging and three-OS CI workflow implemented; hosted CI execution, emulator checks, and original-code license selection remain before public/stable release |
+| Packaging and release | Tag-only builds and private GitHub Releases with versioned binaries, tool package, and checksums implemented; hosted Windows/Linux passed, corrected macOS setup and release upload await a release tag; emulator checks and original-code license selection remain before public/stable release |
 
 See `README.md` for actual commands and supported limits. This is a development preview, not a stable release. The [GitHub repository](https://github.com/AmosAnderson/a2utils) is private; no public package or release has been created.
 
@@ -21,8 +21,8 @@ same-filesystem copies within and between images, directory moves, recursive
 ProDOS directory creation, and atomic host-directory import. Tests cover
 metadata preservation, text round trips, collisions, source/output aliases,
 and rollback after import failure. BASIC conversion and cross-filesystem file
-migration remain separate work; Linux/macOS execution of the new import path
-still requires the configured CI checks.
+migration remain separate work; Linux execution passed hosted checks, while
+the corrected macOS test setup awaits release validation.
 
 Preview 0.3 adds program tools: 6502, Apple-compatible 65C02, and WDC65C02
 assembly/disassembly; Applesoft BASIC tokenization/detokenization; explicit raw
@@ -160,7 +160,7 @@ Develop tests alongside each milestone, especially before enabling writes. Requi
 
 If DiskArc is reused, CiderPress checks alone are not independent validation. Keep documented, redistributable fixtures with provenance and hashes; add independent hand-checked layout vectors and fixtures made by another implementation or an Apple II environment.
 
-Build and test on Windows, Linux, and macOS in CI. Package a .NET tool and self-contained downloads for the supported OS/architecture matrix. Test installation and representative commands from the packaged artifacts. Document supported format combinations, examples, metadata handling, transaction behavior, and known limitations. Choose the project license before distributing code and preserve required dependency notices.
+Build and test on Windows, Linux, and macOS only when a release version tag is pushed for a commit on main. Package a .NET tool and self-contained downloads for Windows x64, Linux x64, and macOS ARM64, using the tag's version. Test installation and representative commands from the packaged artifacts. After all builds pass, upload archives, the tool package, and SHA-256 checksums to a draft GitHub Release and publish it after upload verification; retain private repository visibility. Document supported format combinations, examples, metadata handling, transaction behavior, and known limitations. Choose the project license before public distribution and preserve required dependency notices.
 
 Completion criterion: a reproducible release with passing tests, installable artifacts, sample workflows, and no advertised write operation lacking preservation and failure-path coverage.
 

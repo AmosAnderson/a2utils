@@ -27,8 +27,26 @@ The pin does not automatically accept every .NET 10 feature band. See
 [SDK troubleshooting](troubleshooting.md#setup-and-installation) if a compatible
 SDK cannot be found. Initial restore uses the package source in
 [NuGet.Config](../NuGet.Config); later operations can use cached dependencies.
-Windows x64 has been tested locally. Linux/macOS are configured in CI but
-have not yet completed the recorded release checks.
+Windows x64 has been tested locally, and the initial hosted Windows/Linux
+jobs passed. The corrected macOS test setup awaits a release-tag run; see
+[the validation record](VALIDATION.md).
+
+## Download a tagged release
+
+When available, binaries are attached to
+[GitHub Releases](https://github.com/AmosAnderson/a2utils/releases), accessible
+to users with access to this private repository. Choose `win-x64` for Windows
+x64, `linux-x64` for Linux x64, or `osx-arm64` for Apple Silicon macOS. Extract
+the whole archive and keep its accompanying files and notices. Run `a2.exe`
+on Windows or `./a2` on Unix; these archives include the .NET runtime.
+
+Each release includes `SHA256SUMS.txt`. Compare the downloaded archive's hash
+using `Get-FileHash -Algorithm SHA256` in PowerShell, `sha256sum` on Linux, or
+`shasum -a 256` on macOS. The portable `A2Utils.Tool.<version>.nupkg` can also be
+installed from a local download folder using `dotnet tool install A2Utils.Tool
+--version <version> --add-source <folder> --tool-path <tools-folder>`.
+It requires .NET 10. See [release automation](development.md#tagged-releases)
+for how tags create these downloads.
 
 ## Build and inspect the sample image
 

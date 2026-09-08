@@ -9,5 +9,7 @@
     <PackageReference Include="xunit.runner.visualstudio" Version="4.0.0" PrivateAssets="all" />
     <ProjectReference Include="../../src/A2Utils.Cli/A2Utils.Cli.csproj" />
     <Using Include="Xunit" />
+    <Using Include="A2Utils.Tests" />
+    <Compile Include="../Shared/TestPaths.cs" Link="TestPaths.cs" />
   </ItemGroup>
 </Project>

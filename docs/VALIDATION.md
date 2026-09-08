@@ -6,7 +6,7 @@ checks for the development preview; it is not a stable-release certification.
 | Check | Result |
 | --- | --- |
 | Release solution build with `--warnaserror` | Passed: zero warnings and errors |
-| Core xUnit suite | 385 passed |
+| Core xUnit suite | 387 passed, including two temporary-root regressions |
 | CLI xUnit suite | 73 passed |
 | Repository formatting, excluding vendored code | Passed |
 | Independent DO/PO fixture hashes | Match documented SHA-256 values |
@@ -45,8 +45,8 @@ Disassembly tests include 27,648 opcode/operand/truncation round-trip cases and
 mixed code/data streams across the three CPU modes. No Apple ROM is embedded.
 
 Platform-specific transaction tests exercise Windows file identities locally;
-their Unix branches and the `/usr/bin/stat` regular-file check for directory
-imports require Linux/macOS CI. Fixtures are hand-generated and
+their Unix branches and the `/usr/bin/stat` regular-file check passed on the
+initial hosted Linux job. Native macOS validation remains pending. Fixtures are hand-generated and
 contain no boot code. The emulator catalog/load smoke check has not been run.
 
 Before a stable/public release, run the configured hosted CI matrix, validate
@@ -70,5 +70,35 @@ The expanded guides were checked locally on Windows on September 8, 2026:
 - Local Markdown links, heading references, and code-fence pairing were checked.
 
 Bash/zsh and `jq` examples were reviewed but not executed on this Windows host.
-The 458-test result above records the preceding implementation validation;
+The original 458-test result records the preceding implementation validation;
 documentation verification did not rerun the full solution test suite.
+
+## Release workflow validation
+
+The [initial hosted run](https://github.com/AmosAnderson/a2utils/actions/runs/34257159465)
+passed Windows and Ubuntu. macOS failed because its system temporary path uses
+the `/var` symlink, which correctly triggered image-write link protection.
+The shared test setup now resolves temporary-directory ancestors to physical
+paths. Production link checks remain unchanged.
+
+After this correction, all **460 tests (387 Core, 73 CLI)** passed locally with
+`TEMP` and `TMP` deliberately routed through a Windows junction. Formatting
+verification also passed. The Unix-specific regression additionally checks
+that physical writes succeed and writes through a created alias are refused;
+that branch awaits native macOS/Linux execution of the updated tests.
+
+All 49 local release checks passed. They exercise real Git tags and branch ancestry, then use a
+simulated GitHub CLI to cover private-repository enforcement, changed-tag
+rejection, required assets, checksums, draft publication, failed/incomplete
+uploads, retries, and stable/prerelease flags. Versioned Windows packaging for
+`0.3.0` produced matching package and binary versions, bundled notices, and
+working tool/self-contained disk and program commands.
+
+Actionlint 1.7.12 accepted the workflow. All PowerShell scripts parsed, updated
+documentation links resolved, and the executable extracted from the versioned
+Windows archive passed disk verification, assembly, and BASIC smoke checks.
+
+The updated workflow runs only on release-tag pushes; ordinary branch pushes
+and pull requests do not build. Actual GitHub Release publication and native
+macOS validation will occur when an intended release tag is pushed. No tag or
+release was created merely to validate this configuration.

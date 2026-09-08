@@ -6,7 +6,7 @@ namespace A2Utils.Cli.Tests;
 
 public sealed class CliRegressionTests : IDisposable
 {
-    private readonly string _directory = Path.Combine(Path.GetTempPath(), "a2-cli-regressions-" + Guid.NewGuid().ToString("N"));
+    private readonly string _directory = Path.Combine(TestPaths.TemporaryRoot, "a2-cli-regressions-" + Guid.NewGuid().ToString("N"));
 
     public CliRegressionTests()
     {

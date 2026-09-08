@@ -6,7 +6,7 @@ namespace A2Utils.Core.Tests;
 
 public sealed class DirectoryImportTests : IDisposable
 {
-    private readonly string _directory = Path.Combine(Path.GetTempPath(), "a2-directory-import-" + Guid.NewGuid().ToString("N"));
+    private readonly string _directory = Path.Combine(TestPaths.TemporaryRoot, "a2-directory-import-" + Guid.NewGuid().ToString("N"));
 
     public DirectoryImportTests()
     {

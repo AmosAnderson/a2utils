@@ -2,7 +2,7 @@ namespace A2Utils.Core.Tests;
 
 internal sealed class FixtureWorkspace : IDisposable
 {
-    private readonly string _root = Path.Combine(Path.GetTempPath(), "a2utils-fixture-tests");
+    private readonly string _root = Path.Combine(TestPaths.TemporaryRoot, "a2utils-fixture-tests");
 
     public FixtureWorkspace()
     {

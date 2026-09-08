@@ -1,0 +1,138 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: pwsh
+
+jobs:
+  validate:
+    if: ${{ !github.event.deleted }}
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      commit: ${{ steps.release.outputs.commit }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Validate release tag on main
+        id: release
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          $release = ./eng/Get-ReleaseInfo.ps1 -Tag $env:RELEASE_TAG
+          "version=$($release.Version)" >> $env:GITHUB_OUTPUT
+          "commit=$($release.Commit)" >> $env:GITHUB_OUTPUT
+      - name: Test release automation
+        run: ./eng/Test-Release.ps1
+
+  build:
+    needs: validate
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            runtime: win-x64
+          - os: ubuntu-latest
+            runtime: linux-x64
+          - os: macos-latest
+            runtime: osx-arm64
+    runs-on: ${{ matrix.os }}
+    env:
+      RELEASE_VERSION: ${{ needs.validate.outputs.version }}
+      RELEASE_RUNTIME: ${{ matrix.runtime }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.validate.outputs.commit }}
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+      - run: dotnet restore A2Utils.slnx --locked-mode
+      - run: dotnet format A2Utils.slnx --verify-no-changes --no-restore --exclude third_party
+      - run: dotnet test A2Utils.slnx -c Release --no-restore --logger trx
+      - name: Package release binaries
+        run: ./eng/Package.ps1 -Runtime $env:RELEASE_RUNTIME -Version $env:RELEASE_VERSION -SkipTests
+      - name: Test installed tool and archived executable
+        run: |
+          dotnet tool install A2Utils.Tool --version $env:RELEASE_VERSION --add-source artifacts/packages --tool-path artifacts/tools --configfile NuGet.Config
+          if ($LASTEXITCODE -ne 0) { throw 'Tool installation failed' }
+          & ./artifacts/tools/a2 disk ls tests/TestData/independent-dos33.do --json
+          if ($LASTEXITCODE -ne 0) { throw 'Installed tool smoke test failed' }
+          New-Item -ItemType Directory -Path artifacts/smoke -Force | Out-Null
+          $archive = "artifacts/a2utils-$env:RELEASE_VERSION-$env:RELEASE_RUNTIME"
+          if ($IsWindows) {
+              Expand-Archive -LiteralPath "$archive.zip" -DestinationPath artifacts/smoke
+          }
+          else {
+              tar -xzf "$archive.tar.gz" -C artifacts/smoke
+              if ($LASTEXITCODE -ne 0) { throw 'Archive extraction failed' }
+          }
+          & ./artifacts/smoke/a2 disk verify tests/TestData/independent-dos33.do
+          if ($LASTEXITCODE -ne 0) { throw 'Archived executable smoke test failed' }
+          & ./artifacts/tools/a2 asm compile examples/hello.asm --to artifacts/hello.bin
+          if ($LASTEXITCODE -ne 0) { throw 'Installed assembler smoke test failed' }
+          & ./artifacts/smoke/a2 basic compile examples/hello.bas --to artifacts/hello.basbin
+          if ($LASTEXITCODE -ne 0) { throw 'Archived BASIC tokenizer smoke test failed' }
+      - name: Upload release archive
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-${{ matrix.runtime }}
+          path: artifacts/a2utils-${{ env.RELEASE_VERSION }}-${{ matrix.runtime }}.*
+          if-no-files-found: error
+          compression-level: 0
+          overwrite: true
+      - name: Upload portable tool package
+        if: matrix.runtime == 'win-x64'
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-tool
+          path: artifacts/packages/A2Utils.Tool.${{ env.RELEASE_VERSION }}.nupkg
+          if-no-files-found: error
+          compression-level: 0
+          overwrite: true
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: results-${{ matrix.runtime }}
+          path: '**/TestResults/*.trx'
+          overwrite: true
+
+  publish:
+    needs: [validate, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.validate.outputs.commit }}
+          persist-credentials: false
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: release-*
+          path: artifacts/release
+          merge-multiple: true
+      - name: Publish GitHub Release with binaries and checksums
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_COMMIT: ${{ needs.validate.outputs.commit }}
+          GH_REPO: ${{ github.repository }}
+        run: ./eng/Publish-Release.ps1 -Tag $env:RELEASE_TAG -Commit $env:RELEASE_COMMIT -Repository $env:GH_REPO -AssetDirectory artifacts/release

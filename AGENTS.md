@@ -2,10 +2,11 @@
 
 ## Project Structure & Module Organization
 
-This C#/.NET 10 utility implements DOS 3.3 and ProDOS disk operations. Consult `PLAN.md` for remaining release checks. The layout is:
+This C#/.NET 10 utility handles DOS 3.3/ProDOS disks, 6502 assembly, and Applesoft BASIC. Consult `PLAN.md` for release checks. The layout is:
 
-- `src/A2Utils.Core/`: image containers, sector/block access, filesystems, operations, and disk-engine adapters.
-- `src/A2Utils.Cli/`: `a2 disk` commands, argument parsing, and output formatting.
+- `src/A2Utils.Core/`: disk operations and adapters; `Assembly/`, `Basic/`, and `Programs/` contain program codecs and headers.
+- `src/A2Utils.Cli/`: `a2 disk`, `asm`, and `basic` commands and output formatting.
+- `examples/`: original assembly and Applesoft source programs.
 - `tests/A2Utils.Core.Tests/` and `tests/A2Utils.Cli.Tests/`: library and command tests.
 - `tests/TestData/`: redistributable disk fixtures with provenance, expected catalogs, and hashes.
 - `docs/decisions/` and `docs/formats/`: architecture decisions and format references.

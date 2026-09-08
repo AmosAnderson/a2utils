@@ -1,8 +1,8 @@
 # A2Utils
 
-C#/.NET 10 command-line utilities for Apple II and Apple IIe disk images.
-This working development preview supports DOS 3.3 and ProDOS, using a pinned
-CiderPress II DiskArc engine behind an independent library and CLI.
+C#/.NET 10 command-line utilities for Apple II and Apple IIe disk images and
+programs. This development preview supports DOS 3.3 and ProDOS through a pinned
+CiderPress II DiskArc engine, plus native assembly and Applesoft BASIC tools.
 
 ## Build and run
 
@@ -21,14 +21,49 @@ from a locally built package:
 
 ```sh
 dotnet pack src/A2Utils.Cli -c Release -o artifacts/packages
-dotnet tool install A2Utils.Tool --version 0.2.0-dev --add-source artifacts/packages --tool-path artifacts/tools
+dotnet tool install A2Utils.Tool --version 0.3.0-dev --add-source artifacts/packages --tool-path artifacts/tools
 ```
 
 Run `artifacts/tools/a2` (or `artifacts/tools/a2.exe` on Windows), or add that
 directory to your PATH. No global tool installation is required. To upgrade an
 existing preview, use `dotnet tool update` with the same options.
 
-## Supported operations
+## Compile and decompile programs
+
+```sh
+a2 asm compile examples/hello.asm --to hello.bin
+a2 asm decompile hello.bin --origin 0x2000 --to hello.dis.asm
+a2 basic compile examples/hello.bas --to hello.basbin
+a2 basic decompile hello.basbin --to hello.list.bas
+```
+
+`asm compile` assembles 6502 source; `asm decompile` produces assembly that can
+be reassembled to identical bytes. Use `--cpu 65c02` for enhanced Apple IIe/IIc
+instructions, or `--cpu w65c02` for newer WDC extensions. Original source names,
+comments, and the distinction between code and data cannot be recovered.
+Aliases `assemble` and `disassemble` are also available.
+
+`basic compile` tokenizes numbered Applesoft BASIC source; `basic decompile`
+produces a readable listing. Aliases are `tokenize` and `detokenize`.
+This is Applesoft's interpreted program format; it does not produce machine
+code or validate every BASIC expression. Integer BASIC is not supported.
+
+Output defaults to raw payload bytes, ready for `disk add` or `disk replace`.
+Use `--format dos` for host files with DOS load/length headers. An assembly
+source needs `.org` or `--origin`; raw machine-code input needs `--origin`.
+BASIC defaults to `$0801`. Existing output files require `--overwrite`.
+
+```sh
+a2 disk add work.do hello.bin --name HELLO --type B --load-address 0x2000 --in-place
+a2 disk add work.do hello.basbin --name DEMO --type A --in-place
+a2 asm decompile HELLO --from-image work.do --to hello.asm
+a2 basic decompile DEMO --from-image work.do --to demo.bas
+```
+
+See [the program tools guide](docs/programs.md) for assembly syntax, BASIC
+rules, ProDOS examples, CPU compatibility, and format limits.
+
+## Supported disk operations
 
 | Command | Behavior |
 | --- | --- |
@@ -99,8 +134,8 @@ a2 disk move work.po ARCHIVE/NOTES OLDNOTES --in-place
 ```
 
 Text `add` and `import` default to TXT; binary imports require `--type`.
-Text `replace` requires an existing TXT file. Tokenized BASIC conversion is
-unsupported. Export requires `--overwrite` to replace an existing host file.
+Text `replace` requires an existing TXT file. Use the `basic` commands for
+tokenized BASIC conversion. Export requires `--overwrite` to replace an existing host file.
 
 Copy destinations are exact new paths with existing parent directories. Copying
 a directory requires `--recursive`; copying between images requires matching
@@ -153,7 +188,7 @@ The CI workflow targets Windows, Linux, and macOS. `eng/Package.ps1` produces
 a local tool package and a self-contained runtime download. Cross-platform CI
 execution and emulator catalog/load checks must pass before a stable release.
 New disks are formatted data volumes without boot code. NIB/WOZ, DOS 3.2,
-partitions, hybrid writes, extended/forked-file operations, BASIC conversion,
+partitions, hybrid writes, extended/forked-file operations, Integer BASIC conversion,
 and repair are outside this preview's supported scope.
 
 See `PLAN.md` for milestone status and `AGENTS.md` for contributor guidance.

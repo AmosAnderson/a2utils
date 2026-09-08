@@ -80,12 +80,12 @@ public sealed partial class CliApplication
 
     private RootCommand BuildCommands()
     {
-        RootCommand root = new("Apple II disk image utilities.");
+        RootCommand root = new("Apple II disk image and program utilities.");
         Command disk = new("disk", "Inspect, extract, create, and modify DOS 3.3 and ProDOS images.");
         root.Subcommands.Add(disk);
         foreach (Option option in new Option[] { _json, _quiet, _verbose, _inputOrder, _inputFs })
         {
-            disk.Options.Add(option);
+            root.Options.Add(option);
         }
 
         AddReadCommands(disk);
@@ -95,6 +95,7 @@ public sealed partial class CliApplication
         AddAttributeCommand(disk);
         AddConvertCommand(disk);
         AddTransferCommands(disk);
+        AddProgramCommands(root);
         return root;
     }
 

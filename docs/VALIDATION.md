@@ -1,20 +1,20 @@
 # Development preview validation
 
-Preview 0.2.0-dev validated locally on Windows x64 with .NET SDK 10.0.400. This records completed
+Preview 0.3.0-dev validated locally on Windows x64 with .NET SDK 10.0.400. This records completed
 checks for the development preview; it is not a stable-release certification.
 
 | Check | Result |
 | --- | --- |
 | Release solution build with `--warnaserror` | Passed: zero warnings and errors |
-| Core xUnit suite | 197 passed |
-| CLI xUnit suite | 47 passed |
+| Core xUnit suite | 385 passed |
+| CLI xUnit suite | 73 passed |
 | Repository formatting, excluding vendored code | Passed |
 | Independent DO/PO fixture hashes | Match documented SHA-256 values |
 | Vendored source integrity | All 208 files match the pinned upstream manifest |
 | DiskArc evaluation probe | DOS/ProDOS read/write/reopen and 2IMG metadata preservation passed |
 | Local .NET tool package installation | Passed, installed under `artifacts/tools` |
 | Self-contained `win-x64` package | Built and smoke-tested |
-| Packaged operations | DOS binary/text export, image-to-image copy, ProDOS recursive text import/copy, move, and content round trips passed |
+| Packaged operations | Disk workflows plus assembly/BASIC compile, decompile, image import, and byte round trips passed |
 | Normal locked restore after RID-specific publishing | Passed; publishing uses separate lockfiles under `obj` |
 | Package license/notice inclusion | Tool contains DiskArc/CommonUtil and System.CommandLine notices; self-contained archive also contains runtime notices |
 
@@ -36,6 +36,13 @@ logical payload export, strict text conversion, recursive copies, moves,
 parent directory creation, atomic directory imports, and input/output alias
 protection. Transfer tests include independent disk fixtures, allocation
 limits, sparse files, metadata, and rollback after failed writes.
+
+Preview 0.3 adds independently specified machine-code and Applesoft token
+vectors, all 107 BASIC tokens, CPU compatibility, label and branch boundaries,
+malformed source and program rejection, DOS header validation, source/output
+protection, and compile/import/decompile workflows on DOS and ProDOS.
+Disassembly tests include 27,648 opcode/operand/truncation round-trip cases and
+mixed code/data streams across the three CPU modes. No Apple ROM is embedded.
 
 Platform-specific transaction tests exercise Windows file identities locally;
 their Unix branches and the `/usr/bin/stat` regular-file check for directory

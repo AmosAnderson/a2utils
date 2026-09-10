@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "target": "apple2enh",
+  "output": "../../artifacts/os-validation/hello.po",
+  "disk": {
+    "fileSystem": "prodos",
+    "template": "../../artifacts/os-validation/basic-template.po"
+  },
+  "files": [
+    { "source": "hello.bas", "path": "HELLO", "kind": "basic" },
+    { "source": "hello.asm", "path": "HELLOASM", "kind": "asm", "origin": 8192 }
+  ],
+  "startup": { "path": "STARTUP", "program": "HELLO" }
+}

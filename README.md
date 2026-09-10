@@ -3,9 +3,11 @@
 A2Utils is a C#/.NET 10 command-line toolkit for Apple II and Apple IIe disk
 images and programs. Use it to inspect and edit DOS 3.3/ProDOS disks, assemble
 6502/65C02 source, and convert Applesoft BASIC between listings and tokenized
-programs. The reusable core library is independent of console output.
+programs. Build projects into disk images, prepare graphics assets, and test
+programs through an optional MAME installation. The reusable core library is
+independent of console output.
 
-The current version is **0.3.0-dev**, a development preview. The
+The current version is **0.4.0-dev**, a development preview. The
 [GitHub repository](https://github.com/AmosAnderson/a2utils) is private.
 
 Release builds run when a version tag such as `v0.3.0` is pushed for a commit
@@ -21,6 +23,11 @@ on `main`. Successful builds attach Windows, Linux, and macOS binaries to
 | [Command reference](docs/cli-reference.md) | Every command, argument, option, alias, and default |
 | [Working with disk images](docs/disk-images.md) | Catalogs, file transfers, metadata, manifests, conversion, and backups |
 | [Assembly and Applesoft BASIC](docs/programs.md) | Compiler syntax, CPU modes, source examples, program headers, and disk integration |
+| [Project builds](docs/projects.md) | Reproducible manifests, inferred load metadata, templates, target profiles, and memory checks |
+| [BASIC development](docs/basic-development.md) | Source checking, renumbering, symbolic labels, and source mappings |
+| [Automated execution](docs/execution.md) | MAME run/test specifications, assertions, timeouts, and execution evidence |
+| [C and ca65](docs/cc65.md) | Optional isolated cc65 compilation and AppleSingle programs |
+| [Graphics](docs/graphics.md) | PNG screen conversion and sprite, font, tile, shape, and double-hires assets |
 | [Scripting and JSON](docs/scripting.md) | Output contracts, result fields, exit codes, and PowerShell/Bash examples |
 | [Troubleshooting](docs/troubleshooting.md) | Common diagnostics, likely causes, and corrective commands |
 | [Supported formats](docs/formats/supported-images.md) | Containers, sector order, filesystem capabilities, geometry, and preservation limits |
@@ -80,10 +87,14 @@ explains each step, including equivalent ProDOS metadata.
 | Assembly | Documented NMOS 6502, Apple-compatible 65C02, and WDC65C02 instructions; labels, expressions, and data directives |
 | Applesoft | Full token vocabulary, numbered source, linked program validation, and readable listings |
 | Automation | Versioned JSON, stable diagnostic codes, cancellation, and explicit write destinations |
+| Development | Project builds, source maps/symbols, BASIC checks/renumbering/labels, target profiles, capability discovery and JSON Schemas |
+| Execution | Optional MAME 0.289 adapter with scripted input, memory/register/text assertions, screenshots and bounded runs |
+| C and assets | Optional cc65 integration; PNG screen conversion and structured graphics asset packing |
 
 Machine-code decompilation produces assembly, without recovering original
 symbols, comments, or code/data boundaries. BASIC compilation produces
-interpreted Applesoft tokens. Neither tool executes the resulting programs.
+interpreted Applesoft tokens. Use the separate `run` and `test` commands to execute
+programs through a configured MAME installation with matching ROMs and a disk.
 NIB/WOZ, DOS 3.2, partitions, forked-file operations, Integer BASIC conversion,
 and repair are outside the supported scope.
 
@@ -101,11 +112,11 @@ operation preserves and where physical allocation may change.
 
 ## Development status
 
-The Windows validation record reports **460 passing tests**, including known
-opcode/token vectors, independent disk fixtures, failed-write protection, and
-packaged program round trips. The initial hosted run passed Windows and Linux;
-the macOS test setup was corrected and awaits a release-tag run. Emulator
-execution remains a release check; see [the validation record](docs/VALIDATION.md).
+The [validation record](docs/VALIDATION.md) distinguishes unit tests, independent
+format vectors, packaged workflows, and real external-tool checks. All 794 tests
+pass locally, including real MAME integration. Windows tool and self-contained
+packages also pass workflow checks. Hosted validation of the new features remains
+a release check.
 
 The disk engine is pinned under [third_party/CiderPress2](third_party/CiderPress2),
 with source hashes and license notices. [THIRD_PARTY.md](THIRD_PARTY.md) describes

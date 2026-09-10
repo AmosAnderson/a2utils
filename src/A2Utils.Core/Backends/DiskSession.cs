@@ -620,6 +620,9 @@ public sealed partial class DiskSession : IDisposable
     };
 
     private byte ParseType(string type)
+        => ParseFileType(type, _fs is DOS);
+
+    internal static byte ParseFileType(string type, bool dos = false)
     {
         string upper = type.ToUpperInvariant();
         byte value = upper switch
@@ -638,7 +641,7 @@ public sealed partial class DiskSession : IDisposable
                 System.Globalization.NumberStyles.HexNumber, null, out byte number) => number,
             _ => throw new DiskException("invalid_file_type", "Use a known Apple file type or 0x00 through 0xff.", 2)
         };
-        if (_fs is DOS && value is not (0x04 or 0xfa or 0xfc or 0x06 or 0xf2 or 0xfe or 0xf3 or 0xf4))
+        if (dos && value is not (0x04 or 0xfa or 0xfc or 0x06 or 0xf2 or 0xfe or 0xf3 or 0xf4))
             throw new DiskException("invalid_file_type", "This type cannot be represented in DOS 3.3.", 2);
         return value;
     }

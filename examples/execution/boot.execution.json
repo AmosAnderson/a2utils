@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "name": "Apple IIe self-boot keyboard smoke",
+  "emulatorPath": "../../artifacts/execution-tools/mame0289/mame.exe",
+  "expectedVersion": "0.289",
+  "machine": "apple2ee",
+  "romDirectory": "../../artifacts/execution-tools/roms",
+  "diskImage": "../../artifacts/execution-smoke/boot.dsk",
+  "emulatedSeconds": 6,
+  "hostTimeoutSeconds": 30,
+  "keys": [{ "atSeconds": 2.5, "text": "X" }],
+  "until": { "address": 768, "value": 42, "afterSeconds": 2 },
+  "memory": [{ "address": 768, "hex": "2A D8" }],
+  "registers": [{ "name": "A", "value": 42 }],
+  "textContains": ["A2 PASS"],
+  "screenshot": true,
+  "trace": true
+}

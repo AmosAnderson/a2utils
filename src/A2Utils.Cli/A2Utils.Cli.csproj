@@ -5,7 +5,7 @@
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>a2</ToolCommandName>
     <PackageId>A2Utils.Tool</PackageId>
-    <Description>Command-line utilities for Apple II disk images.</Description>
+    <Description>Apple II disk, assembly, BASIC, graphics, project build, and execution-test utilities.</Description>
     <Authors>A2Utils contributors</Authors>
     <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
@@ -15,6 +15,7 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="../../README.md" Pack="true" PackagePath="/" />
+    <EmbeddedResource Include="../../docs/schemas/*.schema.json" Link="Schemas/%(Filename)%(Extension)" />
     <Content Include="../../THIRD_PARTY.md" Link="THIRD_PARTY.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="../../notices/System.CommandLine/LICENSE.md" Link="notices/System.CommandLine/LICENSE.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="../../third_party/CiderPress2/LICENSE" Link="notices/CiderPress2/LICENSE" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />

@@ -24,4 +24,5 @@ public sealed class DiskException(string code, string message, int exitCode = 6,
 {
     public string Code { get; } = code;
     public int ExitCode { get; } = exitCode;
+    public IReadOnlyList<Programs.ProgramDiagnostic> Diagnostics { get; init; } = [];
 }

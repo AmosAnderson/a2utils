@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "target": "apple2e",
+  "output": "disk.po",
+  "disk": { "fileSystem": "prodos", "volumeName": "DISKDEMO" },
+  "files": [
+    { "source": "disk.bas", "path": "DISKDEMO", "kind": "basic" }
+  ]
+}

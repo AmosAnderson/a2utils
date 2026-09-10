@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "target": "apple2e",
+  "output": "mixed.po",
+  "disk": { "fileSystem": "prodos", "volumeName": "MIXED" },
+  "basicWorkspaceBytes": 1024,
+  "files": [
+    { "source": "mixed.bas", "path": "DEMO", "kind": "basic" },
+    { "source": "routine.asm", "path": "ROUTINE", "kind": "asm" }
+  ]
+}

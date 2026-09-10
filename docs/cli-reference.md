@@ -8,13 +8,36 @@ uppercase words below are placeholders; brackets mark optional arguments.
 Quote host and image paths containing spaces. Use `a2 COMMAND --help` for local
 help, for example `a2 disk add --help`.
 
+## Development workflow commands
+
+| Command | Purpose and guide |
+| --- | --- |
+| `build PROJECT [--to IMAGE] [--overwrite] [--check]` | [Project manifests](projects.md), source checks, memory reports, and transactional disk output. |
+| `capabilities --json` | Discover commands, arguments, options, formats, targets, and schema names. |
+| `targets --json` | Inspect machine profiles, platform symbols, and runtime memory reservations. |
+| `schema NAME --json` | Return project, diagnostic, execution, or execution-suite JSON Schema under `data`. |
+| `asm listing INPUT --to OUTPUT` | Assembly listing with addresses and bytes; accepts origin/CPU options. |
+| `asm map INPUT --to OUTPUT` | JSON symbols/source-map/dependency report. |
+| `basic check INPUT` | [Applesoft source checks](basic-development.md); failures return a result with diagnostics. |
+| `basic renumber INPUT --to OUTPUT` | Safe line-reference rewriting and mappings; `--start` and `--step` default to 10. |
+| `basic prepare INPUT --to OUTPUT` | Unnumbered source with symbolic labels to numbered Applesoft, with source mappings. |
+| `cc compile INPUT --to OUTPUT` | [Optional cc65 compiler](cc65.md); AppleSingle output, maps, labels, and input hashes. |
+| `run SPEC --artifacts NEWDIR` | [MAME execution](execution.md) with bounded input, assertions, and captured state. |
+| `test SUITE --artifacts NEWDIR` | Execute a list of run specifications and aggregate results. |
+| `graphics encode INPUT --mode MODE --to OUTPUT` | [PNG to display memory](graphics.md); lores, hires, or hires-color. |
+| `graphics decode INPUT --mode MODE --to OUTPUT` | Display-memory preview as PNG. |
+| `graphics assets`, `graphics shapes`, `graphics dhires` | [Sprites, fonts, tiles, shape tables and double-hires](graphics-assets.md); consult subcommand help. |
+
+Development commands accept the usual `--json` output option. File-producing
+commands require explicit overwrite; run/test use a new artifact directory.
+
 ## Global options and value conventions
 
 | Option | Meaning |
 | --- | --- |
 | `--json` | Write schema-versioned result JSON to stdout and error JSON to stderr. |
 | `--quiet` | Suppress normal text results; JSON results and diagnostics are still emitted. |
-| `--verbose` | Include additional diagnostics on stderr, including unexpected exception detail. |
+| `--verbose` | Include additional diagnostics on stderr in text mode; JSON diagnostics stay structured. |
 | `--input-order dos\|prodos` | Override the input image's sector/block order. |
 | `--input-fs dos33\|prodos` | Select a supported filesystem when opening an image. |
 | `-h`, `-?`, `--help` | Show help for the selected command. |
@@ -229,7 +252,7 @@ program. See [program tools](programs.md) for additional BASIC constraints.
 | Code | Meaning |
 | --- | --- |
 | 0 | Success |
-| 1 | Unexpected failure |
+| 1 | Behavioral assertion or unexpected failure |
 | 2 | Usage, invalid arguments, or source syntax |
 | 3 | Unsupported or ambiguous format/feature |
 | 4 | Corruption or failed data validation |

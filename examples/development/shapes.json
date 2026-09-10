@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "shapes": [
+    {
+      "name": "square",
+      "commands": [
+        { "direction": "right", "count": 8 },
+        { "direction": "down", "count": 8 },
+        { "direction": "left", "count": 8 },
+        { "direction": "up", "count": 8 }
+      ]
+    },
+    {
+      "name": "corner",
+      "commands": [
+        { "direction": "right", "count": 12 },
+        { "direction": "down", "count": 6 }
+      ]
+    }
+  ]
+}

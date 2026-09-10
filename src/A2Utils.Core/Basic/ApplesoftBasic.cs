@@ -262,7 +262,9 @@ public static class ApplesoftBasic
         return body.ToArray();
     }
 
-    private static bool TryMatchToken(ReadOnlySpan<char> line, int start, out byte token, out int end)
+    internal static string TokenName(byte token) => Tokens[token - 0x80];
+
+    internal static bool TryMatchToken(ReadOnlySpan<char> line, int start, out byte token, out int end)
     {
         for (int tokenIndex = 0; tokenIndex < Tokens.Length; tokenIndex++)
         {

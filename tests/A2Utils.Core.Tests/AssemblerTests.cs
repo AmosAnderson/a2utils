@@ -266,7 +266,6 @@ public sealed class AssemblerTests
     [InlineData(".byte (1")]
     [InlineData(".byte 1)")]
     [InlineData(".byte $ff, ")]
-    [InlineData(".byte 1*2")]
     [InlineData(".byte 9223372036854775808")]
     [InlineData(".byte 9223372036854775807+1")]
     [InlineData(".text \"é\"")]

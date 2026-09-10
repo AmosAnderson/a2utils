@@ -16,6 +16,8 @@ for JSON and exit codes.
 | --- | --- | --- |
 | `asm compile INPUT --to OUTPUT` | `assemble` | UTF-8 assembly to machine code |
 | `asm decompile INPUT --to OUTPUT` | `disassemble` | Machine code to UTF-8 assembly |
+| `asm listing INPUT --to OUTPUT` | — | Assemble and export source with addresses and bytes |
+| `asm map INPUT --to OUTPUT` | — | Assemble and export a versioned JSON symbol/source map |
 | `basic compile INPUT --to OUTPUT` | `tokenize` | Numbered UTF-8 listing to Applesoft tokens |
 | `basic decompile INPUT --to OUTPUT` | `detokenize` | Applesoft tokens to UTF-8 listing |
 
@@ -88,6 +90,10 @@ an ASCII letter or `_`, followed by letters, digits, or `_`. Define labels with
 a colon (`loop:`) and constants with `=` (`COUT = $FDED`). Duplicate symbols,
 undefined references, and circular constants fail. Semicolons start comments
 outside quoted text. Put `.org` before the first label when omitting `--origin`.
+Local labels use `@name` and belong to the preceding global label. For example,
+`copy: ...`, `@loop: ...`, and `BNE @loop` export the symbol `copy@loop`;
+another global routine can define its own `@loop`. Global constants do not change
+the local-label scope. Quoted strings retain literal `@` characters.
 
 | Directive | Example | Behavior |
 | --- | --- | --- |
@@ -96,19 +102,38 @@ outside quoted text. Put `.org` before the first label when omitting `--origin`.
 | `.word` | `.word start,$1234` | Numeric expressions, two little-endian bytes each |
 | `.text` | `.text "HELLO","\r"` | Quoted ASCII strings; no added terminator or high bits |
 | `.fill` | `.fill 16,$FF` | Repeat a byte count times; omitted value defaults to zero |
+| `.align` | `.align 256,$EA` | Advance to a power-of-two boundary in `1..65536`; fill defaults to zero |
+| `.assert` | `.assert end-start <= 256,"routine too large"` | Fail if the final expression is zero; optional ASCII message |
+| `.include` | `.include "lib/video.asm"` | Insert UTF-8 source relative to the containing file |
+| `.incbin` | `.incbin "assets/sprite.bin"` | Insert an entire binary file unchanged |
 
 Output is contiguous. Backward or overlapping origins fail. The initial source
 origin must agree with `--origin`; later origins can advance. Origins and fill
 counts must resolve during layout; instruction/data operands can reference later
-labels. Includes, macros, conditional assembly, relocation, object files, and
-linking are unsupported.
+labels. Alignment boundaries resolve during layout; assertions can reference
+forward labels and run after layout. Macros, conditional assembly, relocation,
+object files, and linking are unsupported by the native assembler.
+
+Includes must occupy their own source line and stay inside the main source
+file's directory tree; absolute paths, linked paths, and include cycles are
+refused. Source includes can nest to 32 levels across at most 256 distinct
+input files. Expanded source keeps the source limits below, and all binary
+inclusions together may contain at most 65,536 bytes. Repeated inputs use the
+same captured bytes. The CLI checks their hashes before committing output.
+The library's `Assembler.AssembleFile` enables includes; `Assembler.Assemble`
+accepts source text without filesystem access.
 
 Expressions accept decimal, `$`/`0x` hex, `%` binary, ASCII characters such as
 `'A'`, symbols, and `*` for the current address. Unary `+`, `-`, `<` (low
-byte), and `>` (high byte) bind more tightly than addition/subtraction; binary
-`+` and `-` associate left to right. Parentheses override precedence:
-`LDA #<(message+1)`. Multiplication, division, shifts, and bitwise operators are
-unsupported; `*` means an address, not multiplication.
+byte), `>` (high byte), and `~` (bitwise complement) bind most tightly.
+Binary operators, from highest to lowest precedence, are `* / %`, `+ -`,
+`<< >>`, `< <= > >=`, `== !=`, `&`, `^`, and `|`. Operators at the same level
+associate left to right. Parentheses override precedence: `LDA #<(message+1)`.
+Comparisons produce zero or one. `*` means the current address when an operand
+is expected, and multiplication between operands; `%` introduces binary numbers
+when an operand is expected, and computes remainder between operands. Division
+truncates toward zero. Arithmetic and left shifts reject signed 64-bit overflow;
+division by zero and shift counts outside `0..63` fail. Right shift is signed.
 
 For instructions, `*` is the opcode address; in `.byte`/`.word` lists it advances
 to each item's address. Constants use their definition's address. Double-quoted
@@ -148,6 +173,33 @@ Fill counts are `0..65536`, subject to the same output bounds.
 Assembly source is bounded to 4 MiB, 100,000 lines, 16,384 characters per line,
 and 65,536 symbols. Expressions have a 4,096-character limit, at most 128 binary
 operations, and bounded nesting/reference depth.
+
+### Build diagnostics and reports
+
+`asm compile --json` includes `symbols`, `sourceMap`, and `dependencies` in its
+result. Symbols contain labels and constants representable as signed 32-bit
+integers; larger valid expression constants remain usable but are omitted from
+this map. Each source-map entry records the original file and line, address,
+byte length, and source text. Zero-length entries describe labels and assertions;
+padding belongs to its `.org` or `.align` statement. Binary includes appear as
+generated `.byte` rows attributed to the original `.incbin` line. Dependency
+values are SHA-256 hashes of the exact file bytes used by the build.
+
+```sh
+a2 asm compile examples/hello.asm --to hello.bin --json
+a2 asm listing examples/hello.asm --to hello.lst
+a2 asm map examples/hello.asm --to hello.map.json
+```
+
+`listing` and `map` accept `--origin`, `--cpu`, and `--overwrite`; each writes one
+staged report. Listings are diagnostic reports rather than reassemblable source.
+Use `asm decompile` to produce reassemblable source from bytes. All three commands
+protect their source, include, and binary-input paths against output aliases.
+Failures retain the existing output. Assembly errors preserve the legacy
+`assembly.invalid_source` error code and include structured diagnostics with
+specific codes such as `assembly.undefined_symbol`, `assembly.branch_range`, and
+`assembly.assertion_failed`, plus the original file/line and available symbol or
+expected/actual values. The assembler reports the first error per invocation.
 
 ## Applesoft BASIC
 

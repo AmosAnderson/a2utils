@@ -57,14 +57,18 @@ sources. Assembly and BASIC codecs operate independently of the disk engine.
 | `src/A2Utils.Cli/CliApplication.cs` | Disk commands, parsing, results, diagnostics, and staged mutation orchestration |
 | `src/A2Utils.Cli/CliApplication.Transfers.cs` | Export, text conversion options, directory import, copy, and move commands |
 | `src/A2Utils.Cli/CliApplication.Programs.cs` | Assembly/BASIC host-file and disk-entry workflows |
+| `src/A2Utils.Cli/CliApplication.Development.cs` | Project builds, capabilities, target profiles, and embedded schemas |
 | `src/A2Utils.Core/DiskModels.cs` | Public disk records, diagnostics, and `DiskException` |
 | `src/A2Utils.Core/Backends/` | Image detection, filesystem access, metadata, and write eligibility |
 | `src/A2Utils.Core/Operations/` | Host transactions, manifests, imports/exports, text conversion, and image conversion |
 | `src/A2Utils.Core/Assembly/` | Instruction tables, expressions, assembler, and disassembler |
-| `src/A2Utils.Core/Basic/` | Applesoft tokenizer and detokenizer |
-| `src/A2Utils.Core/Programs/` | DOS program headers and address-range validation |
+| `src/A2Utils.Core/Basic/` | Applesoft codecs, source checks, renumbering, and symbolic label preparation |
+| `src/A2Utils.Core/Programs/` | DOS/AppleSingle program metadata, bounded input reads, and source diagnostics |
+| `src/A2Utils.Core/Projects/` | Strict manifests, source-to-disk builds, memory checks, and optional cc65 adapter |
+| `src/A2Utils.Core/Execution/` | Pinned MAME adapter, isolated runs, assertions, and artifact capture |
+| `src/A2Utils.Core/Graphics/` | PNG/screens, sprites, tiles, bitmap fonts, shape tables, and double-hires codecs |
 | `examples/` | Original assembly and Applesoft sample sources |
-| `tests/` | Core and CLI xUnit projects plus independent disk fixtures |
+| `tests/` | Core/CLI tests, an external-process contract test host, and independent disk fixtures |
 | `third_party/CiderPress2/` | Unmodified upstream source, format notes, notices, and source hashes |
 | `third_party/evaluation/` | Repeatable disk-engine integration probe |
 | `eng/Package.ps1` | Local tool package and self-contained archive generation |
@@ -73,6 +77,13 @@ See [the disk-engine decision](decisions/0001-disk-engine.md) for the reuse
 evaluation and reasons for keeping all engine access behind the adapter.
 Upstream support for an image format does not automatically make that format
 supported by A2Utils.
+
+The [development workflow decision](decisions/0003-development-workflow.md)
+and [execution adapter decision](decisions/0002-execution.md) describe the
+new boundaries. Start with [project builds](projects.md) to combine source
+compilation and disk creation, then use [execution tests](execution.md) for
+behavioral checks. External cc65 and MAME installations are optional; no
+emulator, compiler, Apple ROM, or operating-system disk is bundled.
 
 ## Using Core from C#
 
@@ -327,7 +338,7 @@ dotnet run --project third_party/evaluation/DiskEngineProbe.csproj -c Release
 
 ## Packaging and local installation
 
-The shared version is currently `0.3.0-dev` in
+The shared version is currently `0.4.0-dev` in
 [Directory.Build.props](../Directory.Build.props). When changing it, also update
 versioned local installation examples. Release builds take their version from
 the Git tag instead. The CLI package ID is `A2Utils.Tool`; its command is `a2`.
@@ -348,7 +359,7 @@ execution on that platform. Unix archives also require `tar` on the build host.
 
 | Artifact | Location and requirements |
 | --- | --- |
-| .NET tool package | `artifacts/packages/A2Utils.Tool.0.3.0-dev.nupkg`; running the installed tool requires the .NET 10 runtime |
+| .NET tool package | `artifacts/packages/A2Utils.Tool.0.4.0-dev.nupkg`; running the installed tool requires the .NET 10 runtime |
 | Self-contained files | `artifacts/publish/<RID>/`; includes the runtime and uses `a2.exe` on Windows or `a2` on Unix |
 | Windows archive | `artifacts/a2utils-<RID>.zip` |
 | Linux/macOS archive | `artifacts/a2utils-<RID>.tar.gz` |
@@ -367,11 +378,13 @@ version. Omitting this option preserves the local artifact names above.
 Install the tool into this checkout:
 
 ```sh
-dotnet tool install A2Utils.Tool --version 0.3.0-dev --add-source artifacts/packages --tool-path artifacts/tools --configfile NuGet.Config
+dotnet tool install A2Utils.Tool --version 0.4.0-dev --add-source artifacts/packages --tool-path artifacts/tools --configfile NuGet.Config
 ```
 
 Use `dotnet tool update` with the same arguments when upgrading an existing
-installation. Run `./artifacts/tools/a2 disk ls tests/TestData/independent-dos33.do`
+installation. If you rebuilt the same version, `update` can leave the previous
+binaries installed; run `dotnet tool uninstall A2Utils.Tool --tool-path artifacts/tools`
+and then repeat the install command. Run `./artifacts/tools/a2 disk ls tests/TestData/independent-dos33.do`
 to check the installed tool. A Windows x64 self-contained smoke check is
 `./artifacts/publish/win-x64/a2.exe disk verify tests/TestData/independent-dos33.do`.
 These commands use local artifacts and do not publish a package.

@@ -40,6 +40,44 @@ public sealed class ProgramWorkflowTests : IDisposable
     }
 
     [Fact]
+    public void Assembly_IncludesAndReports_ExportsUsableSymbolsAndProtectsDependencies()
+    {
+        File.WriteAllText(At("source.asm"), ".org $2000\n.include \"code.asm\"\n.incbin \"asset.bin\"\n");
+        File.WriteAllText(At("code.asm"), "start: lda #1\nrts\n");
+        File.WriteAllBytes(At("asset.bin"), [0x42]);
+        var compiled = Success("asm", "compile", At("source.asm"), "--to", At("program.bin"), "--json");
+        using JsonDocument json = JsonDocument.Parse(compiled.Output);
+        Assert.Equal(0x2000, json.RootElement.GetProperty("data").GetProperty("symbols").GetProperty("start").GetInt32());
+        Assert.Equal(new byte[] { 0xa9, 1, 0x60, 0x42 }, File.ReadAllBytes(At("program.bin")));
+        Success("asm", "map", At("source.asm"), "--to", At("program.map.json"));
+        using JsonDocument map = JsonDocument.Parse(File.ReadAllText(At("program.map.json")));
+        Assert.Equal(1, map.RootElement.GetProperty("schemaVersion").GetInt32());
+        Assert.Equal(3, map.RootElement.GetProperty("dependencies").EnumerateObject().Count());
+        Success("asm", "listing", At("source.asm"), "--to", At("program.lst"));
+        Assert.Contains("2000  A901", File.ReadAllText(At("program.lst")));
+        var alias = Run("asm", "compile", At("source.asm"), "--to", At("asset.bin"), "--overwrite");
+        Assert.Equal(6, alias.Code);
+        Assert.Equal(new byte[] { 0x42 }, File.ReadAllBytes(At("asset.bin")));
+        var reportAlias = Run("asm", "map", At("source.asm"), "--to", At("code.asm"), "--overwrite");
+        Assert.Equal(6, reportAlias.Code);
+        Assert.Contains("start:", File.ReadAllText(At("code.asm")));
+    }
+
+    [Theory]
+    [InlineData("map")]
+    [InlineData("listing")]
+    public void Assembly_FailedReport_PreservesExistingOutput(string command)
+    {
+        File.WriteAllText(At("source.asm"), ".org $2000\n.assert 0,\"stop\"\n");
+        File.WriteAllText(At("report.txt"), "existing report");
+        var result = Run("asm", command, At("source.asm"), "--to", At("report.txt"), "--overwrite", "--json");
+        Assert.Equal(2, result.Code);
+        Assert.Contains("assembly.assertion_failed", result.Error);
+        Assert.Equal("existing report", File.ReadAllText(At("report.txt")));
+        Assert.Empty(Directory.GetFiles(_directory, ".*.a2-*"));
+    }
+
+    [Fact]
     public void Assembly_DosInput_InfersHeaderLoadAddress()
     {
         File.WriteAllBytes(At("input.bin"), [0x00, 0x30, 0x01, 0x00, 0x60]);

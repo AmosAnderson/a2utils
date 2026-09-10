@@ -1,5 +1,55 @@
 # Development preview validation
 
+## Preview 0.4 development workflow — September 10, 2026
+
+Validated locally on Windows x64 with .NET SDK 10.0.401 (the pinned SDK's
+permitted patch roll-forward). This records implementation evidence, not a
+stable-release certification or validation of every supported machine profile.
+
+| Check | Result |
+| --- | --- |
+| Locked dependency restore and Release build with `--warnaserror` | Passed; zero warnings/errors, no new NuGet dependencies |
+| Core and CLI suites | 794 passed (673 Core, 121 CLI), zero skipped, including the real MAME integration test |
+| Formatting outside `third_party` | Passed |
+| Project/execution schemas | Tracked examples, complete inline examples, and serialized project defaults validate |
+| Documentation | Local links, anchors, fences, JSON examples, and new command help checked |
+| Independent fixture and vendor integrity | Both DO/PO fixture hashes and all 208 pinned upstream files match |
+| Native builds | DOS/ProDOS mixed sources, byte-identical rebuilds, source maps, metadata, overlays, and memory conflicts checked |
+| Failure preservation | Source/output aliases, includes, invalid source/PNG/schema, locks, capacity, cancellation, and failed staged writes covered |
+| Graphics | Independent PNG, screen addresses, palettes, bitmap packing, Apple shape vectors, and double-hires bank vectors checked |
+| Local tool and self-contained Windows package | Built and smoke-tested; embedded schemas, project builds, source maps, BASIC labels, graphics, and actual MAME execution passed |
+| Restore after self-contained publish | Normal locked restore passed; RID lockfiles remain under `obj` |
+
+Actual external-tool validation used MAME **0.289** and cc65
+**`cl65 V2.19 - Git e11fb5c`**. Process-contract test doubles are separately named
+and do not count as emulator or compiler execution evidence. Real checks passed:
+
+- Original assembled boot sector: injected keyboard input, registers, memory,
+  text, completion condition, screenshot, and PC samples.
+- Project build into a copied ProDOS 2.4.3 template: BASIC startup ran assembly,
+  printed the expected text, and wrote the asserted completion byte.
+- A real two-case `a2 test` suite containing both boot workflows.
+- C source compiled for `apple2` and `apple2enh`, including byte-identical repeated
+  compilation. The enhanced target also passed a full project build, generated
+  startup launcher, ProDOS boot, and text assertion in MAME. The installed tool
+  and self-contained executable both repeated that machine check.
+
+The final local evidence is under ignored `artifacts/development-final/`;
+earlier boot/suite evidence is under `artifacts/execution-smoke/` and
+`artifacts/os-validation/`. [Execution setup and provenance](execution.md) record
+the tool/ROM identities and reproduction commands. The downloaded ProDOS image's
+SHA-256 also matched AppleWin's HTTPS copy. No downloaded binaries, ROMs, or OS
+images are included in tracked source, examples, or packages.
+
+Actual machine coverage is the enhanced Apple IIe on Windows. Other MAME profiles,
+native Linux/macOS execution, and a real DOS 3.3 operating-system workflow remain
+release checks. New formatted disks remain data volumes. Memory checks describe
+declared main-memory ranges, not dynamic/banked allocations or the complete C
+runtime. cc65 reproducibility also depends on its external distribution and
+environment. Native IIgs and broad archive support remain outside this preview.
+
+## Previous preview 0.3 validation
+
 Preview 0.3.0-dev validated locally on Windows x64 with .NET SDK 10.0.400. This records completed
 checks for the development preview; it is not a stable-release certification.
 

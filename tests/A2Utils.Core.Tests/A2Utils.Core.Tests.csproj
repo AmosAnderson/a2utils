@@ -8,6 +8,7 @@
     <PackageReference Include="xunit" Version="2.9.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="4.0.0" PrivateAssets="all" />
     <ProjectReference Include="../../src/A2Utils.Core/A2Utils.Core.csproj" />
+    <ProjectReference Include="../A2Utils.ExecutionTestHost/A2Utils.ExecutionTestHost.csproj" ReferenceOutputAssembly="false" />
     <Using Include="Xunit" />
     <Using Include="A2Utils.Tests" />
     <Compile Include="../Shared/TestPaths.cs" Link="TestPaths.cs" />

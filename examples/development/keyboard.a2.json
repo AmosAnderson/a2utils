@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "target": "apple2e",
+  "output": "keyboard.po",
+  "disk": { "fileSystem": "prodos", "volumeName": "KEYBOARD" },
+  "files": [
+    { "source": "keyboard.asm", "path": "KEYECHO", "kind": "asm" }
+  ]
+}

@@ -1,6 +1,34 @@
 Apple II disk image utility — implementation plan
 ================================================
 
+AI development workflow implementation (September 10, 2026)
+----------------------------------------------------------
+
+The authorized next milestone adds a complete host-side development workflow.
+Implementation and validation are tracked here as work proceeds:
+
+- [x] Structured program diagnostics, capability discovery, and JSON schemas.
+- [x] Assembly file composition, expressions, assertions, symbols, source maps, and listings.
+- [x] Applesoft source checks, safe renumbering, symbolic labels, and source mappings.
+- [x] Versioned project manifests and transactional, reproducible source-to-disk builds.
+- [x] Machine/runtime profiles, memory conflict checks, and documented platform symbols.
+- [x] MAME execution/test adapter, bounded automation, assertions, and failure evidence.
+- [x] cc65 integration and AppleSingle metadata decoding.
+- [x] Lo-res/hi-res PNGs, sprites, tiles, fonts, shape tables, and double-hires screens.
+- [x] Build, unit/integration tests, formatting, schema/examples verification, and documentation.
+
+Bootable builds preserve a supplied bootable template; new formatted disks remain
+data volumes. External emulator execution requires a configured emulator, matching
+ROMs, and a suitable disk image. Emulator validation is recorded
+separately from tests of the adapter contract. Native IIgs development, broad archive
+formats, and broader emulator/platform validation remain subsequent milestones.
+
+The new workflow passed real enhanced-IIe MAME tests for an original boot sector,
+ProDOS BASIC/assembly, and cc65 C output. Both local tool and Windows self-contained
+packages passed smoke checks. See [the validation record](docs/VALIDATION.md) for
+test evidence and the remaining platform/release checks.
+
+
 Build a reusable C# library and a command-line application for inspecting, extracting, creating, and modifying Apple II and Apple IIe disk images. Start with standard DOS 3.3 disks, then add ProDOS. Keep the project organized so later utilities can handle Apple II archives, BASIC programs, graphics, and other files.
 
 The original proposal below now has a working implementation. The workspace started empty on September 7, 2026, with .NET SDK 10.0.400 installed. Current milestone status:

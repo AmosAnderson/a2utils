@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "name": "ProDOS BASIC and assembly project",
+  "emulatorPath": "../../artifacts/execution-tools/mame0289/mame.exe",
+  "expectedVersion": "0.289",
+  "machine": "apple2ee",
+  "romDirectory": "../../artifacts/execution-tools/roms",
+  "diskImage": "../../artifacts/os-validation/hello.po",
+  "emulatedSeconds": 20,
+  "hostTimeoutSeconds": 45,
+  "until": { "address": 768, "value": 42, "afterSeconds": 4 },
+  "memory": [{ "address": 768, "hex": "2A" }],
+  "textContains": ["HELLO FROM A2UTILS"],
+  "screenshot": true,
+  "trace": true
+}

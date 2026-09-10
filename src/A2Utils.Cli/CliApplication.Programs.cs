@@ -2,6 +2,7 @@ using System.CommandLine;
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using A2Utils.Core;
 using A2Utils.Core.Assembly;
 using A2Utils.Core.Backends;
@@ -24,6 +25,8 @@ public sealed partial class CliApplication
                 ? "Tokenize and list Applesoft BASIC programs."
                 : "Assemble source and disassemble 6502/65C02 machine code.");
             root.Subcommands.Add(group);
+            if (basic) AddBasicToolsCommands(group);
+            else AddAssemblyReportCommands(group);
             foreach (bool compile in new[] { true, false })
             {
                 Command command = new(compile ? "compile" : "decompile", basic
@@ -61,18 +64,22 @@ public sealed partial class CliApplication
                     ushort programOrigin;
                     byte[] result;
                     int payloadLength;
+                    AssemblyResult? assemblyReport = null;
                     if (compile)
                     {
-                        string source = ReadProgramText(inputPath);
                         byte[] payload;
                         if (basic)
                         {
+                            string source = ReadProgramText(inputPath);
                             programOrigin = requestedOrigin ?? ApplesoftBasic.DefaultOrigin;
                             payload = ApplesoftBasic.Compile(source, programOrigin, _cancellationToken);
                         }
                         else
                         {
-                            AssemblyResult assembly = Assembler.Assemble(source, requestedOrigin, cpuKind, _cancellationToken);
+                            AssemblyResult assembly = Assembler.AssembleFile(inputPath, requestedOrigin, cpuKind, _cancellationToken);
+                            assemblyReport = assembly;
+                            foreach (string dependency in assembly.Dependencies)
+                                ImageTransactions.EnsureDistinctPaths(dependency, outputPath);
                             programOrigin = assembly.Origin;
                             payload = assembly.Bytes;
                         }
@@ -124,6 +131,7 @@ public sealed partial class CliApplication
                     ImageWriteResult written = ImageTransactions.Create(outputPath, parse.GetValue(overwrite), temporary =>
                     {
                         _cancellationToken.ThrowIfCancellationRequested();
+                        if (assemblyReport is not null) ValidateAssemblyDependencies(assemblyReport);
                         using FileStream stream = new(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None);
                         stream.Write(result);
                     }, temporary =>
@@ -131,6 +139,7 @@ public sealed partial class CliApplication
                         using FileStream stream = File.OpenRead(temporary);
                         if (stream.Length != result.Length || !SHA256.HashData(stream).AsSpan().SequenceEqual(expectedHash))
                             throw new DiskException("program.validation_failed", "The staged program differs from its expected contents.", 4);
+                        if (assemblyReport is not null) ValidateAssemblyDependencies(assemblyReport);
                     }, _cancellationToken);
                     return Result($"{groupName}.{command.Name}", new
                     {
@@ -139,11 +148,88 @@ public sealed partial class CliApplication
                         payloadLength,
                         outputLength = result.Length,
                         cpu = basic ? null : parse.GetValue(cpu),
-                        format = compile ? hostFormat : "source"
+                        format = compile ? hostFormat : "source",
+                        symbols = assemblyReport?.Symbols,
+                        sourceMap = assemblyReport?.SourceMap,
+                        dependencies = assemblyReport?.DependencyHashes
                     }, $"Wrote {written.OutputPath} ({payloadLength} program bytes at ${programOrigin:X4})");
                 });
                 group.Subcommands.Add(command);
             }
+        }
+    }
+
+    private void AddAssemblyReportCommands(Command group)
+    {
+        foreach (bool map in new[] { false, true })
+        {
+            Command command = new(map ? "map" : "listing", map
+                ? "Assemble source and export symbols, source locations, and dependency hashes as JSON."
+                : "Assemble source and export an address/byte/source listing.");
+            Argument<string> input = new("INPUT") { Description = "UTF-8 assembly source." };
+            Option<string> output = new("--to") { Required = true, Description = "Host report file." };
+            Option<string?> origin = new("--origin") { Description = "16-bit program origin." };
+            Option<string> cpu = new("--cpu") { DefaultValueFactory = _ => "6502", Description = "6502, 65c02, or w65c02." };
+            Option<bool> overwrite = new("--overwrite") { Description = "Allow replacing the report file." };
+            command.Arguments.Add(input);
+            foreach (Option option in new Option[] { output, origin, cpu, overwrite }) command.Options.Add(option);
+            command.SetAction(parse =>
+            {
+                if (parse.GetValue(_inputOrder) is not null || parse.GetValue(_inputFs) is not null)
+                    throw new DiskException("invalid_arguments", "Image overrides do not apply to source reports.", 2);
+                string inputPath = parse.GetValue(input)!;
+                string outputPath = parse.GetValue(output)!;
+                ImageTransactions.EnsureDistinctPaths(inputPath, outputPath);
+                AssemblyResult assembly = Assembler.AssembleFile(inputPath,
+                    parse.GetValue(origin) is { } address ? ParseProgramAddress(address) : null,
+                    ParseCpu(parse.GetValue(cpu)!), _cancellationToken);
+                foreach (string dependency in assembly.Dependencies)
+                    ImageTransactions.EnsureDistinctPaths(dependency, outputPath);
+                object report = new
+                {
+                    schemaVersion = 1,
+                    assembly.Origin,
+                    payloadLength = assembly.Bytes.Length,
+                    cpu = parse.GetValue(cpu),
+                    assembly.Symbols,
+                    assembly.SourceMap,
+                    dependencies = assembly.DependencyHashes
+                };
+                string source = map ? JsonSerializer.Serialize(report, new JsonSerializerOptions
+                {
+                    PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+                    WriteIndented = true
+                }) + "\n" : Assembler.CreateListing(assembly);
+                byte[] bytes = ProgramUtf8.GetBytes(source);
+                byte[] expected = SHA256.HashData(bytes);
+                ImageWriteResult written = ImageTransactions.Create(outputPath, parse.GetValue(overwrite), temporary =>
+                {
+                    ValidateAssemblyDependencies(assembly);
+                    File.WriteAllBytes(temporary, bytes);
+                }, temporary =>
+                {
+                    using FileStream stream = File.OpenRead(temporary);
+                    if (stream.Length != bytes.Length || !SHA256.HashData(stream).AsSpan().SequenceEqual(expected))
+                        throw new DiskException("program.validation_failed", "The staged assembly report differs from its expected contents.", 4);
+                    ValidateAssemblyDependencies(assembly);
+                }, _cancellationToken);
+                return Result("asm." + command.Name, new { written.OutputPath, assembly.Origin, payloadLength = assembly.Bytes.Length },
+                    $"Wrote {written.OutputPath}");
+            });
+            group.Subcommands.Add(command);
+        }
+    }
+
+    private void ValidateAssemblyDependencies(AssemblyResult assembly)
+    {
+        foreach ((string path, string expected) in assembly.DependencyHashes)
+        {
+            _cancellationToken.ThrowIfCancellationRequested();
+            ImageTransactions.ValidatePath(path);
+            HostFiles.EnsureRegularFile(path, _cancellationToken);
+            using FileStream stream = File.OpenRead(path);
+            if (!Convert.ToHexStringLower(SHA256.HashData(stream)).Equals(expected, StringComparison.Ordinal))
+                throw new DiskException("program.source_changed", "An assembly source or binary include changed before output was committed.", 6);
         }
     }
 

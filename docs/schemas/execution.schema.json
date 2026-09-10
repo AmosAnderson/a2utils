@@ -1,0 +1,173 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:a2utils:schema:execution:1",
+  "title": "A2Utils execution schema v1",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "emulatorPath": {
+      "type": "string",
+      "minLength": 1
+    },
+    "expectedVersion": {
+      "const": "0.289"
+    },
+    "machine": {
+      "enum": [
+        "apple2",
+        "apple2p",
+        "apple2e",
+        "apple2ee",
+        "apple2c"
+      ]
+    },
+    "romDirectory": {
+      "type": "string",
+      "minLength": 1
+    },
+    "diskImage": {
+      "type": "string",
+      "minLength": 1
+    },
+    "diskDevice": {
+      "enum": ["flop1", "flop2"]
+    },
+    "emulatedSeconds": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "maximum": 3600
+    },
+    "hostTimeoutSeconds": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "maximum": 3600
+    },
+    "keys": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "atSeconds": {
+            "type": "number",
+            "minimum": 0
+          },
+          "text": {
+            "type": "string",
+            "maxLength": 16384
+          }
+        },
+        "required": [
+          "atSeconds",
+          "text"
+        ]
+      },
+      "maxItems": 1024
+    },
+    "memory": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "address": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 65535
+          },
+          "hex": {
+            "type": "string",
+            "pattern": "^[A-Fa-f0-9 ]+$"
+          }
+        },
+        "required": [
+          "address",
+          "hex"
+        ]
+      },
+      "maxItems": 1024
+    },
+    "registers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Z0-9_]{0,15}$"
+          },
+          "value": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 65535
+          }
+        },
+        "required": [
+          "name",
+          "value"
+        ]
+      },
+      "maxItems": 128
+    },
+    "textContains": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "maxItems": 128
+    },
+    "until": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "address": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65535
+        },
+        "value": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 255
+        },
+        "afterSeconds": {
+          "type": "number",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "address",
+        "value"
+      ]
+    },
+    "textPage": {
+      "enum": [
+        1,
+        2
+      ]
+    },
+    "screenshot": {
+      "type": "boolean"
+    },
+    "trace": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "emulatorPath",
+    "machine",
+    "romDirectory",
+    "diskImage"
+  ]
+}

@@ -9,6 +9,9 @@ public sealed record ImageWriteResult(string OutputPath, string? BackupPath);
 /// <summary>Stages complete files beside the destination before replacing a directory entry.</summary>
 public static class ImageTransactions
 {
+    /// <summary>Validates a host path against the same link policy used for image transactions.</summary>
+    public static void ValidatePath(string path) => CheckPath(Path.GetFullPath(path));
+
     /// <summary>Rejects linked paths and destinations that identify the source file.</summary>
     public static void EnsureDistinctPaths(string sourcePath, string destinationPath)
     {

@@ -15,12 +15,12 @@ The examples use a locally installed executable as described in
 | Standard error | Failure messages and diagnostic details; it may be nonempty even when a command succeeds |
 | `--json` | Uses a versioned result or error envelope; takes precedence over `--quiet` for normal output |
 | `--quiet` | Suppresses normal text results; does not suppress errors |
-| `--verbose` | Adds diagnostic detail; unexpected failures may include exception text before the JSON error |
+| `--verbose` | Adds diagnostic detail in text mode; JSON mode keeps diagnostics structured |
 | `--to` / `--output` | Programs, exported payloads, and images go to files, not standard output |
 
 Keep the channels separate. Do not use `2>&1` before parsing stdout as JSON.
-Diagnostic lines written to stderr are not necessarily JSON. Avoid `--verbose`
-when a script expects to parse stderr as a single error envelope. Help and
+In preview 0.4, `--json` collects diagnostics in the result/error envelope and
+keeps stderr free of unstructured warning/verbose lines. Help and
 version output are informational text rather than result envelopes.
 
 Success has this shape:
@@ -32,7 +32,8 @@ Success has this shape:
   "data": {
     "valid": true,
     "diagnostics": []
-  }
+  },
+  "diagnostics": []
 }
 ```
 
@@ -45,12 +46,26 @@ normal stdout result:
   "error": {
     "code": "program.origin_required",
     "message": "Raw machine code requires --origin because its load address is not stored in the file.",
-    "exitCode": 2
+    "exitCode": 2,
+    "diagnostics": []
   }
 }
 ```
 
-There is one important distinction: `disk verify` can finish inspection and
+Preview 0.4 adds an envelope `diagnostics` array on success and
+`error.diagnostics` on failure. Source diagnostics can include `file`, `line`,
+`column`, `basicLine`, `symbol`, `expected`, and `actual`. Existing code/message/
+exitCode fields remain available. Assembly errors keep their broad classification
+while the diagnostic entries provide more specific causes.
+
+`basic check`, `run`, and `test` can also return stdout result envelopes on
+nonzero exits: source-check failures and behavioral assertion failures have
+useful results. Inspect the process exit and result diagnostics together.
+Use `capabilities --json` and `schema NAME --json` for discovery. New command
+results include build hashes/files/memory maps, assembly symbols/source maps,
+renumber mappings, graphics artifact metadata, and execution state/artifact paths.
+
+`disk verify` can also finish inspection and
 report structural errors with **exit code 4 and a stdout result envelope**
 whose `data.valid` is `false`. Check its diagnostics rather than assuming
 every nonzero exit has an error envelope on stderr.
@@ -60,7 +75,7 @@ every nonzero exit has an error envelope on stderr.
 | Code | Meaning | Typical script response |
 | --- | --- | --- |
 | 0 | Success | Parse the result and continue |
-| 1 | Unexpected failure | Retain the command, inputs, and diagnostic output for investigation |
+| 1 | Behavioral assertion or unexpected failure | Inspect execution assertions or retain diagnostic output for investigation |
 | 2 | Invalid arguments or source syntax | Correct options, source, or a malformed manifest definition |
 | 3 | Unsupported/ambiguous format or representation | Select a supported format/CPU, or provide a justified override |
 | 4 | Damaged or inconsistent input | Inspect diagnostics; do not repeatedly retry the same write |

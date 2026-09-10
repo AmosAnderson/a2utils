@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "target": "apple2e",
+  "output": "hires.po",
+  "disk": { "fileSystem": "prodos", "volumeName": "HIRES" },
+  "reserve": [ { "name": "HGR page 1", "start": 8192, "length": 8192 } ],
+  "files": [
+    { "source": "hires.asm", "path": "STRIPES", "kind": "asm" }
+  ]
+}

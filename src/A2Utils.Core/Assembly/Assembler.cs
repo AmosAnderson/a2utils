@@ -1,9 +1,24 @@
+using System.Collections.ObjectModel;
+using System.Text;
+using A2Utils.Core.Programs;
+
 namespace A2Utils.Core.Assembly;
 
-public sealed record AssemblyResult(ushort Origin, byte[] Bytes);
+public sealed record AssemblySourceMapEntry(string? File, int Line, int Address, int Length)
+{
+    public string Source { get; init; } = "";
+}
 
-/// <summary>Assembles a bounded, contiguous 6502 program without includes, macros, or linking.</summary>
-public static class Assembler
+public sealed record AssemblyResult(ushort Origin, byte[] Bytes)
+{
+    public IReadOnlyDictionary<string, int> Symbols { get; init; } = new ReadOnlyDictionary<string, int>(new Dictionary<string, int>());
+    public IReadOnlyList<AssemblySourceMapEntry> SourceMap { get; init; } = [];
+    public IReadOnlyList<string> Dependencies { get; init; } = [];
+    public IReadOnlyDictionary<string, string> DependencyHashes { get; init; } = new ReadOnlyDictionary<string, string>(new Dictionary<string, string>());
+}
+
+/// <summary>Assembles a bounded, contiguous 6502 program with source and binary includes.</summary>
+public static partial class Assembler
 {
     public const int MaximumSourceLength = 4 * 1024 * 1024;
 
@@ -11,6 +26,41 @@ public static class Assembler
         CpuKind cpu = CpuKind.Mos6502, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(source);
+        cancellationToken.ThrowIfCancellationRequested();
+        return AssembleDocument(SourceDocument.FromText(source), origin, cpu, cancellationToken);
+    }
+
+    public static AssemblyResult AssembleFile(string path, ushort? origin = null,
+        CpuKind cpu = CpuKind.Mos6502, CancellationToken cancellationToken = default) =>
+        AssembleDocument(SourceDocument.FromFile(path, cancellationToken), origin, cpu, cancellationToken);
+
+    private static AssemblyResult AssembleDocument(SourceDocument document, ushort? origin,
+        CpuKind cpu, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return AssembleCore(document, origin, cpu, cancellationToken);
+        }
+        catch (DiskException exception) when (exception.Diagnostics.Count > 0)
+        {
+            ProgramDiagnostic[] diagnostics = exception.Diagnostics.Select(diagnostic =>
+            {
+                if (diagnostic.Line is not { } line || line < 1 || line > document.Lines.Count)
+                    return diagnostic;
+                SourceLine location = document.Lines[line - 1];
+                return diagnostic with { File = location.File, Line = location.Line };
+            }).ToArray();
+            ProgramDiagnostic first = diagnostics[0];
+            string message = first.File is null ? exception.Message
+                : $"{first.File}: Line {first.Line}: {first.Message}";
+            throw new DiskException(exception.Code, message, exception.ExitCode, exception) { Diagnostics = diagnostics };
+        }
+    }
+
+    private static AssemblyResult AssembleCore(SourceDocument document, ushort? origin,
+        CpuKind cpu, CancellationToken cancellationToken)
+    {
+        string source = document.Text;
         cancellationToken.ThrowIfCancellationRequested();
         if (source.Length > MaximumSourceLength)
         {
@@ -104,11 +154,55 @@ public static class Assembler
             Span<byte> target = output.AsSpan(statement.Address!.Value - firstAddress.Value, statement.Length);
             EmitStatement(statement, finalResolver, target);
         }
-        return new AssemblyResult((ushort)firstAddress.Value, output);
+        Dictionary<string, int> exportedSymbols = new(StringComparer.OrdinalIgnoreCase);
+        foreach (AssemblySymbol symbol in symbols.Values)
+        {
+            long value = finalResolver.Resolve(symbol.Name, symbol.Line).Number;
+            if (value is >= int.MinValue and <= int.MaxValue)
+                exportedSymbols.Add(symbol.Name, (int)value);
+        }
+        return new AssemblyResult((ushort)firstAddress.Value, output)
+        {
+            Symbols = new ReadOnlyDictionary<string, int>(exportedSymbols),
+            SourceMap = statements.Where(statement => statement.Address.HasValue).Select(statement =>
+            {
+                SourceLine location = document.Lines[statement.Line - 1];
+                return new AssemblySourceMapEntry(location.File, location.Line, statement.Address!.Value, statement.Length)
+                {
+                    Source = location.Text
+                };
+            }).ToArray(),
+            Dependencies = document.Dependencies.ToArray(),
+            DependencyHashes = new ReadOnlyDictionary<string, string>(document.Hashes)
+        };
     }
 
-    internal static DiskException Error(int line, string message) =>
-        new("assembly.invalid_source", $"Line {line}: {message}", 2);
+    internal static DiskException Error(int line, string message, string code = "assembly.invalid_source",
+        string? symbol = null, string? expected = null, string? actual = null) =>
+        new("assembly.invalid_source", $"Line {line}: {message}", 2)
+        {
+            Diagnostics = [new ProgramDiagnostic(code, "error", message, Line: line, Symbol: symbol,
+                Expected: expected, Actual: actual)]
+        };
+
+    public static string CreateListing(AssemblyResult result)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        StringBuilder listing = new();
+        foreach (AssemblySourceMapEntry entry in result.SourceMap)
+        {
+            int count = Math.Max(entry.Length, 1);
+            for (int offset = 0; offset < count; offset += 8)
+            {
+                int length = Math.Min(8, entry.Length - offset);
+                string bytes = length > 0 ? Convert.ToHexString(result.Bytes.AsSpan(entry.Address - result.Origin + offset, length)) : "";
+                listing.Append($"{entry.Address + offset:X4}  {bytes,-16}  ");
+                if (offset == 0) listing.Append($"{entry.File ?? "<source>"}:{entry.Line}  {entry.Source}");
+                listing.Append('\n');
+            }
+        }
+        return listing.ToString();
+    }
 
     private static List<Statement> ParseStatements(string source, Dictionary<string, AssemblySymbol> symbols,
         CancellationToken cancellationToken)
@@ -119,6 +213,7 @@ public static class Assembler
             throw Error(1, "Source exceeds 100000 lines.");
         }
         List<Statement> statements = new(lines.Length);
+        string? scope = null;
         for (int index = 0; index < lines.Length; index++)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -129,7 +224,7 @@ public static class Assembler
             }
             string text = StripComment(lines[index], line).Trim();
             List<string> labels = [];
-            while (text.Length > 0 && AssemblyExpression.IsIdentifierStart(text[0]))
+            while (text.Length > 0 && (AssemblyExpression.IsIdentifierStart(text[0]) || text[0] == '@'))
             {
                 int nameLength = IdentifierLength(text);
                 int colon = nameLength;
@@ -142,10 +237,13 @@ public static class Assembler
                     break;
                 }
                 string label = text[..nameLength];
+                if (label[0] == '@') label = QualifyLocals(label, scope, line);
+                else scope = label;
                 AddSymbol(new AssemblySymbol(label, line, null), symbols);
                 labels.Add(label);
                 text = text[(colon + 1)..].TrimStart();
             }
+            text = QualifyLocals(text, scope, line);
             if (text.Length == 0)
             {
                 statements.Add(new Statement(line, labels, "", ""));
@@ -221,13 +319,32 @@ public static class Assembler
                     resolver, statement.Address, statement.Line), 0x10000, statement.Line, "Fill count");
                 statement.Expressions = [AssemblyExpression.Parse(fill.Count == 2 ? fill[1] : "0", statement.Line)];
                 return;
+            case ".ALIGN":
+                List<string> align = SplitOperands(statement.Operand, statement.Line);
+                if (align.Count is < 1 or > 2)
+                    throw Error(statement.Line, ".align expects boundary[,value].");
+                int boundary = RequireRange(EvaluateLayout(AssemblyExpression.Parse(align[0], statement.Line),
+                    resolver, statement.Address, statement.Line), 0x10000, statement.Line, "Alignment");
+                if (boundary == 0 || (boundary & (boundary - 1)) != 0)
+                    throw Error(statement.Line, "Alignment must be a power of two in 1..65536.", "assembly.invalid_alignment");
+                statement.Length = (-statement.Address!.Value) & (boundary - 1);
+                statement.Expressions = [AssemblyExpression.Parse(align.Count == 2 ? align[1] : "0", statement.Line)];
+                return;
+            case ".ASSERT":
+                List<string> assertion = SplitOperands(statement.Operand, statement.Line);
+                if (assertion.Count is < 1 or > 2)
+                    throw Error(statement.Line, ".assert expects expression[,\"message\"].");
+                statement.Expressions = [AssemblyExpression.Parse(assertion[0], statement.Line)];
+                statement.AssertionMessage = assertion.Count == 2
+                    ? Encoding.ASCII.GetString(ParseString(assertion[1], statement.Line)) : "Assembly assertion failed.";
+                return;
         }
 
         string mnemonic = statement.Operation;
         bool Supports(AddressingMode mode) => instructions.ContainsKey((mnemonic, mode));
         if (!instructions.Keys.Any(key => key.Mnemonic == mnemonic))
         {
-            throw Error(statement.Line, $"Unknown directive or instruction '{mnemonic}' for this CPU.");
+            throw Error(statement.Line, $"Unknown directive or instruction '{mnemonic}' for this CPU.", "assembly.unknown_operation", mnemonic);
         }
         string operand = statement.Operand;
         AddressingMode mode;
@@ -375,7 +492,13 @@ public static class Assembler
     {
         long Evaluate(AssemblyExpression expression) =>
             EvaluateFinal(expression, resolver, statement.Address, statement.Line);
-        if (statement.Operation == ".FILL")
+        if (statement.Operation == ".ASSERT")
+        {
+            if (Evaluate(statement.Expressions[0]) == 0)
+                throw Error(statement.Line, statement.AssertionMessage!, "assembly.assertion_failed", expected: "nonzero", actual: "0");
+            return;
+        }
+        if (statement.Operation is ".FILL" or ".ALIGN")
         {
             output.Fill((byte)RequireRange(Evaluate(statement.Expressions[0]), 0xff, statement.Line, "Fill byte"));
             return;
@@ -443,7 +566,8 @@ public static class Assembler
         }
         if (difference is < -128 or > 127)
         {
-            throw Error(statement.Line, $"Branch target is out of range ({difference}; expected -128 through 127 bytes).");
+            throw Error(statement.Line, $"Branch target is out of range ({difference}; expected -128 through 127 bytes).",
+                "assembly.branch_range", expected: "-128..127", actual: difference.ToString(System.Globalization.CultureInfo.InvariantCulture));
         }
         return unchecked((byte)(sbyte)difference);
     }
@@ -484,7 +608,8 @@ public static class Assembler
     {
         if (value < 0 || value > maximum)
         {
-            throw Error(line, $"{description} {value} is outside 0..{maximum}; use < or > for explicit byte extraction.");
+            throw Error(line, $"{description} {value} is outside 0..{maximum}; use < or > for explicit byte extraction.",
+                "assembly.value_range", expected: $"0..{maximum}", actual: value.ToString(System.Globalization.CultureInfo.InvariantCulture));
         }
         return (int)value;
     }
@@ -505,7 +630,8 @@ public static class Assembler
         }
         if (!symbols.TryAdd(symbol.Name, symbol))
         {
-            throw Error(symbol.Line, $"Symbol '{symbol.Name}' is already defined on line {symbols[symbol.Name].Line}.");
+            throw Error(symbol.Line, $"Symbol '{symbol.Name}' is already defined on line {symbols[symbol.Name].Line}.",
+                "assembly.duplicate_symbol", symbol.Name);
         }
     }
 
@@ -632,6 +758,7 @@ public static class Assembler
 
     private static byte[] ParseString(string text, int line)
     {
+        if (!text.StartsWith('"')) throw Error(line, "Expected a quoted string.");
         List<byte> bytes = [];
         for (int index = 1; index < text.Length; index++)
         {
@@ -682,6 +809,7 @@ public static class Assembler
         public Instruction? Instruction { get; set; }
         public AssemblyExpression[] Expressions { get; set; } = [];
         public List<DataItem> Items { get; } = [];
+        public string? AssertionMessage { get; set; }
     }
 
     private sealed record DataItem(byte[]? Bytes, AssemblyExpression? Expression);

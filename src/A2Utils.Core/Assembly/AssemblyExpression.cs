@@ -60,6 +60,7 @@ internal abstract record AssemblyExpression
                     '-' => checked(-value.Number),
                     '<' => value.Number & 0xff,
                     '>' => (value.Number >> 8) & 0xff,
+                    '~' => ~value.Number,
                     _ => throw new InvalidOperationException()
                 });
             }
@@ -70,7 +71,7 @@ internal abstract record AssemblyExpression
         }
     }
 
-    private sealed record BinaryExpression(char Operator, AssemblyExpression Left, AssemblyExpression Right)
+    private sealed record BinaryExpression(string Operator, AssemblyExpression Left, AssemblyExpression Right)
         : AssemblyExpression
     {
         protected override ExpressionValue EvaluateCore(AssemblyResolver resolver, int? address, int line)
@@ -83,13 +84,38 @@ internal abstract record AssemblyExpression
             }
             try
             {
-                return ExpressionValue.Of(Operator == '+'
-                    ? checked(left.Number + right.Number)
-                    : checked(left.Number - right.Number));
+                if (Operator is "<<" or ">>" && right.Number is < 0 or > 63)
+                {
+                    throw Assembler.Error(line, "Shift count must be in 0..63.", "assembly.shift_range");
+                }
+                return ExpressionValue.Of(Operator switch
+                {
+                    "+" => checked(left.Number + right.Number),
+                    "-" => checked(left.Number - right.Number),
+                    "*" => checked(left.Number * right.Number),
+                    "/" => checked(left.Number / right.Number),
+                    "%" => left.Number % right.Number,
+                    "&" => left.Number & right.Number,
+                    "|" => left.Number | right.Number,
+                    "^" => left.Number ^ right.Number,
+                    "<<" => checked((long)((Int128)left.Number << (int)right.Number)),
+                    ">>" => left.Number >> (int)right.Number,
+                    "==" => left.Number == right.Number ? 1 : 0,
+                    "!=" => left.Number != right.Number ? 1 : 0,
+                    "<" => left.Number < right.Number ? 1 : 0,
+                    "<=" => left.Number <= right.Number ? 1 : 0,
+                    ">" => left.Number > right.Number ? 1 : 0,
+                    ">=" => left.Number >= right.Number ? 1 : 0,
+                    _ => throw new InvalidOperationException()
+                });
             }
             catch (OverflowException)
             {
                 throw Assembler.Error(line, "Expression exceeds the signed 64-bit range.");
+            }
+            catch (DivideByZeroException)
+            {
+                throw Assembler.Error(line, "Expression divides by zero.", "assembly.division_by_zero");
             }
         }
     }
@@ -106,7 +132,7 @@ internal abstract record AssemblyExpression
             {
                 throw Assembler.Error(line, "An expression may contain at most 4096 characters.");
             }
-            AssemblyExpression result = ParseSum();
+            AssemblyExpression result = ParseBinary(0);
             SkipWhiteSpace();
             if (_position != text.Length)
             {
@@ -115,13 +141,26 @@ internal abstract record AssemblyExpression
             return result;
         }
 
-        private AssemblyExpression ParseSum()
+        private static readonly string[][] Operators =
+        [
+            ["|"], ["^"], ["&"], ["==", "!="], ["<=", ">=", "<", ">"],
+            ["<<", ">>"], ["+", "-"], ["*", "/", "%"]
+        ];
+
+        private AssemblyExpression ParseBinary(int precedence)
         {
-            AssemblyExpression result = ParseUnary();
+            if (precedence == Operators.Length)
+            {
+                return ParseUnary();
+            }
+            AssemblyExpression result = ParseBinary(precedence + 1);
             while (true)
             {
                 SkipWhiteSpace();
-                if (_position == text.Length || text[_position] is not ('+' or '-'))
+                string? operation = Operators[precedence].FirstOrDefault(candidate =>
+                    text.AsSpan(_position).StartsWith(candidate, StringComparison.Ordinal) &&
+                    !(candidate is "<" or ">" && _position + 1 < text.Length && text[_position + 1] == candidate[0]));
+                if (operation is null)
                 {
                     return result;
                 }
@@ -129,8 +168,8 @@ internal abstract record AssemblyExpression
                 {
                     throw Assembler.Error(line, "An expression may contain at most 128 binary operations.");
                 }
-                char operation = text[_position++];
-                result = new BinaryExpression(operation, result, ParseUnary());
+                _position += operation.Length;
+                result = new BinaryExpression(operation, result, ParseBinary(precedence + 1));
             }
         }
 
@@ -148,13 +187,13 @@ internal abstract record AssemblyExpression
                     throw Assembler.Error(line, "Expected an expression.");
                 }
                 char current = text[_position++];
-                if (current is '+' or '-' or '<' or '>')
+                if (current is '+' or '-' or '<' or '>' or '~')
                 {
                     return new UnaryExpression(current, ParseUnary());
                 }
                 if (current == '(')
                 {
-                    AssemblyExpression result = ParseSum();
+                    AssemblyExpression result = ParseBinary(0);
                     SkipWhiteSpace();
                     if (_position == text.Length || text[_position++] != ')')
                     {
@@ -242,7 +281,7 @@ internal abstract record AssemblyExpression
     }
 
     public static bool IsIdentifierStart(char value) => char.IsAsciiLetter(value) || value == '_';
-    public static bool IsIdentifierPart(char value) => IsIdentifierStart(value) || char.IsAsciiDigit(value);
+    public static bool IsIdentifierPart(char value) => IsIdentifierStart(value) || char.IsAsciiDigit(value) || value == '@';
 }
 
 internal sealed class AssemblySymbol(string name, int line, AssemblyExpression? expression)
@@ -291,7 +330,7 @@ internal sealed class AssemblyResolver(Dictionary<string, AssemblySymbol> symbol
         {
             if (requireKnown)
             {
-                throw Assembler.Error(line, $"Undefined symbol '{name}'.");
+                throw Assembler.Error(line, $"Undefined symbol '{name}'.", "assembly.undefined_symbol", name);
             }
             return ExpressionValue.Unknown;
         }
@@ -305,7 +344,7 @@ internal sealed class AssemblyResolver(Dictionary<string, AssemblySymbol> symbol
         }
         if (!_resolving.Add(name))
         {
-            throw Assembler.Error(line, $"Circular constant reference involving '{name}'.");
+            throw Assembler.Error(line, $"Circular constant reference involving '{name}'.", "assembly.circular_symbol", name);
         }
         try
         {

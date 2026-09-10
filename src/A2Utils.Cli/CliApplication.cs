@@ -4,6 +4,7 @@ using System.Text.Json;
 using A2Utils.Core;
 using A2Utils.Core.Backends;
 using A2Utils.Core.Operations;
+using A2Utils.Core.Programs;
 
 namespace A2Utils.Cli;
 
@@ -19,6 +20,8 @@ public sealed partial class CliApplication
     private readonly Option<string?> _inputOrder = new("--input-order") { Description = "Input layout override: dos or prodos.", Recursive = true };
     private readonly Option<string?> _inputFs = new("--input-fs") { Description = "Filesystem override: dos33 or prodos.", Recursive = true };
     private ParseResult? _parse;
+    private readonly List<ProgramDiagnostic> _pendingDiagnostics = [];
+    private readonly HashSet<ProgramDiagnostic> _renderedProgramDiagnostics = [];
 
     private CliApplication(TextWriter output, TextWriter error, CancellationToken cancellationToken)
     {
@@ -54,7 +57,7 @@ public sealed partial class CliApplication
         }
         catch (DiskException ex)
         {
-            return Fail(ex.Code, ex.Message, ex.ExitCode);
+            return Fail(ex.Code, ex.Message, ex.ExitCode, ex.Diagnostics);
         }
         catch (OperationCanceledException)
         {
@@ -70,7 +73,7 @@ public sealed partial class CliApplication
         }
         catch (Exception ex)
         {
-            if (_parse?.GetValue(_verbose) == true)
+            if (_parse?.GetValue(_verbose) == true && _parse?.GetValue(_json) != true)
             {
                 _error.WriteLine(ex);
             }
@@ -96,6 +99,10 @@ public sealed partial class CliApplication
         AddConvertCommand(disk);
         AddTransferCommands(disk);
         AddProgramCommands(root);
+        AddDevelopmentCommands(root);
+        AddGraphicsCommands(root);
+        AddExecutionCommands(root);
+        AddCc65Commands(root);
         return root;
     }
 
@@ -447,7 +454,7 @@ public sealed partial class CliApplication
     {
         if (_parse!.GetValue(_json))
         {
-            _output.WriteLine(JsonSerializer.Serialize(new { schemaVersion = 1, command, data }, FileTransfer.JsonOptions));
+            _output.WriteLine(JsonSerializer.Serialize(new { schemaVersion = 1, command, data, diagnostics = _pendingDiagnostics }, FileTransfer.JsonOptions));
         }
         else if (!_parse.GetValue(_quiet))
         {
@@ -456,24 +463,78 @@ public sealed partial class CliApplication
         return 0;
     }
 
-    private int Fail(string code, string message, int exitCode)
+    private int Fail(string code, string message, int exitCode, IReadOnlyList<ProgramDiagnostic>? diagnostics = null)
     {
         if (_parse?.GetValue(_json) == true)
         {
-            _error.WriteLine(JsonSerializer.Serialize(new { schemaVersion = 1, error = new { code, message, exitCode } },
+            _error.WriteLine(JsonSerializer.Serialize(new
+            {
+                schemaVersion = 1,
+                error = new
+                {
+                    code,
+                    message,
+                    exitCode,
+                    diagnostics = _pendingDiagnostics.Concat(diagnostics ?? []).ToArray()
+                }
+            },
                 FileTransfer.JsonOptions));
         }
         else
         {
-            _error.WriteLine($"{code}: {message}");
+            ProgramDiagnostic[] details = _pendingDiagnostics.Concat(diagnostics ?? []).ToArray();
+            if (!details.Any(diagnostic => diagnostic.Severity.Equals("error", StringComparison.OrdinalIgnoreCase) &&
+                !string.IsNullOrEmpty(diagnostic.Message) && message.EndsWith(diagnostic.Message, StringComparison.Ordinal)))
+            {
+                _error.WriteLine($"{code}: {message}");
+            }
+            RenderProgramDiagnostics(details);
         }
         return exitCode;
+    }
+
+    private void EmitProgramDiagnostics(IReadOnlyList<ProgramDiagnostic> diagnostics)
+    {
+        if (_parse?.GetValue(_json) == true)
+        {
+            _pendingDiagnostics.AddRange(diagnostics);
+            return;
+        }
+        RenderProgramDiagnostics(diagnostics);
+    }
+
+    private void RenderProgramDiagnostics(IEnumerable<ProgramDiagnostic> diagnostics)
+    {
+        foreach (ProgramDiagnostic diagnostic in diagnostics)
+        {
+            if (_parse?.GetValue(_verbose) != true &&
+                !diagnostic.Severity.Equals("warning", StringComparison.OrdinalIgnoreCase) &&
+                !diagnostic.Severity.Equals("error", StringComparison.OrdinalIgnoreCase)) continue;
+            if (!_renderedProgramDiagnostics.Add(diagnostic)) continue;
+            List<string> location = [];
+            if (!string.IsNullOrWhiteSpace(diagnostic.File)) location.Add(diagnostic.File);
+            if (diagnostic.Line is { } line) location.Add($"source line {line}");
+            if (diagnostic.Column is { } column) location.Add($"column {column}");
+            if (diagnostic.BasicLine is { } basicLine) location.Add($"BASIC line {basicLine}");
+            List<string> context = [];
+            if (diagnostic.Symbol is not null) context.Add($"symbol: {diagnostic.Symbol}");
+            if (diagnostic.Expected is not null) context.Add($"expected: {diagnostic.Expected}");
+            if (diagnostic.Actual is not null) context.Add($"actual: {diagnostic.Actual}");
+            string prefix = location.Count == 0 ? "" : string.Join(", ", location) + ": ";
+            string suffix = context.Count == 0 ? "" : " (" + string.Join(", ", context) + ")";
+            _error.WriteLine($"{prefix}{diagnostic.Severity} {diagnostic.Code}: {diagnostic.Message}{suffix}");
+        }
     }
 
     private void EmitDiagnostics(IReadOnlyList<DiskDiagnostic> diagnostics)
     {
         foreach (DiskDiagnostic diagnostic in diagnostics)
         {
+            if (_parse!.GetValue(_json))
+            {
+                _pendingDiagnostics.Add(new(diagnostic.Code, diagnostic.Severity, diagnostic.Message));
+                continue;
+            }
             if (_parse!.GetValue(_verbose) || diagnostic.Severity is "warning" or "error")
             {
                 _error.WriteLine($"{diagnostic.Code}: {diagnostic.Message}");

@@ -48,6 +48,32 @@ declared main-memory ranges, not dynamic/banked allocations or the complete C
 runtime. cc65 reproducibility also depends on its external distribution and
 environment. Native IIgs and broad archive support remain outside this preview.
 
+## Preview 0.4 hosted release follow-up — September 10, 2026
+
+The [`v0.4.0-dev` release run](https://github.com/AmosAnderson/a2utils/actions/runs/34525257217)
+validated its tag and release scripts. Linux passed the full test, packaging,
+installed-tool, archived-executable, and artifact-upload sequence. GitHub's
+action versions and runner setup completed normally.
+
+Windows failed one cancellation test because recursive cleanup raced a terminated
+compiler child that still held the generated staging directory. macOS failed the
+cc65 tests because its system temporary path traverses `/var`, a link to
+`/private/var`, and the adapter applied the user-path link policy to that trusted
+internally generated workspace. The follow-up resolves the physical system temp
+root before creating the workspace, retains strict checks on project/compiler
+paths, and makes generated-directory cleanup bounded and non-masking.
+
+The Release build now passes locally with warnings as errors. The expanded suites
+pass 795 tests (674 Core and 121 CLI), with only the environment-dependent real
+MAME test skipped, and formatting verification passes. New tests cover linked
+temporary-directory resolution and cleanup while a child file is locked. All 49
+release-automation checks also pass; a local `0.4.0-dev.1` Windows package passed
+installed-tool and archived-executable smoke tests.
+
+The failed tag is intentionally left at its original commit under the release
+policy. Rerunning that workflow would test the old code, so hosted confirmation
+and publication require a new version tag containing this fix.
+
 ## Documentation coverage refresh — September 10, 2026
 
 This documentation-only pass compared the current command tree, public Core

@@ -1390,6 +1390,9 @@ timeout is 1..3600 seconds; option lists permit at most 128 entries each.
 Defines use `NAME` or `NAME=value`. Sources/includes must stay below
 `projectRoot`; links, unsafe/computed includes, unsupported source types,
 excluded build directories, excessive inputs, and source changes are refused.
+The trusted system temporary root is resolved to a physical directory before
+staging, without relaxing link checks on caller-supplied paths. Cleanup is bounded
+and best-effort so a lingering compiler-process lock cannot mask the compile result.
 
 The compiler is resolved as an explicit path or from `PATH`, version-probed,
 then run with map and VICE-label output. A nonzero compiler exit raises

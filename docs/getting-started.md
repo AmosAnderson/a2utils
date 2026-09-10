@@ -27,8 +27,10 @@ The pin does not automatically accept every .NET 10 feature band. See
 [SDK troubleshooting](troubleshooting.md#setup-and-installation) if a compatible
 SDK cannot be found. Initial restore uses the package source in
 [NuGet.Config](../NuGet.Config); later operations can use cached dependencies.
-Windows x64 has been tested locally, and the initial hosted Windows/Linux
-jobs passed. The corrected macOS test setup awaits a release-tag run; see
+Windows x64 has been tested locally. The `v0.4.0-dev` hosted attempt completed
+Linux packaging and smoke tests but exposed cc65 temporary-workspace defects on
+Windows and macOS. Those defects are fixed with local regression coverage; release
+policy requires a new version tag for hosted confirmation. See
 [the validation record](VALIDATION.md).
 
 ## Download a tagged release

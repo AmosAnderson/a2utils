@@ -68,7 +68,8 @@ public static class Cc65Compiler
         List<string> includes = options.Includes.Select(path => RequireProjectPath(path, root, allowRoot: true)).ToList();
         foreach (string include in includes) if (!Directory.Exists(include)) throw Error("include", $"Include directory does not exist: {include}");
         string executable = ResolveCompiler(options.Compiler, root);
-        string temporary = Path.Combine(Path.GetTempPath(), $"a2-cc65-{Guid.NewGuid():N}");
+        string temporaryRoot = ResolvePhysicalDirectory(Path.GetTempPath());
+        string temporary = Path.Combine(temporaryRoot, $"a2-cc65-{Guid.NewGuid():N}");
         ImageTransactions.ValidatePath(temporary);
         Directory.CreateDirectory(temporary);
         try
@@ -115,7 +116,51 @@ public static class Cc65Compiler
         finally
         {
             // This directory is generated here, never obtained from project configuration.
-            if (Directory.Exists(temporary)) Directory.Delete(temporary, recursive: true);
+            await CleanupGeneratedDirectoryAsync(temporary);
+        }
+    }
+
+    internal static string ResolvePhysicalDirectory(string path)
+        => ResolvePhysicalDirectory(path, new(PathComparer));
+
+    private static string ResolvePhysicalDirectory(string path, HashSet<string> visited)
+    {
+        string fullPath = Path.GetFullPath(path);
+        if (!visited.Add(fullPath)) throw new IOException("A directory-link cycle was found while resolving the temporary path.");
+        if (!Directory.Exists(fullPath)) throw new DirectoryNotFoundException("The temporary directory does not exist.");
+
+        string root = Path.GetPathRoot(fullPath)!;
+        string resolved = root;
+        foreach (string segment in fullPath[root.Length..].Split(
+            [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar], StringSplitOptions.RemoveEmptyEntries))
+        {
+            DirectoryInfo directory = new(Path.Combine(resolved, segment));
+            FileSystemInfo? target = directory.ResolveLinkTarget(returnFinalTarget: true);
+            resolved = target is null ? directory.FullName : ResolvePhysicalDirectory(target.FullName, visited);
+        }
+
+        return Path.TrimEndingDirectorySeparator(resolved);
+    }
+
+    internal static async Task CleanupGeneratedDirectoryAsync(string path)
+    {
+        const int attempts = 10;
+        for (int attempt = 0; attempt < attempts; attempt++)
+        {
+            if (!Directory.Exists(path)) return;
+            try
+            {
+                Directory.Delete(path, recursive: true);
+                return;
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                // A terminated compiler descendant can briefly retain its working directory,
+                // especially on Windows. This unique internal directory is safe to abandon if
+                // bounded retries cannot remove it; cleanup must not mask the compile outcome.
+            }
+
+            await Task.Delay(50, CancellationToken.None);
         }
     }
 

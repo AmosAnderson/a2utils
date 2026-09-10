@@ -40,7 +40,7 @@ The original proposal below now has a working implementation. The workspace star
 | Read-only DOS slice | Implemented and tested against independent synthetic DO/PO fixtures |
 | DOS writes | Implemented with staged commits, backups, conversion, and failure tests; emulator release check remains |
 | ProDOS operations | Implemented with directories, metadata restore, sparse files, and larger volumes; emulator release check remains |
-| Packaging and release | Tag-only builds and private GitHub Releases with versioned binaries, tool package, and checksums implemented; hosted Windows/Linux passed, corrected macOS setup and release upload await a release tag; emulator checks and original-code license selection remain before public/stable release |
+| Packaging and release | Tag-only builds and private GitHub Releases with versioned binaries, tool package, and checksums implemented; the `v0.4.0-dev` attempt passed Linux but exposed cc65 staging defects on Windows/macOS, now fixed and locally validated; a new version tag, emulator checks, and original-code license selection remain before public/stable release |
 
 See `README.md` for actual commands and supported limits. This is a development preview, not a stable release. The [GitHub repository](https://github.com/AmosAnderson/a2utils) is private; no public package or release has been created.
 

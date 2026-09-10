@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using A2Utils.Core.Operations;
 using A2Utils.Core.Programs;
 using A2Utils.Core.Projects;
 
@@ -175,6 +176,49 @@ public sealed class Cc65CompilerTests : IDisposable
         cancellation.Cancel();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await running);
         AssertExited(At("child.pid"));
+    }
+
+    [Fact]
+    public void ResolvePhysicalDirectory_LinkedAncestor_ReturnsUnlinkedPath()
+    {
+        string physical = At("physical");
+        string nested = Path.Combine(physical, "nested");
+        Directory.CreateDirectory(nested);
+        string alias = At("alias");
+        try
+        {
+            Directory.CreateSymbolicLink(alias, physical);
+        }
+        catch (Exception exception) when (OperatingSystem.IsWindows()
+            && exception is IOException or UnauthorizedAccessException)
+        {
+            // Windows requires either Developer Mode or link-creation privilege.
+            return;
+        }
+
+        string resolved = Cc65Compiler.ResolvePhysicalDirectory(Path.Combine(alias, "nested"));
+
+        Assert.Equal(nested, resolved);
+        ImageTransactions.ValidatePath(resolved);
+    }
+
+    [Fact]
+    public async Task CleanupGeneratedDirectory_LockedFile_DoesNotMaskOperation()
+    {
+        string temporary = At("cleanup");
+        Directory.CreateDirectory(temporary);
+        string child = Path.Combine(temporary, "locked.bin");
+        await File.WriteAllBytesAsync(child, [1, 2, 3]);
+
+        using (FileStream locked = new(child, FileMode.Open, FileAccess.Read, FileShare.Read))
+        {
+            await Cc65Compiler.CleanupGeneratedDirectoryAsync(temporary);
+        }
+
+        if (Directory.Exists(temporary))
+        {
+            Directory.Delete(temporary, recursive: true);
+        }
     }
 
     [Fact]

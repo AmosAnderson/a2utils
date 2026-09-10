@@ -470,12 +470,14 @@ unexpected draft assets, or a tag moved since validation stop publication.
 
 Run `pwsh -File eng/Test-Release.ps1` to test the release guards and simulated
 upload/retry paths locally. It creates disposable fixtures under `artifacts/`
-and never calls GitHub. The initial hosted run passed Windows/Linux and exposed
-a macOS temporary-directory alias issue. Test fixtures now resolve system
-aliases while preserving image-write link protections. Current test counts and
-external-tool evidence are maintained in [VALIDATION.md](VALIDATION.md), rather
-than duplicated here. Native macOS execution and actual release upload await a
-release-tag run; see the remaining release gates in [PLAN.md](../PLAN.md).
+and never calls GitHub. The `v0.4.0-dev` hosted attempt passed Linux packaging
+and smoke tests, while Windows exposed a cancelled-child cleanup race and macOS
+exposed the system `/var` alias in cc65's generated workspace. Compiler staging
+now resolves only its trusted system temp root to a physical path and uses
+bounded best-effort cleanup; user-supplied linked paths remain refused. Current
+test counts and external-tool evidence are maintained in
+[VALIDATION.md](VALIDATION.md). A new version tag is required for
+hosted confirmation and actual publication; see [PLAN.md](../PLAN.md).
 
 For a contribution, use a focused imperative commit subject and explain the
 problem, resulting behavior, affected formats, and validation in the pull request.

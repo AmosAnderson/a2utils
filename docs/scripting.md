@@ -90,9 +90,14 @@ an operation refusal. Selected codes and remedies are in
 
 ## Result fields
 
-Disk command names are unqualified (`info`, `ls`, `add`, `verify`). Program
-commands are `asm.compile`, `asm.decompile`, `basic.compile`, and
-`basic.decompile`; aliases still report these canonical names.
+Disk command names are unqualified (`info`, `ls`, `add`, `verify`). Root command
+names are also unqualified: `build`, `targets`, `capabilities`, `schema`, `run`,
+and `test`. Namespaced canonical names are `asm.compile`, `asm.decompile`,
+`asm.listing`, `asm.map`, `basic.compile`, `basic.decompile`, `basic.check`,
+`basic.renumber`, `basic.prepare`, `cc.compile`, `graphics.encode`,
+`graphics.decode`, `graphics.assets.pack`, `graphics.assets.unpack`,
+`graphics.shapes.encode`, `graphics.dhires.encode`, and
+`graphics.dhires.decode`. Aliases still report the corresponding canonical name.
 
 | Command family | `data` contents |
 | --- | --- |
@@ -103,6 +108,21 @@ commands are `asm.compile`, `asm.decompile`, `basic.compile`, and
 | `disk extract` | `destination` and the complete `manifest` |
 | Image writes, `disk convert`, `disk export` | `outputPath` and nullable `backupPath` |
 | `asm` / `basic` conversions | `outputPath`, `origin`, `payloadLength`, `outputLength`, nullable `cpu`, and `format` |
+| `asm listing`, `asm map` | `outputPath`, `origin`, and `payloadLength`; the requested report is written to `outputPath` |
+| `basic check` | `valid` and structured `diagnostics` |
+| `basic renumber` | `outputPath`, old/new/source-line `mapping`, and advisory `diagnostics` |
+| `basic prepare` | `outputPath`, source/generated-line/label `mapping`, and `diagnostics` |
+| `build` | Output path/hash, target, CPU, filesystem, bootability, tool version, timestamp, hashed inputs, built files, resident memory, and diagnostics. With `--check`, no image is written and `sha256` is `""`. |
+| `targets` | `profiles`, `symbols`, and DOS/ProDOS `runtimeReservations` |
+| `capabilities` | Declared command metadata, separate `globalOptions`, supported values, schema names, external tools, and limitations. Nested command-local option arrays omit inherited globals; direct root children may include root options, including root-only `--version`. Consult `--help` for effective syntax. |
+| `schema` | The requested JSON Schema object itself |
+| `cc compile` | Output path, AppleSingle format/hash, compiler version/target, decoded type/auxiliary metadata, payload length, linker map, labels, and hashed inputs |
+| `graphics encode`, `graphics decode` | Output path/hash/length, mode, dimensions, and rendering description |
+| `graphics assets pack`, `unpack` | Output path/hash/length plus complete cell-layout `metadata` and per-cell offsets |
+| `graphics shapes encode` | Output path/hash/payload length and per-shape metadata |
+| `graphics dhires encode`, `decode` | Output path/hash, mode, bank order/offsets/lengths, dimensions, and rendering description |
+| `run` | Name/pass state/stop reason, emulator version/time, registers, observed memory, screen text, input hash, artifact directory/list, and diagnostics |
+| `test` | Suite schema version/pass state and the complete ordered `tests` result array |
 
 Numbers are numeric JSON values, including addresses and file types. For
 example, `$2000` is `8192`. Dates are strings or `null`, and byte arrays such

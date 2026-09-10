@@ -15,6 +15,22 @@ a2 graphics assets unpack sprites.bin --to preview.png --cell-width 14 --cell-he
 a2 graphics assets pack font.png --to font.bin --cell-width 8 --cell-height 8 --bits-per-byte 8 --kind font --first-codepoint 32 --json
 ```
 
+| Option | Pack | Unpack | Meaning |
+| --- | --- | --- | --- |
+| `--to FILE` | Required | Required | Separate output; existing files require `--overwrite`. |
+| `--cell-width`, `--cell-height` | Required | Required | Positive cell dimensions. |
+| `--bits-per-byte 7\|8` | Yes | Yes | Default `7`. |
+| `--bit-order lsb\|msb` | Yes | Yes | Default `lsb`. |
+| `--kind sprite\|tile\|font` | Yes | Yes | Default `sprite`; controls metadata and font labels. |
+| `--first-codepoint N` | Fonts only | Fonts only | Defaults to 32 for fonts and is invalid for other kinds. |
+| `--threshold 0..255` | Pixel conversion | Metadata only | Default `128`; unpacking raw bits needs no luminance decision. |
+| `--invert` | Invert encoded bits | Invert preview pixels | Default off; use the same setting in both directions. |
+| `--columns N` | — | Yes | Preview columns, default `1`; must divide the cell count. |
+
+Pack input is limited to a 32 MiB PNG. Unpack input and packed output are limited
+to 65,536 bytes. Cell counts, dimensions, and multiplication are checked before
+allocation; previews cannot exceed 2048×2048.
+
 Supply cell dimensions explicitly. PNG width and height must be exact multiples
 of them; margins and gaps are unsupported. Cells are ordered left to right, then
 top to bottom. Each cell's rows are contiguous, and each row starts a fresh byte.
@@ -30,7 +46,8 @@ still calculate interleaved screen addresses, clipping, and any pixel shifts.
 
 Luma is `(299*R + 587*G + 114*B) / 1000`; pixels at or above `--threshold` are set
 (default 128; range 0–255). `--invert` reverses this decision. Pass the same
-inversion and layout when unpacking. Preview output is monochrome and rejects
+inversion and layout when unpacking. The threshold is retained in unpack metadata
+but does not change already packed bits. Preview output is monochrome and rejects
 nonzero unused bits so data is never silently discarded. `--columns` defaults to
 one when unpacking and must divide the cell count.
 
@@ -69,6 +86,10 @@ Create a UTF-8 JSON source such as:
 a2 graphics shapes encode shapes.json --to shapes.bin --json
 ```
 
+Shape input is limited to 1 MiB. It must be a JSON object with `schemaVersion: 1`
+and a `shapes` array; unknown fields, nesting deeper than 16 levels, null commands,
+and unsupported values are rejected. Existing output requires `--overwrite`.
+
 Directions are `up`, `right`, `down`, and `left`. Each vector plots before moving;
 `plot: false` moves without plotting. Counts default to one. The encoder writes
 a shape count, reserved zero byte, little-endian relative offsets, packed vectors,
@@ -88,6 +109,10 @@ a2 graphics dhires encode mono.png --to screen.dhgr --mode mono --bank-order aux
 a2 graphics dhires decode screen.dhgr --to preview.png --mode mono --bank-order aux-main
 a2 graphics dhires encode color.png --to color.dhgr --mode color --bank-order aux-main
 ```
+
+`--mode` and `--bank-order` are required for both encode and decode. Input files
+are capped at 32 MiB; decode input must nevertheless have the exact 16,384-byte
+bank-pair length. Existing output requires `--overwrite`.
 
 `mono` uses 560×192 pixels; `color` uses 140×192 logical pixels and the approximate
 RGB lo-res palette. Both produce 16,384 bytes. `--bank-order aux-main` places the

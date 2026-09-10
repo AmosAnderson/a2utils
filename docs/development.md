@@ -6,6 +6,8 @@ for the command-line application. The [CLI reference](cli-reference.md),
 [disk image guide](disk-images.md), [program tools guide](programs.md),
 [scripting guide](scripting.md), and [troubleshooting guide](troubleshooting.md)
 describe user-facing behavior.
+The [Core API reference](core-api.md) is the exhaustive public-type and method
+index; this guide focuses on architecture, safe integration patterns, and builds.
 
 ## Prerequisites and build
 
@@ -58,6 +60,11 @@ sources. Assembly and BASIC codecs operate independently of the disk engine.
 | `src/A2Utils.Cli/CliApplication.Transfers.cs` | Export, text conversion options, directory import, copy, and move commands |
 | `src/A2Utils.Cli/CliApplication.Programs.cs` | Assembly/BASIC host-file and disk-entry workflows |
 | `src/A2Utils.Cli/CliApplication.Development.cs` | Project builds, capabilities, target profiles, and embedded schemas |
+| `src/A2Utils.Cli/CliApplication.BasicTools.cs` | BASIC checking, renumbering, and symbolic-source preparation commands |
+| `src/A2Utils.Cli/CliApplication.Cc65.cs` | Standalone cc65 command and AppleSingle output transaction |
+| `src/A2Utils.Cli/CliApplication.Graphics.cs` | Lo-res and hi-res screen conversion commands |
+| `src/A2Utils.Cli/CliApplication.GraphicsAssets.cs` | Atlas, shape-table, and double-hires commands |
+| `src/A2Utils.Cli/CliApplication.Execution.cs` | Single-run and execution-suite command orchestration |
 | `src/A2Utils.Core/DiskModels.cs` | Public disk records, diagnostics, and `DiskException` |
 | `src/A2Utils.Core/Backends/` | Image detection, filesystem access, metadata, and write eligibility |
 | `src/A2Utils.Core/Operations/` | Host transactions, manifests, imports/exports, text conversion, and image conversion |
@@ -72,6 +79,9 @@ sources. Assembly and BASIC codecs operate independently of the disk engine.
 | `third_party/CiderPress2/` | Unmodified upstream source, format notes, notices, and source hashes |
 | `third_party/evaluation/` | Repeatable disk-engine integration probe |
 | `eng/Package.ps1` | Local tool package and self-contained archive generation |
+| `eng/Get-ReleaseInfo.ps1` | Release-tag syntax, main-history, and version validation |
+| `eng/Publish-Release.ps1` | Draft release creation, exact asset upload, verification, and publication |
+| `eng/Test-Release.ps1` | Offline release-guard and publish/retry contract tests |
 
 See [the disk-engine decision](decisions/0001-disk-engine.md) for the reuse
 evaluation and reasons for keeping all engine access behind the adapter.
@@ -258,6 +268,27 @@ to present them. Pass cancellation tokens to APIs that expose them and let
 failures propagate out of transaction callbacks so the staged result is not
 committed.
 
+### Embedding the CLI boundary
+
+`A2Utils.Cli` exposes one public entry point for hosts and tests:
+
+```csharp
+int exitCode = CliApplication.Run(
+    args: ["disk", "info", imagePath, "--json"],
+    output: resultWriter,
+    error: diagnosticWriter,
+    cancellationToken: cancellationToken);
+```
+
+`Run(string[] args, TextWriter? output = null, TextWriter? error = null,
+CancellationToken cancellationToken = default)` builds and invokes the same
+command tree as the `a2` executable, returns the documented process-style exit
+code, and does not terminate the hosting process. Null writers use
+`Console.Out`/`Console.Error`. The CLI assembly is packaged as a tool, not as a
+supported library NuGet package; use a project reference when embedding it.
+Prefer direct Core calls when the host does not need CLI parsing or JSON
+envelopes.
+
 ## Tests and fixtures
 
 The test projects use xUnit 2.9.3 through `Microsoft.NET.Test.Sdk` and
@@ -348,7 +379,7 @@ From the repository root:
 ```sh
 pwsh -File eng/Package.ps1
 pwsh -File eng/Package.ps1 -Runtime win-x64 -SkipTests
-pwsh -File eng/Package.ps1 -Runtime win-x64 -Version 0.3.0 -SkipTests
+pwsh -File eng/Package.ps1 -Runtime win-x64 -Version 0.4.0-dev -SkipTests
 ```
 
 The default runtime is the host's runtime identifier. Accepted explicit values
@@ -370,7 +401,7 @@ files and notices with the executable. Generated artifacts, `bin/`, and `obj/`
 are ignored by Git.
 
 `-Version` overrides the shared version for restore, tests, packing, and
-publishing. It accepts a version such as `0.3.0` or `0.3.0-rc.1`, without a
+publishing. It accepts a version such as `0.4.0` or `0.4.0-rc.1`, without a
 leading `v` or build metadata. Versioned archives use
 `a2utils-<version>-<RID>.zip` or `.tar.gz`, and the tool package uses the same
 version. Omitting this option preserves the local artifact names above.
@@ -399,17 +430,17 @@ and lightweight tags work; tags on unmerged branches are rejected. Numeric
 version identifiers cannot have leading zeroes; build metadata is unsupported.
 
 To release a reviewed commit, update your checkout and push a new version tag.
-For example, when `0.3.0` is the intended next version:
+For example, to validate the current 0.4 line as a prerelease:
 
 ```sh
 git switch main
 git pull --ff-only origin main
-git tag -a v0.3.0 -m "Release 0.3.0"
-git push origin v0.3.0
+git tag -a v0.4.0-rc.1 -m "Release 0.4.0-rc.1"
+git push origin v0.4.0-rc.1
 ```
 
 The tag supplies the package and binary version; editing `Directory.Build.props`
-is unnecessary. Use a prerelease tag such as `v0.3.0-rc.1` to mark the GitHub
+is unnecessary. Use a prerelease tag such as `v0.4.0-rc.1` to mark the GitHub
 Release as a prerelease. Push one release tag at a time and keep existing
 release tags unchanged.
 
@@ -441,11 +472,10 @@ Run `pwsh -File eng/Test-Release.ps1` to test the release guards and simulated
 upload/retry paths locally. It creates disposable fixtures under `artifacts/`
 and never calls GitHub. The initial hosted run passed Windows/Linux and exposed
 a macOS temporary-directory alias issue. Test fixtures now resolve system
-aliases while preserving image-write link protections. Local validation passed
-**387 Core tests and 73 CLI tests (460 total)** with a linked temporary root.
-Native macOS execution and actual release upload await the first release tag;
-see [VALIDATION.md](VALIDATION.md) for evidence and remaining emulator/license
-checks in [PLAN.md](../PLAN.md).
+aliases while preserving image-write link protections. Current test counts and
+external-tool evidence are maintained in [VALIDATION.md](VALIDATION.md), rather
+than duplicated here. Native macOS execution and actual release upload await a
+release-tag run; see the remaining release gates in [PLAN.md](../PLAN.md).
 
 For a contribution, use a focused imperative commit subject and explain the
 problem, resulting behavior, affected formats, and validation in the pull request.

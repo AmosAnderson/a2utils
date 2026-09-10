@@ -8,12 +8,12 @@ uppercase words below are placeholders; brackets mark optional arguments.
 Quote host and image paths containing spaces. Use `a2 COMMAND --help` for local
 help, for example `a2 disk add --help`.
 
-## Development workflow commands
+## Command map
 
 | Command | Purpose and guide |
 | --- | --- |
 | `build PROJECT [--to IMAGE] [--overwrite] [--check]` | [Project manifests](projects.md), source checks, memory reports, and transactional disk output. |
-| `capabilities --json` | Discover commands, arguments, options, formats, targets, and schema names. |
+| `capabilities --json` | Discover the declared command tree, supported values, targets, and schema names; combine `globalOptions` with command-local metadata. |
 | `targets --json` | Inspect machine profiles, platform symbols, and runtime memory reservations. |
 | `schema NAME --json` | Return project, diagnostic, execution, or execution-suite JSON Schema under `data`. |
 | `asm listing INPUT --to OUTPUT` | Assembly listing with addresses and bytes; accepts origin/CPU options. |
@@ -31,6 +31,12 @@ help, for example `a2 disk add --help`.
 Development commands accept the usual `--json` output option. File-producing
 commands require explicit overwrite; run/test use a new artifact directory.
 
+The remainder of this reference lists the complete syntax and command-specific
+options. The five custom global options in the next section are recursive and
+can follow subcommands. Command help is available at every level, while
+`--version` is root-only. Image overrides only affect commands that open an image
+(or program decompilation with `--from-image`).
+
 ## Global options and value conventions
 
 | Option | Meaning |
@@ -40,14 +46,19 @@ commands require explicit overwrite; run/test use a new artifact directory.
 | `--verbose` | Include additional diagnostics on stderr in text mode; JSON diagnostics stay structured. |
 | `--input-order dos\|prodos` | Override the input image's sector/block order. |
 | `--input-fs dos33\|prodos` | Select a supported filesystem when opening an image. |
-| `-h`, `-?`, `--help` | Show help for the selected command. |
-| `--version` | Show the executable version at the root: `a2 --version`. |
+| `-h`, `-?`, `--help` | Show help for the selected command. Windows also accepts `/h` and `/?`. |
+| `--version` | Show the executable version. This is root-only: `a2 --version`. |
 
-Global options can follow subcommands. Layout/filesystem overrides describe the
-image being opened: for `disk copy`, this is the destination `IMAGE`; use the
+The five recursive options (`--json`, `--quiet`, `--verbose`, `--input-order`,
+and `--input-fs`) can follow subcommands. Layout/filesystem overrides describe
+the image being opened: for `disk copy`, this is the destination `IMAGE`; use the
 source-specific options for `--from`. Program commands accept image overrides
 only with `--from-image`. `disk create` uses its own `--fs` and `--order` options;
 `disk convert` uses `--input-order` but does not use `--input-fs`.
+Because the command-line parser displays recursive global options on every help
+page, their appearance does not make them meaningful for host-only build,
+source, graphics, discovery, or execution commands. Do not pass image overrides
+to those commands; non-applicable values are either rejected or ignored.
 
 Use the documented lowercase spellings for commands and choice values such as
 `dos33`, `prodos`, `binary`, `text`, `raw`, `dos`, `2mg`, and `65c02`. The CLI
@@ -66,6 +77,148 @@ names are case-insensitive; accepted names are listed under
 
 `--size` does not accept fractions, `kb`, or `mib`. Image order and filesystem
 are separate concepts: a `.po` file can contain DOS 3.3.
+
+## Build and discovery commands
+
+```text
+a2 build PROJECT [--to IMAGE] [--overwrite] [--check]
+a2 targets
+a2 capabilities
+a2 schema NAME
+```
+
+| Command or option | Behavior |
+| --- | --- |
+| `build PROJECT` | Load a strict version 1 project manifest, compile every source, validate metadata and memory, then commit one image. Manifest-relative paths resolve from the directory containing `PROJECT`. |
+| `build --to IMAGE` | Override the manifest's `output`; this CLI path resolves from the current working directory. |
+| `build --overwrite` | Permit replacement of an existing output only after the complete staged build validates. |
+| `build --check` | Compile and validate source, metadata, and resident-memory ranges without writing an image. It does not prove disk capacity or bootability. |
+| `targets` | Return the four target profiles, platform symbols, and DOS/ProDOS runtime reservations. Text mode prints the profiles; use `--json` for the complete data. |
+| `capabilities` | Return declared command metadata plus CPUs, targets, filesystems, containers, source kinds, graphics modes, schemas, external tools, and current limitations. For machine discovery, combine top-level `globalOptions` with each command's local arguments/options; inherited globals are not repeated on nested leaves, and direct root children may list the root-only `--version`. Use `--help` as the authority for effective syntax. |
+| `schema NAME` | Return an embedded JSON Schema. `NAME` is `project`, `diagnostic`, `execution`, or `execution-suite`. With `--json`, the schema is the envelope's `data`; text mode writes the schema itself. |
+
+Project defaults and every manifest property are in
+[project builds](projects.md). Output records are described in
+[scripting and JSON](scripting.md) and the [Core API reference](core-api.md).
+
+## Source-analysis and report commands
+
+```text
+a2 asm listing INPUT --to REPORT [--origin ADDRESS] [--cpu CPU] [--overwrite]
+a2 asm map INPUT --to REPORT [--origin ADDRESS] [--cpu CPU] [--overwrite]
+a2 basic check INPUT
+a2 basic renumber INPUT --to SOURCE [--start NUMBER] [--step NUMBER] [--overwrite]
+a2 basic prepare INPUT --to SOURCE [--start NUMBER] [--step NUMBER] [--overwrite]
+```
+
+| Command or option | Behavior |
+| --- | --- |
+| `asm listing` | Assemble UTF-8 source and write a text listing containing addresses, emitted bytes, and source. |
+| `asm map` | Assemble UTF-8 source and write versioned JSON containing origin, payload length, CPU, symbols, source-map entries, and hashes for all source/binary dependencies. |
+| `listing` / `map` `--to REPORT` | Required separate output file. An existing file requires `--overwrite`; source files and included dependencies cannot alias it. |
+| `listing` / `map` `--origin ADDRESS` | Optional 16-bit origin. If source begins with `.org` before emitting bytes, it must match; later forward `.org` directives may create gaps. If no initial origin is available, assembly fails. |
+| `listing` / `map` `--cpu CPU` | `6502` (default), `65c02`, or `w65c02`. |
+| `basic check` | Conservatively validate numbered UTF-8 Applesoft source. It writes a normal result even when errors make the exit status 2. |
+| `basic renumber` | Rewrite line prefixes and supported literal branch targets in already numbered source. |
+| `basic prepare` | Convert unnumbered source with optional `@label:` declarations and label references to ordinary numbered Applesoft. |
+| `--start NUMBER` | First output line, 0–63,999; default `10`. |
+| `--step NUMBER` | Positive increment whose final generated line remains at most 63,999; default `10`. |
+| `--to SOURCE` | Required separate UTF-8 output for `renumber` and `prepare`; existing files require `--overwrite`. |
+
+Assembly reports use the same include, expression, CPU, and size rules as
+`asm compile`. BASIC check/renumber/prepare boundaries and mapping fields are
+documented in [BASIC development](basic-development.md).
+
+## C and ca65 compilation
+
+```text
+a2 cc compile INPUT --to APPLESINGLE [options]
+```
+
+| Option | Default and behavior |
+| --- | --- |
+| `--to FILE` | Required AppleSingle v2 output. It must not alias an input; an existing output requires `--overwrite`. |
+| `--compiler PATH_OR_NAME` | `cl65`. A path selects that executable; a bare name is resolved through `PATH`. |
+| `--target apple2\|apple2enh` | `apple2`. Selects the cc65 target library and linker configuration. |
+| `--expected-version TEXT` | Require the exact trimmed combined output of `cl65 --version`. Omitted by default. |
+| `--project-root DIR` | Main source directory by default. Source, local include, and binary-include paths must remain beneath it. |
+| `--timeout SECONDS` | `60` per compiler process; allowed range 1–3,600. Timeout or cancellation terminates the process tree. |
+| `--overwrite` | Replace an existing output only after the AppleSingle file and metadata validate. |
+
+The standalone command accepts one main `.c`, `.s`, `.asm`, or `.a65` source.
+Additional sources, include directories, definitions, and optimization control
+are available through a project manifest. See [C and ca65 compilation](cc65.md).
+
+## Graphics commands
+
+All graphics commands require `--to FILE`; output must be separate from every
+input and an existing file requires `--overwrite`. They read or write raw assets,
+not DOS headers or disk entries. Base screen input is capped at 4 MiB. Atlas
+packing and double-hires input are capped at 32 MiB; atlas unpacking accepts at
+most 65,536 raw bytes. Shape JSON is capped at 1 MiB with a maximum nesting depth
+of 16 and unknown fields rejected.
+
+```text
+a2 graphics encode INPUT --mode MODE --to OUTPUT [--overwrite]
+a2 graphics decode INPUT --mode MODE --to OUTPUT [--overwrite]
+```
+
+`encode` accepts a PNG and writes display-memory bytes; `decode` does the
+reverse. `--mode` is required and accepts `lores` (40×48, 1,024 bytes), `hires`
+(280×192 monochrome, 8,192 bytes), or `hires-color` (280×192 approximate
+artifact color, 8,192 bytes). Exact PNG and raw input sizes are required.
+
+```text
+a2 graphics assets pack INPUT --to OUTPUT --cell-width N --cell-height N [options]
+a2 graphics assets unpack INPUT --to OUTPUT --cell-width N --cell-height N [options]
+```
+
+| Asset option | Default and behavior |
+| --- | --- |
+| `--cell-width N`, `--cell-height N` | Required positive cell dimensions. A packed PNG must divide exactly into this grid. |
+| `--bits-per-byte 7\|8` | `7`; seven-bit packing keeps bit 7 clear. |
+| `--bit-order lsb\|msb` | `lsb`; placement of the leftmost pixel within each seven/eight-bit group. |
+| `--kind sprite\|tile\|font` | `sprite`; changes metadata, not the row-major byte layout. |
+| `--first-codepoint N` | For `font`, first Unicode scalar label; defaults to 32. Invalid for non-font assets. |
+| `--threshold N` | Packing-only luma threshold 0–255; default `128`. During unpack it is retained as metadata but does not change the raw bits. |
+| `--invert` | Reverse set/clear pixels. Pass the same value to `unpack` to restore the intended appearance. |
+| `--columns N` | `unpack` only; preview columns, default `1`, and must divide the cell count. |
+
+```text
+a2 graphics shapes encode INPUT --to OUTPUT [--overwrite]
+a2 graphics dhires encode INPUT --mode MODE --bank-order ORDER --to OUTPUT [--overwrite]
+a2 graphics dhires decode INPUT --mode MODE --bank-order ORDER --to OUTPUT [--overwrite]
+```
+
+`shapes encode` accepts a strict version 1 shape JSON document and writes a raw
+Applesoft shape table. Double-hires `--mode` is `mono` (560×192) or `color`
+(140×192 logical pixels); `--bank-order` is required and is `aux-main` or
+`main-aux`. Both encodings contain two 8 KiB banks (16,384 bytes total).
+See [graphics conversion](graphics.md) and [graphics assets](graphics-assets.md)
+for palette, packing, JSON metadata, and hardware limitations.
+
+## Execution commands
+
+```text
+a2 run SPEC --artifacts NEW_DIRECTORY
+a2 test SUITE --artifacts NEW_DIRECTORY
+```
+
+`run` loads one strict version 1 execution specification. `test` first loads
+and validates every specification named by a strict version 1 suite, then runs
+at most 128 cases sequentially. Every suite case needs a memory, register, text,
+or completion assertion. `--artifacts` is required and must name a path that
+does not exist; the commands create it and retain the isolated disk copy,
+configuration, logs, observations, and results there. A suite uses numbered
+`case-001`, `case-002`, ... subdirectories plus `suite-result.json`.
+Ordinary failed cases do not stop later cases; cancellation stops the active
+run and the remaining suite. The suite exit status is the highest mapped case
+status (0 for pass, 1 for execution/assertion failure, or 6 for cancellation).
+
+A completed behavioral failure returns a normal result and exit status 1;
+cancellation returns 6. The complete specification fields, MAME 0.289 pin,
+machine names, assertion rules, bounds, and artifact list are in
+[automated execution](execution.md).
 
 ## Shared disk write options
 
@@ -92,7 +245,7 @@ choosing in-place mode.
 | `disk info IMAGE` | Report container, order, filesystem, volume, capacity, free space, and diagnostics. No command-specific options. |
 | `disk ls IMAGE [PATH]` | Default: root catalog. A file path lists that entry; a directory path lists its children. `--recursive` includes descendants. |
 | `disk verify IMAGE` | Check structure without repair; exits 4 when structural errors are found. |
-| `disk attr IMAGE PATH` | Read one entry's type, auxiliary type, and access flags when no changes are supplied. Do not supply write options in read mode. |
+| `disk attr IMAGE PATH` | Read one file or directory's type, auxiliary type, and access flags when no changes are supplied; nonempty directories are valid. Do not supply write options in read mode. |
 | `disk extract IMAGE [PATH] --to DIR` | Extract stored bytes and `a2-manifest.json`. Default selection: the whole volume. Directories are always recursive; there is no `--recursive` option. `DIR` must be new; missing host parents are created. No overwrite mode. |
 | `disk export IMAGE PATH --to HOSTFILE` | Export one logical file payload. `--format binary` is the default; `--format text` converts TXT content to UTF-8 LF. `--overwrite` permits replacement of an existing host file. |
 

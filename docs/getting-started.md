@@ -170,7 +170,10 @@ disk structures; it does not execute either program.
 
 New images contain a formatted filesystem without boot code. To run these
 programs on an Apple II or emulator, use an existing compatible DOS/ProDOS
-environment. Emulator execution has not been verified for this preview.
+environment. The MAME adapter has passed real enhanced-IIe checks with an
+original self-booting sector and a supplied ProDOS template, but this newly
+formatted DOS data disk is not bootable by itself. See [automated execution](execution.md)
+and the [validation record](VALIDATION.md) for the exact tested configuration.
 
 ### 3. Recover editable source
 

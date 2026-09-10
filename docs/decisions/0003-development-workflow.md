@@ -2,7 +2,9 @@
 
 Date: September 10, 2026
 
-The next preview adds native project builds, source analysis, structured
+Status: Accepted
+
+Preview 0.4 adds native project builds, source analysis, structured
 diagnostics, machine profiles, graphics codecs, and optional external tools.
 Core implementations remain independent of the command line and console.
 

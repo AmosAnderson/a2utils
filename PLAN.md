@@ -4,8 +4,8 @@ Apple II disk image utility — implementation plan
 AI development workflow implementation (September 10, 2026)
 ----------------------------------------------------------
 
-The authorized next milestone adds a complete host-side development workflow.
-Implementation and validation are tracked here as work proceeds:
+Preview 0.4 adds a complete host-side development workflow. Its implementation
+and validation are tracked here:
 
 - [x] Structured program diagnostics, capability discovery, and JSON schemas.
 - [x] Assembly file composition, expressions, assertions, symbols, source maps, and listings.
@@ -192,6 +192,6 @@ Build and test on Windows, Linux, and macOS only when a release version tag is p
 
 Completion criterion: a reproducible release with passing tests, installable artifacts, sample workflows, and no advertised write operation lacking preservation and failure-path coverage.
 
-Future work should be added as separate milestones: DOS 3.2/13-sector disks; other filesystems such as Pascal; NIB and WOZ inspection followed by carefully scoped editing; ShrinkIt and Binary II archives; Integer BASIC import and export; graphics conversion; sector inspection; and explicit filesystem repair/recovery. WOZ captures track-level information beyond sector images, including timing-related details, so it needs a dedicated design rather than another filename handler. [WOZ specification](https://applesaucefdc.com/woz/reference2/)
+Future work should be added as separate milestones: DOS 3.2/13-sector disks; other filesystems such as Pascal; NIB and WOZ inspection followed by carefully scoped editing; ShrinkIt and Binary II archives; Integer BASIC import and export; additional graphics formats and hardware-accurate rendering; sector inspection; and explicit filesystem repair/recovery. WOZ captures track-level information beyond sector images, including timing-related details, so it needs a dedicated design rather than another filename handler. [WOZ specification](https://applesaucefdc.com/woz/reference2/)
 
 The first implementation task is the disk-engine evaluation and the `info` → `ls` → `extract` vertical slice on one known DOS 3.3 image. That establishes a useful utility and validates the architecture before enabling writes.

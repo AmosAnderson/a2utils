@@ -10,7 +10,7 @@ independent of console output.
 The current version is **0.4.0-dev**, a development preview. The
 [GitHub repository](https://github.com/AmosAnderson/a2utils) is private.
 
-Release builds run when a version tag such as `v0.3.0` is pushed for a commit
+Release builds run when a version tag such as `v0.4.0-rc.1` is pushed for a commit
 on `main`. Successful builds attach Windows, Linux, and macOS binaries to
 [GitHub Releases](https://github.com/AmosAnderson/a2utils/releases). See
 [tagging and release downloads](docs/development.md#tagged-releases).
@@ -32,6 +32,7 @@ on `main`. Successful builds attach Windows, Linux, and macOS binaries to
 | [Troubleshooting](docs/troubleshooting.md) | Common diagnostics, likely causes, and corrective commands |
 | [Supported formats](docs/formats/supported-images.md) | Containers, sector order, filesystem capabilities, geometry, and preservation limits |
 | [Development and library use](docs/development.md) | Architecture, C# APIs, tests, dependency policy, and packaging |
+| [Core API reference](docs/core-api.md) | Every public Core namespace, type, method, option/result record, and integration contract |
 | [Validation record](docs/VALIDATION.md) | Completed checks and remaining release gates |
 
 Contributors should read [AGENTS.md](AGENTS.md). [PLAN.md](PLAN.md) records the
@@ -89,7 +90,7 @@ explains each step, including equivalent ProDOS metadata.
 | Automation | Versioned JSON, stable diagnostic codes, cancellation, and explicit write destinations |
 | Development | Project builds, source maps/symbols, BASIC checks/renumbering/labels, target profiles, capability discovery and JSON Schemas |
 | Execution | Optional MAME 0.289 adapter with scripted input, memory/register/text assertions, screenshots and bounded runs |
-| C and assets | Optional cc65 integration; PNG screen conversion and structured graphics asset packing |
+| C and assets | Optional cc65 integration; PNG screens, sprites, fonts, tiles, Applesoft shapes, and double-hires assets |
 
 Machine-code decompilation produces assembly, without recovering original
 symbols, comments, or code/data boundaries. BASIC compilation produces

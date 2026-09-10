@@ -153,12 +153,139 @@ decompiled listing. Listings do not record the address. Strings, `REM`, and
 `DATA` have different tokenization rules; see the examples in
 [the program reference](programs.md).
 
+## Project manifests, schemas, and builds
+
+Start manifest work with `a2 schema project --json`, and use `a2 targets
+--json` for the exact target names, default CPUs, symbols, and reserved memory.
+`a2 build PROJECT --check --json` compiles sources and reports memory and
+metadata problems without creating an image. It still invokes cc65 when the
+project contains a `cc65` source.
+
+| Diagnostic or symptom | Cause and next step |
+| --- | --- |
+| `project.schema` | The manifest is malformed JSON, omits `schemaVersion: 1`, has a duplicate/unknown property, or uses the wrong JSON type. Compare it with `a2 schema project --json`; property names are case-sensitive. |
+| `schema.unknown` | `a2 schema` accepts only `project`, `diagnostic`, `execution`, and `execution-suite`. |
+| `project.target` / `project.cpu` / `project.cpu_target` | The target or CPU is unknown or incompatible. Select a profile reported by `a2 targets --json`; stock project profiles do not accept WDC-only `w65c02` code. |
+| `project.filesystem` / `project.geometry` / `project.disk_format` | Use `dos33` or `prodos`, a `raw` or `2mg` container, a `dos` or `prodos` order, and 280 blocks for DOS or 280–65,535 for ProDOS. A template's detected filesystem/order must agree with the manifest. |
+| `project.timestamp` | Use an offset-free or UTC date/time from 1980 through 2039 at whole-minute precision. |
+| `project.basic_check` | A numbered BASIC source failed the default-on conservative source checks. Run `a2 basic check SOURCE --json`, or fix the located diagnostics before rebuilding. Use `checkBasic: false` only when tokenizer-only validation is intentional. `basic-labels` always follows the prepare/check path and cannot opt out. |
+| `project.kind` / `project.compiler` | Use one of the source kinds reported by `a2 capabilities --json`. A `cc65` file also requires a top-level `cc65` configuration. |
+| `project.origin_required` / `project.metadata_conflict` / `project.file_type` / `project.entry_point` | Make `kind`, `type`, `origin`, `auxType`, and `entryPoint` describe the same payload. Raw BIN/BAS files need a load origin; compiled origins and AppleSingle metadata are authoritative. |
+| `project.memory_range` / `project.memory_overlap` | Inspect the diagnostic's named ranges with `--check --json`. Move the payload/reservation, mark a mutually exclusive overlay `resident: false`, or adjust `basicWorkspaceBytes`. Set `checkMemory: false` only for a layout the program manages deliberately. |
+| `project.basic_workspace` | Keep `basicWorkspaceBytes` between 0 and 65,536; its resulting resident range must also fit without overlapping another declared region. |
+| `project.payload_limit` | Combined compiled payloads exceed 34 MiB. Remove unrelated/alternative files or split the build; filesystem allocation and catalog limits can fail below this host-side bound. |
+| `project.duplicate_path` | Two files, or a generated startup file and another file, resolve to the same image path. Give every entry a distinct filesystem name; build duplicate checks are case-insensitive. |
+| `project.startup` / `project.startup_template` / `project.startup_program` / `project.startup_type` / `project.startup_name` / `project.startup_origin` / `project.startup_entry` | Startup generation needs a supplied bootable template and must name one BAS or BIN manifest entry. BASIC must use the default origin; BIN's entry point must equal its load origin; names must be safe in the generated command. |
+| `project.template_hash` | The template no longer matches `templateSha256`. Verify that the intended bootable image was selected and update the pin only after reviewing that image. |
+| `project.entry_exists` | A template already contains the destination path. Set that file's `replace: true` only for an intentional replacement. The builder will not bypass a locked template entry; prepare and review a separate unlocked template first. |
+| `project.source_changed` | A manifest, template, source, include, or compiler input changed during the build. Stop the competing writer and rebuild from stable inputs. |
+| `project.validation` / `project.corrupt_image` | The staged image or its stored payload/metadata failed the reopen check. The previous output and template are preserved; retain the diagnostics and reproduce with the smallest project. |
+
+Project paths normally resolve relative to the manifest. A command-line `--to`
+override resolves relative to the current directory. Every build starts from a
+fresh filesystem or a fresh copy of `disk.template`; it never incrementally
+updates the preceding output. See [project builds](projects.md) for source-kind,
+startup, template, and repeatability rules.
+
+## cc65 and AppleSingle output
+
+The compiler adapter is optional. Check `cl65 --version` independently before
+diagnosing a source failure, and preserve the complete compiler distribution:
+the executable version alone does not identify its libraries, headers, linker
+configuration, or subprocess tools.
+
+| Diagnostic or symptom | Cause and next step |
+| --- | --- |
+| `cc65.compiler_missing` | Install cc65 and put `cl65` on `PATH`, or pass `--compiler` with the executable path. In a project manifest, compiler paths resolve relative to the manifest. |
+| `cc65.compiler_start` | The selected file exists but cannot be launched. Check execute permission, OS/architecture compatibility, and whether the complete cc65 installation is present. |
+| `cc65.compiler` / `cc65.path` / `cc65.start` | Supply a nonempty executable/path and use direct, accessible paths. If a resolved executable still cannot start, check host policy and file access before changing source. |
+| `cc65.version` / `cc65.version_mismatch` | `cl65 --version` failed, was empty, or differed from `--expected-version`. Supply the exact combined version text from the reviewed installation; do not weaken a version pin merely to pass a build. |
+| `cc65.target` / `project.cpu_target` | Use `apple2` or `apple2enh`. The enhanced compiler target also needs an enhanced A2Utils machine target. |
+| `cc65.options` / `cc65.define` / `cc65.sources` | Keep each source/include/define list at 128 entries or fewer, use distinct source paths, and spell defines as `NAME` or `NAME=value` without newlines. |
+| `cc65.source_type` / `cc65.include_type` | Main sources must be `.c`, `.s`, `.asm`, or `.a65`. Text includes are `.c`/`.h` for C and `.s`/`.asm`/`.a65`/`.inc` for ca65; use `.incbin` for binary data. |
+| `cc65.path_escape` / `cc65.source_path` | Keep sources and quoted includes beneath `--project-root`, outside hidden or excluded build directories, and use direct nonlinked paths. Narrow an overly broad project root rather than moving generated output into it. |
+| `cc65.include` / `cc65.include_macro` / `cc65.include_path` / `cc65.include_syntax` | Include directories and literal relative include files must exist. Do not use unclosed/computed/macro filenames, absolute paths, backslashes in ca65 include names, continued ca65 lines, or `.feature`/`.linecont` compatibility switches. |
+| `program.too_large` | An individual source or included file exceeds 4 MiB. Reduce or split that input. |
+| `cc65.input_limit` | Reduce the isolated source tree: it is limited to 4,096 directories, 4,096 supported files, and 64 MiB total source data. |
+| `cc65.compile_failed` | cl65 returned a compiler/linker error. Read the structured diagnostic and cl65 text; correct the source, startup/runtime declarations, or installed target files. The destination is not replaced. |
+| `cc65.timeout` | The timeout is outside 1–3,600 seconds, or the compiler exceeded it and its process tree was terminated. Correct an invalid value; for an actual timeout, investigate a hung tool first or raise the bound deliberately. |
+| `applesingle.version` / `applesingle.resource_fork` / `applesingle.metadata_range` | The result is not the supported AppleSingle v2 program representation, contains a resource fork that would be lost, or has metadata wider than Apple II fields. Preserve the original archive and use a supported data-fork program output. |
+
+If cl65 succeeds but A2Utils rejects its file, retain the source, exact compiler
+version, and full diagnostic details, then reproduce the cl65 invocation
+independently if its temporary output must be inspected. The adapter validates
+AppleSingle before committing the requested destination. See
+[C and ca65 compilation](cc65.md) for the isolated-source rules and required
+ca65 startup declarations.
+
+## Graphics conversion and assets
+
+| Diagnostic or symptom | Cause and next step |
+| --- | --- |
+| `png.invalid` | The PNG is oversized, truncated, has a bad checksum/chunk order/filter, or contains invalid compressed data. Re-export a complete static PNG; do not assume a file is valid from its suffix. |
+| `png.unsupported` / `png.animation` / `png.critical_chunk` | Convert the source to a static, noninterlaced supported PNG: 8-bit RGB/RGBA/grayscale or 1/2/4/8-bit indexed/grayscale, without unknown critical chunks. |
+| `graphics.mode` / `graphics.dimensions` / `graphics.length` | Select `lores`, `hires`, or `hires-color` and supply its exact documented PNG dimensions or raw page length. The command does not scale, crop, or guess a mode. |
+| `graphics.asset_options` / `graphics.asset_dimensions` | Supply positive cell dimensions, 7 or 8 bits per byte, `lsb` or `msb`, threshold 0–255, and `sprite`, `tile`, or `font`. The PNG grid must divide exactly into those cells. |
+| `graphics.asset_length` / `graphics.asset_padding` / `graphics.asset_size` | Packed input must contain complete cells in a rectangular preview, fit the 65,536-byte/2048×2048 limits, and keep unused row/high bits zero. Recreate the original layout options rather than discarding ambiguous bits. |
+| `graphics.asset_codepoint` | Font labels must remain valid Unicode scalar values and cannot cross the surrogate range. Adjust `--first-codepoint` or reduce the glyph count. |
+| `graphics.shape_schema` | The shape JSON is malformed, uses an unknown property/version, has no shapes, or contains duplicate/unnamed shapes. Compare it with the version-1 example in the graphics-assets guide. |
+| `graphics.shape_direction` / `graphics.shape_empty` / `graphics.shape_limit` / `graphics.shape_encoding` | Use nonempty `up`, `right`, `down`, or `left` vectors with positive counts. Shorten an oversized table; a final nonplot-up vector cannot be represented exactly. |
+| `graphics.dhires_options` / `graphics.dhires_dimensions` / `graphics.dhires_length` | Select `mono` or `color`, specify `aux-main` or `main-aux`, and provide exactly 560×192 or 140×192 pixels when encoding, or 16,384 raw bytes when decoding. |
+| `invalid_arguments` with a graphics command | Remove disk-only `--input-order` or `--input-fs` overrides from asset, shape, and double-hires commands. They operate on host PNG/JSON/raw files, not disk images. |
+| `graphics.source_changed` | The PNG, packed asset, raw page, or shape source changed while output was staged. Stop the competing writer and retry with stable input. |
+| `graphics.validation` | The staged output hash did not match the computed result. The old destination is preserved; retain the input and diagnostic for investigation. |
+
+Preview PNGs are interpretations, not preservation copies: unused screen holes,
+padding, and analog NTSC effects may not round-trip. Use the raw source bytes when
+those details matter. See [screen conversion](graphics.md) and
+[graphics assets](graphics-assets.md) for exact dimensions, packing, and bank order.
+
+## MAME execution and test suites
+
+Once execution creates an artifact directory, `run` and `test` intentionally
+retain it after a failed run. Inspect `result.json`, the `version.*.txt` and
+`emulator.*.txt` logs that were reached, `screen.txt`, and any requested
+`screen.png`/`trace.tsv` before retrying. A single run can reject invalid JSON or
+specification data, an existing artifact path, a missing disk, or a missing ROM
+directory before creating its artifact directory. A suite parses every case before
+creating its root, but checks external disk/ROM paths per case, so its root and
+earlier case evidence can exist when a later case is rejected. Because an existing
+artifact directory is never reused, choose a new `--artifacts` path for the next run.
+
+| Diagnostic or result | Cause and next step |
+| --- | --- |
+| `execution.invalid_spec` | The JSON is malformed, has an unknown/duplicate property, omits a required path/machine, or violates an assertion/time/range limit. Compare it with `a2 schema execution --json`; paths resolve relative to the specification file. |
+| `execution.invalid_suite` | The suite is not version 1 with 1–128 specification paths, or a case has neither an assertion nor an `until` condition. Use `a2 schema execution-suite --json`; all cases are parsed before any starts. |
+| `execution.artifacts_exist` | `--artifacts` must name a new file-system entry. Pick a new directory; A2Utils does not merge with or erase prior evidence. |
+| `execution.disk_missing` / `execution.rom_directory_missing` | Correct `diskImage` or `romDirectory` relative to the spec. A2Utils bundles neither a boot disk nor ROMs. |
+| `execution.emulator_unavailable` | `emulatorPath` did not launch. Use a full path or a path relative to the spec, not only a command name expected to resolve through `PATH`; check execute permission and architecture. |
+| `execution.version_mismatch` | The `-version` probe did not report the pinned MAME `0.289` API. Point to the tested executable and keep `expectedVersion` at `0.289`. |
+| `execution.rom_mismatch` | MAME reported wrong, unverified, or redump ROM checksums. Read `emulator.stderr.txt` and audit the selected machine ROM set with MAME; do not suppress the checksum evidence. |
+| `execution.emulator_error` | MAME exited nonzero. Inspect `emulator.stderr.txt` for an invalid machine/device option, missing ROM, or disk error. |
+| `execution.adapter_error` / `execution.missing_observations` | The disk exceeds 64 MiB, host I/O failed, or the Lua observer failed, produced malformed/oversized output, or never completed. Keep any artifact directory, confirm MAME 0.289, inspect the emulator logs, and inspect `adapter-error.txt` when the Lua side created it. |
+| `execution.screenshot_missing` | `screenshot: true` was requested but MAME did not create `screen.png`. Inspect the emulator logs and artifact-directory permissions. |
+| `execution.host_timeout` | The host watchdog expired and terminated the emulator process tree. Fix startup/ROM problems or raise `hostTimeoutSeconds` within the 3,600-second limit. |
+| `execution.cancelled` | The caller cancelled the run; the process tree was terminated and the CLI exits 6. Start a new artifact directory if the case should run again. |
+| `execution.completion_timeout` | The `until` byte did not reach its value before `emulatedSeconds`. Check the boot path, key schedule, address/value, and ensure `afterSeconds` is earlier than the emulated deadline. |
+| `execution.memory_assertion` / `execution.register_assertion` / `execution.text_assertion` | The machine completed but observed state differed. Compare `expected`/`actual` in JSON with `screen.txt`, mapped-memory assumptions, the selected `textPage`, and input timing. Text matching is case-sensitive and covers 40-column text memory, not OCR. |
+
+Execution/assertion failures normally return a structured result on stdout and
+exit 1; invalid specifications exit 2, and cancellation exits 6. A suite keeps
+each case in `case-001`, `case-002`, and so on, and writes `suite-result.json`.
+See [automated execution](execution.md) for the complete specification, memory
+visibility limits, captured artifacts, and the verified MAME/ROM provenance.
+
 ## Reporting an unresolved problem
 
 Record the application version, OS/architecture, full command, exit code, and
 separate stdout/stderr. For disk issues, include `disk info` and `disk verify`
 results, the image format, and whether a copy reproduces the problem. For
-compiler issues, include the smallest source or byte sequence that demonstrates
-it and the selected CPU, format, and origin. The current repository has no
-configured public issue tracker; retain these details for the local project
-or the review where the problem is being discussed.
+native compiler issues, include the smallest source or byte sequence that
+demonstrates it and the selected CPU, format, and origin. For project builds,
+include a reduced manifest, `build --check --json`, and `targets --json`. For
+graphics, record the exact mode/layout options, input dimensions and hash. For
+cc65 or MAME, include the external tool's exact version and the retained
+compiler text or execution artifact directory; do not distribute ROMs or OS
+images with the report. The current repository has no configured public issue
+tracker; retain these details for the local project or the review where the
+problem is being discussed.

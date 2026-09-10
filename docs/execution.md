@@ -44,6 +44,42 @@ See [the schema](schemas/execution.schema.json) and this example:
 }
 ```
 
+The specification is strict and case-sensitive: unknown or duplicate properties
+are rejected. Specification and suite JSON inputs are capped at 4 MiB with a
+maximum nesting depth of 32. Required properties are `schemaVersion`,
+`emulatorPath`, `machine`, `romDirectory`, and `diskImage`. Omitted optional
+properties use these defaults:
+
+| Property | Default, range, and behavior |
+| --- | --- |
+| `schemaVersion` | Required integer `1`. |
+| `name` | `run`; 1–128 characters, copied into the result. |
+| `emulatorPath` | Required path to the MAME executable. Relative paths resolve from the specification directory. |
+| `expectedVersion` | `0.289`; this adapter accepts only that exact version. |
+| `machine` | Required: `apple2`, `apple2p`, `apple2e`, `apple2ee`, or `apple2c`. |
+| `romDirectory` | Required MAME ROM directory, relative to the specification when not absolute. |
+| `diskImage` | Required input image, relative to the specification; maximum 64 MiB. A disposable copy is mounted. |
+| `diskDevice` | `flop1`; `flop1` or `flop2`. |
+| `emulatedSeconds` | `15`; finite value greater than 0 and at most 3,600. |
+| `hostTimeoutSeconds` | `60`; independent finite watchdog greater than 0 and at most 3,600. |
+| `keys` | `[]`; at most 1,024 `{atSeconds,text}` items. Each time is at least 0 and strictly before the emulated deadline; text is at most 16,384 characters. |
+| `memory` | `[]`; at most 1,024 unique start addresses with complete hexadecimal bytes in `hex`. Spaces are allowed; the combined observation is at most 65,536 bytes. |
+| `registers` | `[]`; at most 128 unique `{name,value}` items. Names are uppercase identifiers of 1–16 characters; values are 0–65,535. |
+| `textContains` | `[]`; at most 128 nonempty, case-sensitive substrings. |
+| `until` | `null`; optional `{address,value,afterSeconds}` completion byte. Address must be observable (`$0000`–`$BFFF` or `$D000`–`$FFFF`), value is 0–255, and `afterSeconds` defaults to 0 and must precede the deadline. |
+| `textPage` | `1`; selected 40-column text page, `1` or `2`. |
+| `screenshot` | `false`; request `screen.png` and fail if MAME does not create it. |
+| `trace` | `false`; request the once-per-frame `trace.tsv` PC sample. |
+
+The suite document is also strict. It contains only `schemaVersion: 1` and a
+required `tests` array of 1–128 nonempty specification paths. Paths resolve from
+the suite file. Before creating the suite artifact directory or launching MAME,
+the CLI parses every case and validates its intrinsic specification constraints,
+including the requirement for at least one assertion or `until` condition.
+External path existence and emulator availability are checked per case during
+execution, so a later external-resource failure can leave the suite root and
+earlier case artifacts in place.
+
 `keys` contains literal keyboard text; `\n` presses Return. Its times, the deadline,
 and `until.afterSeconds` are emulated seconds since power-on. Machine boot and disk
 loading count toward the deadline. Input is queued through MAME's natural keyboard;

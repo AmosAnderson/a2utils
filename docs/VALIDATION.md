@@ -48,6 +48,28 @@ declared main-memory ranges, not dynamic/banked allocations or the complete C
 runtime. cc65 reproducibility also depends on its external distribution and
 environment. Native IIgs and broad archive support remain outside this preview.
 
+## Documentation coverage refresh — September 10, 2026
+
+This documentation-only pass compared the current command tree, public Core
+surface, schemas, defaults, validation limits, result records, and failure paths
+with their implementations:
+
+- All 39 CLI leaf commands are represented in the command reference. Generated
+  capability metadata was cross-checked with effective help and source where
+  recursive/root-only options require interpretation.
+- The Core reference covers all 79 exported types and 87 hand-written public
+  methods, including signatures, defaults, lifecycle rules, and result fields.
+- Project, execution, cc65, graphics, BASIC, assembly, JSON, troubleshooting,
+  packaging, and emulator guides now cover the preview 0.4 behavior.
+- All 25 first-party Markdown files have resolvable local links, valid referenced
+  heading anchors, balanced code fences, and no trailing-whitespace errors.
+- `dotnet test -c Release` passed with 793 tests and one real-MAME test skipped
+  because this documentation environment had no configured emulator. The 794-test run with
+  real MAME remains recorded above. The Release build passed with warnings as
+  errors, and formatting verification also passed.
+
+No product source or test code changed during this pass.
+
 ## Previous preview 0.3 validation
 
 Preview 0.3.0-dev validated locally on Windows x64 with .NET SDK 10.0.400. This records completed

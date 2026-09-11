@@ -10,11 +10,6 @@ independent of console output.
 The current version is **0.4.0-dev**, a development preview. The
 [GitHub repository](https://github.com/AmosAnderson/a2utils) is private.
 
-Release builds run when a version tag such as `v0.4.0-rc.1` is pushed for a commit
-on `main`. Successful builds attach Windows, Linux, and macOS binaries to
-[GitHub Releases](https://github.com/AmosAnderson/a2utils/releases). See
-[tagging and release downloads](docs/development.md#tagged-releases).
-
 ## Documentation
 
 | Guide | What you will find |
@@ -114,10 +109,9 @@ operation preserves and where physical allocation may change.
 ## Development status
 
 The [validation record](docs/VALIDATION.md) distinguishes unit tests, independent
-format vectors, packaged workflows, and real external-tool checks. All 794 tests
-pass locally, including real MAME integration. Windows tool and self-contained
-packages also pass workflow checks. Hosted validation of the new features remains
-a release check.
+format vectors, packaged workflows, and real external-tool checks. The standard
+local suites pass 795 tests; the real-MAME integration check is environment
+dependent. Package and external-tool evidence is maintained in that record.
 
 The disk engine is pinned under [third_party/CiderPress2](third_party/CiderPress2),
 with source hashes and license notices. [THIRD_PARTY.md](THIRD_PARTY.md) describes

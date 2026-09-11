@@ -10,11 +10,188 @@ independent of console output.
 The current version is **0.4.0-dev**, a development preview. The
 [GitHub repository](https://github.com/AmosAnderson/a2utils) is private.
 
+## Download and run
+
+When a release is available, download the package for your computer and
+`SHA256SUMS.txt` from
+[GitHub Releases](https://github.com/AmosAnderson/a2utils/releases). Access to
+the private repository is required.
+
+| Computer | Release asset | Command after extraction |
+| --- | --- | --- |
+| Windows x64 | `a2utils-VERSION-win-x64.zip` | `.\a2.exe` |
+| Linux x64 | `a2utils-VERSION-linux-x64.tar.gz` | `./a2` |
+| Apple Silicon macOS | `a2utils-VERSION-osx-arm64.tar.gz` | `./a2` |
+
+These archives are self-contained and do not require a separate .NET install.
+They contain the executable, .NET runtime, supporting libraries, and notices at
+the archive root. Extract an archive into a new dedicated directory and keep all
+of those files together; copying only `a2` or `a2.exe` will not work.
+
+Replace `VERSION` below with the version in the downloaded filename. Verify the
+archive against its line in `SHA256SUMS.txt` before running it.
+
+Windows PowerShell:
+
+```powershell
+$version = 'VERSION'
+$archive = ".\a2utils-$version-win-x64.zip"
+$archiveName = Split-Path -Leaf $archive
+$actual = (Get-FileHash $archive -Algorithm SHA256).Hash
+$expected = ((Select-String -LiteralPath SHA256SUMS.txt -SimpleMatch "  $archiveName").Line -split '\s+')[0]
+if ($actual -ne $expected) { throw 'SHA-256 mismatch.' }
+Expand-Archive $archive -DestinationPath ".\a2utils-$version"
+& ".\a2utils-$version\a2.exe" --version
+& ".\a2utils-$version\a2.exe" --help
+```
+
+Linux:
+
+```sh
+version='VERSION'
+grep -F "  a2utils-${version}-linux-x64.tar.gz" SHA256SUMS.txt | sha256sum --check -
+mkdir "a2utils-$version"
+tar -xzf "a2utils-$version-linux-x64.tar.gz" -C "a2utils-$version"
+"./a2utils-$version/a2" --version
+"./a2utils-$version/a2" --help
+```
+
+Apple Silicon macOS:
+
+```sh
+version='VERSION'
+grep -F "  a2utils-${version}-osx-arm64.tar.gz" SHA256SUMS.txt | shasum -a 256 --check
+mkdir "a2utils-$version"
+tar -xzf "a2utils-$version-osx-arm64.tar.gz" -C "a2utils-$version"
+"./a2utils-$version/a2" --version
+"./a2utils-$version/a2" --help
+```
+
+The Windows check stops on a mismatch; the Linux and macOS checks report the
+matching archive as `OK`.
+
+The Unix archives preserve execute permission. If another extraction program
+does not, run `chmod +x PATH_TO_A2/a2`. The development archives are not
+code-signed or notarized, so Windows SmartScreen or macOS Gatekeeper may warn.
+Verify the checksum and source before allowing the program; on macOS use Privacy
+& Security's **Open Anyway** control if appropriate.
+
+The examples below use `a2` for readability. Invoke it by its extracted path or
+add the entire extraction directory to `PATH`; do not move only the executable.
+Windows ARM, Linux ARM, and Intel Mac users can instead install the portable
+`A2Utils.Tool.VERSION.nupkg`. From its download directory, with the .NET 10 SDK
+installed:
+
+```sh
+dotnet tool install --global A2Utils.Tool --version VERSION --add-source .
+a2 --version
+```
+
+Use `dotnet tool update --global A2Utils.Tool --version VERSION --add-source .`
+instead when upgrading an existing global installation.
+
+## First commands
+
+Help is available at every command level. Start with read-only inspection of a
+copy of your disk image:
+
+```sh
+a2 --version
+a2 --help
+a2 disk --help
+a2 disk info "my-disk.dsk"
+a2 disk ls "my-disk.dsk"
+a2 disk verify "my-disk.dsk"
+```
+
+`disk info` identifies the container, sector order, and filesystem. Extensions
+are only hints; ambiguous raw images may need justified `--input-order dos` or
+`--input-order prodos` and `--input-fs dos33` or `--input-fs prodos` overrides.
+`disk verify` checks filesystem structure without repairing or running the disk.
+Add `--verbose` for diagnostic detail or `--json` for a stable scripting result.
+Quote host paths containing spaces, write command-line hexadecimal values as
+`0x2000`, and create output parent directories before commands that write files.
+See [troubleshooting](docs/troubleshooting.md) when a diagnostic is unclear.
+
+## Protect your images and outputs
+
+Commands that modify entries or attributes in an existing image require exactly
+one destination mode. Prefer `--output NEWIMAGE` initially; it leaves the source
+image unchanged. `--in-place` replaces the source only after validation and
+creates a uniquely named `.bak` containing its previous bytes. Keep independent
+backups of important images.
+
+Host-file outputs refuse to replace existing files unless `--overwrite` is
+given. That option does not overwrite entries inside an image or bypass locks;
+use `disk replace` for an intentional entry update. Writes are staged and
+validated before replacement.
+
+Use `disk export` for a logical payload or readable UTF-8 text. Use
+`disk extract` when you need stored bytes plus an `a2-manifest.json` for a later
+same-filesystem restore. Neither substitutes for retaining the original whole
+image when physical layout and untouched disk bytes matter.
+
+## Common tasks
+
+Use your own image, assembly, and BASIC filenames in these examples:
+
+```sh
+a2 disk export "my-disk.dsk" README --format text --to readme.txt
+a2 disk extract "my-disk.dsk" --to extracted-disk
+a2 asm compile hello.asm --origin 0x2000 --to hello.bin
+a2 asm decompile hello.bin --origin 0x2000 --to hello.dis.asm
+a2 basic compile hello.bas --to hello.basbin
+a2 basic decompile hello.basbin --to hello.list.bas
+a2 disk create work.do --fs dos33
+a2 disk add work.do hello.bin --name HELLO --type B --load-address 0x2000 --in-place
+a2 disk add work.do hello.basbin --name DEMO --type A --in-place
+a2 disk verify work.do
+```
+
+These commands create new host files or directories; rerunning them requires new
+destinations or the appropriate explicit replacement option. Newly created disk
+images are formatted data volumes without an operating system or boot code. The
+assembly example targets address `0x2000`; any `.org` in `hello.asm` must agree.
+Follow the [first-project walkthrough](docs/getting-started.md#build-a-disk-with-two-programs)
+for this sequence and the equivalent ProDOS metadata step by step.
+
+## Capabilities and boundaries
+
+| Area | Supported in this preview |
+| --- | --- |
+| Disk images | Raw `.do`, `.po`, `.dsk`, single-volume `.hdv`, and sector-data `.2mg`/`.2img` |
+| Filesystems | Standard 140 KiB DOS 3.3; ProDOS volumes of 280–65,535 blocks |
+| Disk operations | Inspect, verify, extract/restore, export/import, create, add/replace/delete, copy/move/rename, directories, attributes, and container/order conversion |
+| Text | Explicit Apple text ↔ UTF-8 conversion for printable ASCII, tabs, and line endings |
+| Assembly | Documented NMOS 6502, Apple-compatible 65C02, and WDC65C02 instructions; labels, expressions, and data directives |
+| Applesoft | Full token vocabulary, numbered source, linked program validation, checks, renumbering, symbolic labels, and readable listings |
+| Automation | Versioned JSON, stable diagnostic codes, cancellation, and explicit write destinations |
+| Projects | Reproducible builds, source maps/symbols, target profiles, capability discovery, and JSON Schemas |
+| Execution | Optional MAME 0.289 adapter with scripted input, memory/register/text assertions, screenshots and bounded runs |
+| C and ca65 | Optional isolated cc65 integration producing AppleSingle programs |
+| Graphics | PNG screens, sprites, fonts, tiles, Applesoft shapes, and double-hires assets |
+
+Machine-code decompilation produces assembly, without recovering original
+symbols, comments, or code/data boundaries. BASIC compilation produces
+interpreted Applesoft tokens. NIB/WOZ, DOS 3.2, partitions, forked-file
+operations, Integer BASIC conversion, and repair are outside the supported
+scope. See the [format guide](docs/formats/supported-images.md) before writing an
+unfamiliar or ambiguous image.
+
+## Optional integrations
+
+Disk operations, the native assembler, Applesoft tools, project builder, and
+graphics conversion are built in. `a2 cc` and project manifests containing cc65
+sources additionally require a separate cc65 installation containing `cl65`.
+The `run` and `test` commands require MAME 0.289, matching ROMs, and a supplied
+disk; none of those emulator files are bundled. On Linux and macOS, host program
+input and directory import also expect the standard `/usr/bin/stat` utility.
+
 ## Documentation
 
 | Guide | What you will find |
 | --- | --- |
-| [Getting started](docs/getting-started.md) | Requirements, local installation, shell setup, and a complete first project |
+| [Getting started](docs/getting-started.md) | Downloads, requirements, installation, shell setup, and a complete first project |
 | [Command reference](docs/cli-reference.md) | Every command, argument, option, alias, and default |
 | [Working with disk images](docs/disk-images.md) | Catalogs, file transfers, metadata, manifests, conversion, and backups |
 | [Assembly and Applesoft BASIC](docs/programs.md) | Compiler syntax, CPU modes, source examples, program headers, and disk integration |
@@ -30,13 +207,10 @@ The current version is **0.4.0-dev**, a development preview. The
 | [Core API reference](docs/core-api.md) | Every public Core namespace, type, method, option/result record, and integration contract |
 | [Validation record](docs/VALIDATION.md) | Completed checks and remaining release gates |
 
-Contributors should read [AGENTS.md](AGENTS.md). [PLAN.md](PLAN.md) records the
-original proposal, implemented milestones, and future work.
+## Build from source
 
-## Try it from source
-
-From the repository root, use the SDK selected by [global.json](global.json)
-(10.0.400 with patch roll-forward):
+From a repository checkout, use the .NET SDK selected by
+[global.json](global.json) (10.0.400 with patch roll-forward):
 
 ```sh
 dotnet restore A2Utils.slnx --locked-mode
@@ -47,73 +221,20 @@ dotnet run --project src/A2Utils.Cli -c Release --no-build -- disk ls tests/Test
 
 The bundled fixture contains `HELLO.BIN` and `README`, with independently
 specified bytes and metadata. It contains no Apple boot code. Its provenance
-and hashes are in [tests/TestData/README.md](tests/TestData/README.md).
+and hashes are in [tests/TestData/README.md](tests/TestData/README.md). To package
+or install the command from source, follow the
+[development setup](docs/getting-started.md#install-the-local-command).
 
-To create the locally installed `a2` command, follow
-[installation and shell setup](docs/getting-started.md#install-the-local-command).
-The examples below assume that setup and run from the repository root.
+Contributors should read [AGENTS.md](AGENTS.md). [PLAN.md](PLAN.md) records the
+original proposal, implemented milestones, and future work.
 
-## Common tasks
+## Preview status and licensing
 
-```sh
-a2 disk info tests/TestData/independent-dos33.do --json
-a2 disk export tests/TestData/independent-dos33.do README --format text --to readme.txt
-a2 asm compile examples/hello.asm --to hello.bin
-a2 asm decompile hello.bin --origin 0x2000 --to hello.dis.asm
-a2 basic compile examples/hello.bas --to hello.basbin
-a2 basic decompile hello.basbin --to hello.list.bas
-a2 disk create work.do --fs dos33
-a2 disk add work.do hello.bin --name HELLO --type B --load-address 0x2000 --in-place
-a2 disk add work.do hello.basbin --name DEMO --type A --in-place
-a2 basic decompile DEMO --from-image work.do --to demo.bas
-```
+The [validation record](docs/VALIDATION.md) lists tested formats, packages, and
+external tools along with the remaining limits. The standard local suites pass
+795 tests; the real-MAME integration check is environment dependent.
 
-These commands create new host files; rerunning them requires new output names
-or explicit replacement options. The [first-project walkthrough](docs/getting-started.md#build-a-disk-with-two-programs)
-explains each step, including equivalent ProDOS metadata.
-
-## Capabilities and boundaries
-
-| Area | Supported in this preview |
-| --- | --- |
-| Disk images | Raw `.do`, `.po`, `.dsk`, single-volume `.hdv`, and sector-data `.2mg`/`.2img` |
-| Filesystems | Standard 140 KiB DOS 3.3; ProDOS volumes of 280–65,535 blocks |
-| Disk operations | Inspect, verify, extract/restore, export, create, add/replace/delete, copy/move/rename, directories, attributes, and container/order conversion |
-| Text | Explicit Apple text ↔ UTF-8 conversion for printable ASCII, tabs, and line endings |
-| Assembly | Documented NMOS 6502, Apple-compatible 65C02, and WDC65C02 instructions; labels, expressions, and data directives |
-| Applesoft | Full token vocabulary, numbered source, linked program validation, and readable listings |
-| Automation | Versioned JSON, stable diagnostic codes, cancellation, and explicit write destinations |
-| Development | Project builds, source maps/symbols, BASIC checks/renumbering/labels, target profiles, capability discovery and JSON Schemas |
-| Execution | Optional MAME 0.289 adapter with scripted input, memory/register/text assertions, screenshots and bounded runs |
-| C and assets | Optional cc65 integration; PNG screens, sprites, fonts, tiles, Applesoft shapes, and double-hires assets |
-
-Machine-code decompilation produces assembly, without recovering original
-symbols, comments, or code/data boundaries. BASIC compilation produces
-interpreted Applesoft tokens. Use the separate `run` and `test` commands to execute
-programs through a configured MAME installation with matching ROMs and a disk.
-NIB/WOZ, DOS 3.2, partitions, forked-file operations, Integer BASIC conversion,
-and repair are outside the supported scope.
-
-## Data preservation
-
-Image mutations require either `--output NEWIMAGE` or `--in-place`. In-place
-writes create unique backups. Outputs are staged and validated before
-replacement; `--overwrite` authorizes replacing a host output file, not an
-existing image entry or locked file.
-
-Use `disk export` for usable payloads and `disk extract` for stored bytes plus
-a restoration manifest. Container conversion retains the filesystem. The
-[disk guide](docs/disk-images.md) explains which bytes and metadata each
-operation preserves and where physical allocation may change.
-
-## Development status
-
-The [validation record](docs/VALIDATION.md) distinguishes unit tests, independent
-format vectors, packaged workflows, and real external-tool checks. The standard
-local suites pass 795 tests; the real-MAME integration check is environment
-dependent. Package and external-tool evidence is maintained in that record.
-
-The disk engine is pinned under [third_party/CiderPress2](third_party/CiderPress2),
-with source hashes and license notices. [THIRD_PARTY.md](THIRD_PARTY.md) describes
-dependencies. A license for original A2Utils code remains to be selected before
-public distribution; the development packages are for local evaluation.
+Third-party notices are included in each archive and summarized in
+[THIRD_PARTY.md](THIRD_PARTY.md). A license for original A2Utils code remains to
+be selected before public distribution; the development packages are for local
+evaluation.

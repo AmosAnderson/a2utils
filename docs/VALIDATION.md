@@ -1,5 +1,23 @@
 # Development preview validation
 
+## Windows path assertion release retry — September 16, 2026
+
+The [`v0.5.0-dev` run](https://github.com/AmosAnderson/a2utils/actions/runs/35117475546)
+passed Linux and macOS tests, packaging, and installed/archive smoke checks.
+Windows passed 1,020 Core tests and 137 CLI tests, with one Core failure and 15
+external-MAME cases skipped. The failing compiler-distribution fingerprint test
+compared a normalized Windows path with an expected path whose helper retained
+embedded forward slashes. The fingerprinted library was present with the correct
+content hash. Publication was skipped after the Windows test failure.
+
+Normalize the test helper with `Path.GetFullPath` so the exact path assertion
+uses the host's canonical separators. Production fingerprint behavior is
+unchanged. Version `0.5.0-dev.1` retries the release on a new tag; the failed
+`v0.5.0-dev` tag remains unchanged.
+The 13 environment tests, locked restore, warning-free Release build, formatting,
+and CLI version check passed locally before the retry.
+
+
 ## Remaining AI programming tools — September 16, 2026
 
 Validated locally on macOS ARM64 with the pinned .NET SDK's permitted patch roll-forward:

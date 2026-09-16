@@ -188,6 +188,6 @@ public sealed class DevelopmentEnvironmentTests : IDisposable
         return At("environment.json");
     }
 
-    private string At(string path) => Path.Combine(_directory, path);
+    private string At(string path) => Path.GetFullPath(Path.Combine(_directory, path));
     public void Dispose() => Directory.Delete(_directory, true);
 }

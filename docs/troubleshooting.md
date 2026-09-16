@@ -15,7 +15,7 @@ stdout and stderr separate when collecting evidence. The
 | Compatible SDK cannot be found | Run `dotnet --list-sdks` from the repository root; the pin is 10.0.400 with patch roll-forward, not unrestricted .NET 10 roll-forward |
 | Restore fails in locked mode | Check access to the source in `NuGet.Config`; if dependencies were intentionally changed, follow the lockfile workflow in the development guide |
 | `a2` is not recognized | Invoke `./artifacts/tools/a2.exe` on Windows or `./artifacts/tools/a2` on Unix, or define the session function in getting started |
-| An old executable lacks `asm` or `basic` | Check `a2 --version`, rebuild the local package, and update the repository-local tool to 0.5.0-dev |
+| An old executable lacks `asm` or `basic` | Check `a2 --version`, rebuild the local package, and update the repository-local tool to 0.5.0-dev.1 |
 | `Package.ps1` fails on unsupported PowerShell features | Run it with PowerShell 7 (`pwsh`) |
 | Missing `/usr/bin/stat` | Restore that system utility for Linux/macOS host-file checks; program input and directory import require it |
 | Published executable cannot start on another computer | Use the complete self-contained package for that computer's OS/architecture, including runtime files |

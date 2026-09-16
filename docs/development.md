@@ -371,7 +371,7 @@ dotnet run --project third_party/evaluation/DiskEngineProbe.csproj -c Release
 
 ## Packaging and local installation
 
-The shared version is currently `0.4.0-dev` in
+The shared version is currently `0.5.0-dev` in
 [Directory.Build.props](../Directory.Build.props). When changing it, also update
 versioned local installation examples. Release builds take their version from
 the Git tag instead. The CLI package ID is `A2Utils.Tool`; its command is `a2`.
@@ -381,7 +381,7 @@ From the repository root:
 ```sh
 pwsh -File eng/Package.ps1
 pwsh -File eng/Package.ps1 -Runtime win-x64 -SkipTests
-pwsh -File eng/Package.ps1 -Runtime win-x64 -Version 0.4.0-dev -SkipTests
+pwsh -File eng/Package.ps1 -Runtime win-x64 -Version 0.5.0-dev -SkipTests
 ```
 
 The default runtime is the host's runtime identifier. Accepted explicit values
@@ -392,7 +392,7 @@ execution on that platform. Unix archives also require `tar` on the build host.
 
 | Artifact | Location and requirements |
 | --- | --- |
-| .NET tool package | `artifacts/packages/A2Utils.Tool.0.4.0-dev.nupkg`; running the installed tool requires the .NET 10 runtime |
+| .NET tool package | `artifacts/packages/A2Utils.Tool.0.5.0-dev.nupkg`; running the installed tool requires the .NET 10 runtime |
 | Self-contained files | `artifacts/publish/<RID>/`; includes the runtime and uses `a2.exe` on Windows or `a2` on Unix |
 | Windows archive | `artifacts/a2utils-<RID>.zip` |
 | Linux/macOS archive | `artifacts/a2utils-<RID>.tar.gz` |
@@ -403,7 +403,7 @@ files and notices with the executable. Generated artifacts, `bin/`, and `obj/`
 are ignored by Git.
 
 `-Version` overrides the shared version for restore, tests, packing, and
-publishing. It accepts a version such as `0.4.0` or `0.4.0-rc.1`, without a
+publishing. It accepts a version such as `0.5.0` or `0.5.0-rc.1`, without a
 leading `v` or build metadata. Versioned archives use
 `a2utils-<version>-<RID>.zip` or `.tar.gz`, and the tool package uses the same
 version. Omitting this option preserves the local artifact names above.
@@ -411,7 +411,7 @@ version. Omitting this option preserves the local artifact names above.
 Install the tool into this checkout:
 
 ```sh
-dotnet tool install A2Utils.Tool --version 0.4.0-dev --add-source artifacts/packages --tool-path artifacts/tools --configfile NuGet.Config
+dotnet tool install A2Utils.Tool --version 0.5.0-dev --add-source artifacts/packages --tool-path artifacts/tools --configfile NuGet.Config
 ```
 
 Use `dotnet tool update` with the same arguments when upgrading an existing
@@ -432,17 +432,17 @@ and lightweight tags work; tags on unmerged branches are rejected. Numeric
 version identifiers cannot have leading zeroes; build metadata is unsupported.
 
 To release a reviewed commit, update your checkout and push a new version tag.
-For example, to validate the current 0.4 line as a prerelease:
+For example, to validate the current 0.5 line as a prerelease:
 
 ```sh
 git switch main
 git pull --ff-only origin main
-git tag -a v0.4.0-rc.1 -m "Release 0.4.0-rc.1"
-git push origin v0.4.0-rc.1
+git tag -a v0.5.0-rc.1 -m "Release 0.5.0-rc.1"
+git push origin v0.5.0-rc.1
 ```
 
 The tag supplies the package and binary version; editing `Directory.Build.props`
-is unnecessary. Use a prerelease tag such as `v0.4.0-rc.1` to mark the GitHub
+is unnecessary. Use a prerelease tag such as `v0.5.0-rc.1` to mark the GitHub
 Release as a prerelease. Push one release tag at a time and keep existing
 release tags unchanged.
 

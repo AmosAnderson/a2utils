@@ -19,6 +19,7 @@ public static partial class Assembler
         private int _binaryBytes;
         private readonly Dictionary<string, byte[]> _files = new(PathComparer);
         private readonly HashSet<string> _active = new(PathComparer);
+        private IReadOnlyDictionary<string, byte[]> _generated = new Dictionary<string, byte[]>();
         private static StringComparer PathComparer => OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
             ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
 
@@ -33,12 +34,20 @@ public static partial class Assembler
             return document;
         }
 
-        public static SourceDocument FromFile(string path, CancellationToken cancellationToken)
+        public static SourceDocument FromFile(string path, CancellationToken cancellationToken,
+            IReadOnlyDictionary<string, byte[]>? generatedInputs = null)
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(path);
             cancellationToken.ThrowIfCancellationRequested();
             string fullPath = Path.GetFullPath(path);
             SourceDocument document = new();
+            if (generatedInputs is not null)
+            {
+                if (generatedInputs.Count > 512 || generatedInputs.Values.Any(bytes => bytes is null)
+                    || generatedInputs.Values.Sum(bytes => (long)bytes.Length) > 32 * 1024 * 1024)
+                    throw LocatedError(path, 1, "Generated assembly inputs exceed their count or size limit.", "assembly.include_limit");
+                document._generated = generatedInputs.ToDictionary(pair => Path.GetFullPath(pair.Key), pair => pair.Value.ToArray(), PathComparer);
+            }
             document.Expand(fullPath, Path.GetDirectoryName(fullPath)!, cancellationToken);
             return document;
         }
@@ -72,6 +81,16 @@ public static partial class Assembler
                 if (entry.LinkTarget is not null || (entry.Exists && (entry.Attributes & FileAttributes.ReparsePoint) != 0))
                     throw LocatedError(path, 1, "Assembly input paths cannot contain links.", "assembly.include_path");
                 entry = entry is FileInfo file ? file.Directory : ((DirectoryInfo)entry).Parent;
+            }
+            if (_generated.TryGetValue(path, out byte[]? generated))
+            {
+                if (File.Exists(path) || Directory.Exists(path))
+                    throw LocatedError(path, 1, "Generated assembly input collides with an existing path.", "assembly.include_path");
+                if (generated.Length > maximum)
+                    throw LocatedError(path, 1, "Generated assembly input exceeds its size limit.", "assembly.include_limit");
+                _files.Add(path, generated);
+                Hashes.Add(path, Convert.ToHexStringLower(SHA256.HashData(generated)));
+                return generated;
             }
             HostFiles.EnsureRegularFile(path, cancellationToken);
             using FileStream input = new(path, FileMode.Open, FileAccess.Read, FileShare.Read);

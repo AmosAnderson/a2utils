@@ -1532,11 +1532,15 @@ namespace DiskArc.FS {
                     //Debug.WriteLine("Wrote dirent");
                 }
                 if (IsDirectory) {
-                    // If the filename of a directory changed, we also need to update it in
-                    // the dir header.  Compare the storage type / name length byte as well
-                    // (the storage type of a directory will never change).
+                    // A2Utils local patch: keep the redundant creation date as well as the
+                    // filename synchronized with the directory entry.  Leaving the header's
+                    // creation date unchanged makes fixed-timestamp builds nondeterministic.
+                    // Compare the storage type / name length byte as well (the storage type
+                    // of a directory will never change).
                     if (!RawData.CompareBytes(mBeforeBuf, direntOffset,
-                            mEditBuf, direntOffset, ProDOS.MAX_FILE_NAME_LEN + 1)) {
+                            mEditBuf, direntOffset, ProDOS.MAX_FILE_NAME_LEN + 1) ||
+                            !RawData.CompareBytes(mBeforeBuf, direntOffset + 0x18,
+                            mEditBuf, direntOffset + 0x18, 4)) {
 
                         // Get the first block in the directory file.
                         byte[] modData = new byte[BLOCK_SIZE];
@@ -1549,6 +1553,7 @@ namespace DiskArc.FS {
                         Array.Copy(mEditBuf, direntOffset, modData, 4,
                             ProDOS.MAX_FILE_NAME_LEN + 1);
                         modData[4] = (byte)((modData[4] & 0x0f) | storageType);
+                        RawData.SetU32LE(modData, 0x1c, mCreateWhen);
 
                         FileSystem.ChunkAccess.WriteBlock(KeyBlock, modData, 0);
                     }

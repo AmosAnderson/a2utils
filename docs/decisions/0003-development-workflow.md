@@ -44,3 +44,43 @@ External execution is described in [0002-execution.md](0002-execution.md).
 Emulators, ROMs, operating systems, and external compilers used for local tests
 remain outside tracked/published artifacts. Their identities and test results
 are documented separately from unit and process-contract checks.
+
+## September 13, 2026: preflight and project execution
+
+Full preflight uses the same population and validation callbacks as a real build
+on a disposable image. Its plan records actual allocation outcomes. The existing
+fast source check remains separate. The additive build result includes mode,
+capacity/change plan, and resolved optional execution settings.
+
+Project execution preflights first, binds a suite to the target machine and build
+symbols, captures execution input hashes, then rebuilds. Both source hashes and
+the image hash must match preflight, and execution inputs must still match before
+the image transaction commits. After commit, behavioral failures retain the valid
+build and execution evidence. This is not an atomic transaction spanning emulator
+execution or all evidence files.
+
+Explicit mounts support the two existing floppy devices. Every disk is copied,
+input-pinned when requested, and retained with before/after hashes. Saved-file
+assertions and filesystem verification occur after the emulator exits. The CLI
+and Core retain the legacy single-disk contract. Symbolic addresses are resolved
+only through a matching full build, with source annotations limited to available
+native assembly maps. No controller configuration, emulator version expansion,
+or instruction tracing is implied.
+
+## September 16, 2026: remaining AI programming tools
+
+Compiler reports retain normalized linker symbols, typed segments, diagnostics,
+and toolchain input identities. Project runtime accounting combines payloads
+with BSS, zero-page, stack, and declared heap/other allocations by physical bank.
+Members of one named overlay group promise mutually exclusive runtime lifetimes;
+other resident code and reserved regions continue to conflict.
+
+Asset transformations produce immutable virtual project inputs consumed by the
+native assembler and staged cc65 build. Metadata/includes and hashes are build
+evidence; the source tree receives no temporary compiler or asset output.
+Environment profiles and explicit locks provide local tool/ROM/template identity
+without bundling external assets. Starters are staged in a new directory.
+Project suites use these same pinned inputs and the extended execution schema,
+including symbol-aware ordered waits and cycle windows. CFFA2 is an explicit
+storage profile with validated single-volume ProDOS images; default floppy
+behavior is retained for supported floppy geometry.

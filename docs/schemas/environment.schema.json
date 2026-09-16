@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:a2utils:schema:environment:1",
+  "title": "A2Utils local environment schema v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "machine": { "enum": ["apple2", "apple2p", "apple2e", "apple2ee", "apple2c"] },
+    "mamePath": { "type": "string" },
+    "romDirectory": { "type": "string" },
+    "templateImage": { "type": ["string", "null"] },
+    "templateFileSystem": { "enum": ["dos33", "prodos"] },
+    "cc65Path": { "type": ["string", "null"] },
+    "cc65Root": { "type": ["string", "null"] },
+    "expectedCc65Version": { "type": ["string", "null"] },
+    "bootSeconds": { "type": "number", "minimum": 1, "maximum": 120 }
+  }
+}

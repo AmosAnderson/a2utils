@@ -3,4 +3,7 @@
     <OutputType>Exe</OutputType>
     <IsPackable>false</IsPackable>
   </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/A2Utils.Core/A2Utils.Core.csproj" />
+  </ItemGroup>
 </Project>

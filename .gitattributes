@@ -11,6 +11,8 @@
 
 # Preserve pinned upstream bytes so SOURCE_MANIFEST hashes survive checkout.
 third_party/CiderPress2/** -text
+# The original source manifest uses CRLF; retain it while checking other whitespace.
+third_party/CiderPress2/SOURCE_MANIFEST.json whitespace=cr-at-eol
 
 # Disk fixtures must never undergo newline conversion.
 *.do -text

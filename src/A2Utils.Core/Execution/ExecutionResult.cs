@@ -7,6 +7,22 @@ public sealed record ExecutionResult(
     double? EmulatedSeconds, IReadOnlyDictionary<string, long> Registers,
     IReadOnlyDictionary<int, string> Memory, string? ScreenText,
     string? InputSha256, string ArtifactDirectory, IReadOnlyList<string> Artifacts,
-    IReadOnlyList<ProgramDiagnostic> Diagnostics);
+    IReadOnlyList<ProgramDiagnostic> Diagnostics)
+{
+    public IReadOnlyList<ExecutionDiskResult> Disks { get; init; } = [];
+    public IReadOnlyList<ExecutionMemory> BankMemory { get; init; } = [];
+    public IReadOnlyList<ExecutionStepResult> Steps { get; init; } = [];
+    public IReadOnlyList<ExecutionCheckpoint> Checkpoints { get; init; } = [];
+    public ExecutionAudioResult? Audio { get; init; }
+    public ExecutionEnvironmentEvidence? Environment { get; init; }
+    public ExecutionCycleResult? Cycles { get; init; }
+    public ExecutionDebugResult? Debug { get; init; }
+    public AppleIIeTextScreen? TextScreen { get; init; }
+    public ExecutionScreenshotResult? ScreenshotComparison { get; init; }
+    public IReadOnlyDictionary<string, int> Video { get; init; } = new Dictionary<string, int>();
+}
+
+public sealed record ExecutionDiskResult(string Device, string InputPath, string ArtifactPath,
+    string InputSha256, string? OutputSha256);
 
 public sealed record ExecutionSuiteResult(int SchemaVersion, bool Passed, IReadOnlyList<ExecutionResult> Tests);

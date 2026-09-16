@@ -10,6 +10,11 @@ independent of console output.
 The current version is **0.4.0-dev**, a development preview. The
 [GitHub repository](https://github.com/AmosAnderson/a2utils) is private.
 
+The AI programming workflow now includes [setup profiles and starters](docs/setup.md),
+[runtime memory checks](docs/runtime-memory.md), [project graphics assets and visual tests](docs/project-assets.md),
+[ordered interactions and routine/cycle tests](docs/interactive-testing.md),
+[audio assertions](docs/audio-execution.md), [CFFA2 block devices](docs/block-storage-execution.md), and [reusable Apple II routines](examples/runtime/README.md).
+
 ## Download and run
 
 When a release is available, download the package for your computer and
@@ -167,7 +172,7 @@ for this sequence and the equivalent ProDOS metadata step by step.
 | Applesoft | Full token vocabulary, numbered source, linked program validation, checks, renumbering, symbolic labels, and readable listings |
 | Automation | Versioned JSON, stable diagnostic codes, cancellation, and explicit write destinations |
 | Projects | Reproducible builds, source maps/symbols, target profiles, capability discovery, and JSON Schemas |
-| Execution | Optional MAME 0.289 adapter with scripted input, memory/register/text assertions, screenshots and bounded runs |
+| Execution | Optional MAME 0.289 adapter with isolated floppy mounts, bank-aware assertions, 40/80-column text, MouseText, breakpoints/watchpoints, instruction steps/history, and screenshots |
 | C and ca65 | Optional isolated cc65 integration producing AppleSingle programs |
 | Graphics | PNG screens, sprites, fonts, tiles, Applesoft shapes, and double-hires assets |
 
@@ -179,6 +184,12 @@ scope. See the [format guide](docs/formats/supported-images.md) before writing a
 unfamiliar or ambiguous image.
 
 ## Optional integrations
+
+Use `a2 build PROJECT --preflight --json` for a complete disposable build with a
+change/capacity plan. Projects with `execution.suite` can run
+`a2 build PROJECT --test --artifacts NEW_DIRECTORY --json` to bind tests and
+symbolic addresses to the exact built image. See the
+[project test example](examples/development/project-tests/README.md).
 
 Disk operations, the native assembler, Applesoft tools, project builder, and
 graphics conversion are built in. `a2 cc` and project manifests containing cc65
@@ -198,6 +209,8 @@ input and directory import also expect the standard `/usr/bin/stat` utility.
 | [Project builds](docs/projects.md) | Reproducible manifests, inferred load metadata, templates, target profiles, and memory checks |
 | [BASIC development](docs/basic-development.md) | Source checking, renumbering, symbolic labels, and source mappings |
 | [Automated execution](docs/execution.md) | MAME run/test specifications, assertions, timeouts, and execution evidence |
+| [Runtime debugging](docs/runtime-debugging.md) | Breakpoints, watchpoints, bounded steps, and instruction history |
+| [IIe memory](docs/iie-memory.md) and [observations](docs/iie-execution.md) | Banked projects, explicit loaders, physical memory, 80-column text, and MouseText |
 | [C and ca65](docs/cc65.md) | Optional isolated cc65 compilation and AppleSingle programs |
 | [Graphics](docs/graphics.md) | PNG screen conversion and sprite, font, tile, shape, and double-hires assets |
 | [Scripting and JSON](docs/scripting.md) | Output contracts, result fields, exit codes, and PowerShell/Bash examples |
@@ -231,8 +244,9 @@ original proposal, implemented milestones, and future work.
 ## Preview status and licensing
 
 The [validation record](docs/VALIDATION.md) lists tested formats, packages, and
-external tools along with the remaining limits. The standard local suites pass
-795 tests; the real-MAME integration check is environment dependent.
+external tools along with the remaining limits. The standard local suites and
+remaining external-machine checks are recorded there; real MAME and OS
+interoperability checks require local emulator resources.
 
 Third-party notices are included in each archive and summarized in
 [THIRD_PARTY.md](THIRD_PARTY.md). A license for original A2Utils code remains to

@@ -5,8 +5,9 @@ Upstream: <https://github.com/fadden/CiderPress2>
 Pinned revision: `7a055a200e31f752f3a92bb9fe6ae6f67cd55534`
 
 This directory vendors the complete `CommonUtil` and `DiskArc` source projects
-and their accompanying format notes. The 208 upstream project files are
-unchanged; `SOURCE_MANIFEST.json` records their SHA-256 digests. Both projects
+and their accompanying format notes. `SOURCE_MANIFEST.json` records SHA-256
+digests for all 208 vendored project files, including the single local patch
+below and its original upstream digest as `upstreamSha256`. Both projects
 already target .NET 10 at this revision. DiskArc references CommonUtil; neither
 project has a NuGet dependency.
 
@@ -26,6 +27,12 @@ together, retain current license/notice files, regenerate the source manifest,
 and rerun the independent fixtures and transaction tests. Document any source
 patch in the modified file and in the architecture decision. Do not format
 vendor files with A2Utils style rules.
+
+Local patch (September 16, 2026): `DiskArc/FS/ProDOS_FileEntry.cs` synchronizes
+the redundant subdirectory-header creation date when `SaveChanges` updates
+the directory entry's creation date. This fixes project reproducibility across
+wall-clock minute boundaries. The source comment and architecture decision
+identify the patch; the other 207 upstream project files remain unchanged.
 
 The evaluation is recorded in `docs/decisions/0001-disk-engine.md`. Run its
 repeatable probe from the repository root:

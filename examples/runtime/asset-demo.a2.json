@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "target": "apple2e",
+  "output": "asset-demo.po",
+  "disk": { "fileSystem": "prodos", "volumeName": "ASSETDEMO" },
+  "assets": [{
+    "name": "ATLAS",
+    "source": "assets/atlas.png",
+    "output": "generated/atlas.bin",
+    "kind": "sprite",
+    "cellWidth": 7,
+    "cellHeight": 8,
+    "assemblyInclude": "generated/atlas.inc",
+    "cHeader": "generated/atlas.h",
+    "metadataOutput": "generated/atlas.json"
+  }],
+  "reserve": [{ "name": "HGR page", "start": 8192, "length": 8192 }],
+  "files": [{ "source": "asset-demo.asm", "path": "DEMO", "kind": "asm" }]
+}

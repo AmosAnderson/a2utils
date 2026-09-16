@@ -17,10 +17,20 @@ public sealed record Cc65Options
     public List<string> AdditionalSources { get; init; } = [];
     public List<string> Includes { get; init; } = [];
     public List<string> Defines { get; init; } = [];
+    public string? LinkerConfig { get; init; }
+    public string? ToolchainRoot { get; init; }
+    public Dictionary<string, string> SegmentBanks { get; init; } = new(StringComparer.Ordinal);
 }
 
 public sealed record Cc65Result(byte[] AppleSingle, string Version, string Map, string Labels,
-    IReadOnlyList<BuildInput> Inputs);
+    IReadOnlyList<BuildInput> Inputs)
+{
+    public string CompilerPath { get; init; } = "";
+    public IReadOnlyList<BuildInput> ToolchainInputs { get; init; } = [];
+    public IReadOnlyDictionary<string, int> Symbols { get; init; } = new Dictionary<string, int>();
+    public IReadOnlyList<Cc65Segment> Segments { get; init; } = [];
+    public IReadOnlyList<ProgramDiagnostic> Diagnostics { get; init; } = [];
+}
 
 /// <summary>Runs optional cl65 against a bounded isolated copy of project source files.</summary>
 public static class Cc65Compiler
@@ -34,20 +44,23 @@ public static class Cc65Compiler
     };
 
     public static Cc65Result Compile(string source, Cc65Options options, string projectRoot,
-        CancellationToken cancellationToken = default)
-        => CompileAsync(source, options, projectRoot, cancellationToken).GetAwaiter().GetResult();
+        CancellationToken cancellationToken = default, IReadOnlyDictionary<string, byte[]>? generatedInputs = null)
+        => CompileAsync(source, options, projectRoot, cancellationToken, generatedInputs).GetAwaiter().GetResult();
 
     private static async Task<Cc65Result> CompileAsync(string source, Cc65Options options, string projectRoot,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, IReadOnlyDictionary<string, byte[]>? generatedInputs)
     {
         ArgumentNullException.ThrowIfNull(options);
         cancellationToken.ThrowIfCancellationRequested();
         if (options.Target is not ("apple2" or "apple2enh")) throw Error("target", "cc65 target must be apple2 or apple2enh.");
         if (options.TimeoutSeconds is < 1 or > 3600) throw Error("timeout", "Compiler timeout must be 1..3600 seconds.");
-        if (options.AdditionalSources is null || options.Includes is null || options.Defines is null)
+        if (options.AdditionalSources is null || options.Includes is null || options.Defines is null || options.SegmentBanks is null)
             throw Error("options", "Compiler source, include, and define lists cannot be null.");
         if (options.AdditionalSources.Count > 128 || options.Includes.Count > 128 || options.Defines.Count > 128)
             throw Error("options", "Compiler option lists are limited to 128 entries each.");
+        if (options.SegmentBanks.Count > 4096 || options.SegmentBanks.Any(pair => string.IsNullOrWhiteSpace(pair.Key) ||
+            pair.Value is not ("main" or "aux" or "lc1" or "lc2" or "aux-lc1" or "aux-lc2")))
+            throw Error("segment_bank", "Segment bank declarations require named segments and physical Apple II memory banks.");
         foreach (string define in options.Defines)
         {
             if (define is null || define.Length > 1024 || !Regex.IsMatch(define, @"^[A-Za-z_][A-Za-z0-9_]*(?:=[^\r\n\0]*)?$", RegexOptions.CultureInvariant))
@@ -66,8 +79,19 @@ public static class Cc65Compiler
             if (!File.Exists(path)) throw new FileNotFoundException("Compiler source does not exist.", path);
         }
         List<string> includes = options.Includes.Select(path => RequireProjectPath(path, root, allowRoot: true)).ToList();
-        foreach (string include in includes) if (!Directory.Exists(include)) throw Error("include", $"Include directory does not exist: {include}");
+        foreach (string include in includes)
+            if (!Directory.Exists(include) && !(generatedInputs?.Keys.Any(path =>
+            {
+                string relative = Path.GetRelativePath(include, Path.GetFullPath(path, root));
+                return !Path.IsPathRooted(relative) && relative != ".." && !relative.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal);
+            }) ?? false))
+                throw Error("include", $"Include directory does not exist and contains no generated inputs: {include}");
         string executable = ResolveCompiler(options.Compiler, root);
+        string? linkerConfig = options.LinkerConfig is null ? null : RequireProjectPath(options.LinkerConfig, root);
+        if (linkerConfig is not null && !Path.GetExtension(linkerConfig).Equals(".cfg", StringComparison.OrdinalIgnoreCase))
+            throw Error("linker_config", "Custom linker configurations must use a .cfg extension.");
+        byte[]? configBytes = linkerConfig is null ? null : ProgramFiles.ReadBytes(linkerConfig, 1024 * 1024, cancellationToken);
+        IReadOnlyDictionary<string, string>? segmentKinds = configBytes is null ? null : Cc65LinkerConfiguration.Validate(ProgramFiles.DecodeText(configBytes));
         string temporaryRoot = ResolvePhysicalDirectory(Path.GetTempPath());
         string temporary = Path.Combine(temporaryRoot, $"a2-cc65-{Guid.NewGuid():N}");
         ImageTransactions.ValidatePath(temporary);
@@ -77,8 +101,38 @@ public static class Cc65Compiler
             string stage = Path.Combine(temporary, "src");
             Directory.CreateDirectory(stage);
             List<BuildInput> inputs = StageProject(root, stage, sources, cancellationToken);
-            inputs.Add(new(executable, ProgramFiles.Hash(ProgramFiles.ReadBytes(executable, 32 * 1024 * 1024, cancellationToken))));
-            ProcessResult versionResult = await Run(executable, ["--version"], temporary, options.TimeoutSeconds, cancellationToken);
+            IReadOnlyList<BuildInput> toolchainInputs = FingerprintToolchain(executable, options.ToolchainRoot, root, cancellationToken);
+            inputs.AddRange(toolchainInputs);
+            long generatedBytes = 0;
+            if (generatedInputs is not null && generatedInputs.Count > MaximumInputCount)
+                throw Error("generated_input", "Generated compiler input count exceeds 4096.");
+            if (generatedInputs is not null)
+                foreach (var generated in generatedInputs)
+                {
+                    string original = RequireProjectPath(generated.Key, root);
+                    if (File.Exists(original)) throw Error("generated_collision", "Generated compiler input conflicts with an existing project file.");
+                    string relative = Path.GetRelativePath(root, original);
+                    string staged = Path.Combine(stage, relative);
+                    if (!SourceExtensions.Contains(Path.GetExtension(original)) || generated.Value.Length > MaximumInputBytes)
+                        throw Error("generated_input", "Generated compiler inputs must be bounded supported source files.");
+                    generatedBytes += generated.Value.Length;
+                    if (generatedBytes > MaximumInputBytes) throw Error("generated_input", "Generated compiler inputs exceed 64 MiB.");
+                    if (!Path.GetExtension(original).Equals(".bin", StringComparison.OrdinalIgnoreCase))
+                        ValidateIncludes(ProgramFiles.DecodeText(generated.Value), original, root);
+                    Directory.CreateDirectory(Path.GetDirectoryName(staged)!);
+                    File.WriteAllBytes(staged, generated.Value);
+                    inputs.Add(new(relative.Replace('\\', '/'), ProgramFiles.Hash(generated.Value)));
+                }
+            if (linkerConfig is not null)
+            {
+                string relative = Path.GetRelativePath(root, linkerConfig);
+                string staged = Path.Combine(stage, relative);
+                Directory.CreateDirectory(Path.GetDirectoryName(staged)!);
+                File.WriteAllBytes(staged, configBytes!);
+                inputs.Add(new(relative.Replace('\\', '/'), ProgramFiles.Hash(configBytes!)));
+            }
+            string? toolchainRoot = options.ToolchainRoot is null ? null : Path.GetFullPath(options.ToolchainRoot, root);
+            ProcessResult versionResult = await Run(executable, ["--version"], temporary, options.TimeoutSeconds, cancellationToken, toolchainRoot);
             if (versionResult.ExitCode != 0) throw Error("version", "cl65 --version failed: " + versionResult.Details);
             string version = versionResult.Details.Trim();
             if (string.IsNullOrWhiteSpace(version)) throw Error("version", "cl65 did not report a version.");
@@ -88,6 +142,7 @@ public static class Cc65Compiler
             string map = Path.Combine(temporary, "program.map");
             string labels = Path.Combine(temporary, "program.lbl");
             List<string> arguments = ["-t", options.Target, "-g", "-o", binary, "-m", map, "-Ln", labels];
+            if (linkerConfig is not null) arguments.AddRange(["-C", Path.Combine(stage, Path.GetRelativePath(root, linkerConfig))]);
             if (options.Optimize) arguments.Add("-O");
             foreach (string include in includes)
             {
@@ -96,27 +151,82 @@ public static class Cc65Compiler
             }
             foreach (string define in options.Defines) arguments.AddRange(["-D", define]);
             arguments.AddRange(sources.Select(path => Path.Combine(stage, Path.GetRelativePath(root, path))));
-            ProcessResult compiled = await Run(executable, arguments, stage, options.TimeoutSeconds, cancellationToken);
+            ProcessResult compiled = await Run(executable, arguments, stage, options.TimeoutSeconds, cancellationToken, toolchainRoot);
+            List<ProgramDiagnostic> diagnostics = Cc65Feedback.ParseDiagnostics(compiled.Details, stage, root, compiled.ExitCode != 0).ToList();
             if (compiled.ExitCode != 0)
             {
                 string details = compiled.Details.Replace(stage, root, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
                 throw new DiskException("cc65.compile_failed", details.Length == 0 ? $"cl65 exited {compiled.ExitCode}." : details, 2)
                 {
-                    Diagnostics = [new("cc65.compile_failed", "error", details, main)]
+                    Diagnostics = diagnostics.Count == 0 ? [new("cc65.compile_failed", "error", details, main)] : diagnostics
                 };
             }
             byte[] appleSingle = ProgramFiles.ReadBytes(binary, 128 * 1024, cancellationToken);
             AppleSingleProgram.Decode(appleSingle);
             string mapText = ProgramFiles.ReadText(map, cancellationToken);
             string labelText = ProgramFiles.ReadText(labels, cancellationToken);
+            IReadOnlyList<Cc65Segment> segments = Cc65Feedback.ParseSegments(mapText, segmentKinds);
+            if (segments.Count == 0) diagnostics.Add(new("cc65.memory_incomplete", "warning", "The linker map contains no recognized segments; declare runtimeMemory for allocations not covered by the payload."));
+            if (options.ToolchainRoot is null) diagnostics.Add(new("cc65.toolchain_partial", "warning", "Only the compiler executable is fingerprinted; set toolchainRoot to include installed tools, libraries, headers and configurations."));
+            foreach (BuildInput input in toolchainInputs)
+                if (ProgramFiles.Hash(ProgramFiles.ReadBytes(input.Path, MaximumInputBytes, cancellationToken)) != input.Sha256)
+                    throw Error("toolchain_changed", "The compiler distribution changed during compilation.");
             mapText = Regex.Replace(mapText, @"(\.(?:c|s|asm|a65))\.\d+\.\d+(\.o\b)", "$1$2", RegexOptions.CultureInvariant);
             return new(appleSingle, version, mapText.Replace(stage, ".", StringComparison.Ordinal),
-                labelText.Replace(stage, ".", StringComparison.Ordinal), inputs.OrderBy(i => i.Path, StringComparer.Ordinal).ToArray());
+                labelText.Replace(stage, ".", StringComparison.Ordinal), inputs.OrderBy(i => i.Path, StringComparer.Ordinal).ToArray())
+            {
+                CompilerPath = executable,
+                ToolchainInputs = toolchainInputs,
+                Symbols = Cc65Feedback.ParseLabels(labelText),
+                Segments = segments,
+                Diagnostics = diagnostics
+            };
         }
         finally
         {
             // This directory is generated here, never obtained from project configuration.
             await CleanupGeneratedDirectoryAsync(temporary);
+        }
+    }
+
+    private static IReadOnlyList<BuildInput> FingerprintToolchain(string executable, string? configuredRoot, string projectRoot,
+        CancellationToken cancellationToken)
+    {
+        Dictionary<string, BuildInput> inputs = new(PathComparer);
+        long total = 0;
+        Add(executable);
+        if (configuredRoot is not null)
+        {
+            string root = Path.GetFullPath(configuredRoot, projectRoot);
+            ImageTransactions.ValidatePath(root);
+            if (!Directory.Exists(root)) throw Error("toolchain_root", "Configured toolchainRoot does not exist.");
+            foreach (string name in new[] { "bin", "include", "asminc", "lib", "cfg" })
+            {
+                string directory = Path.Combine(root, name);
+                if (!Directory.Exists(directory)) continue;
+                Stack<string> pending = new();
+                pending.Push(directory);
+                int directories = 0;
+                while (pending.TryPop(out string? current))
+                {
+                    ImageTransactions.ValidatePath(current);
+                    if (++directories > MaximumInputCount) throw Error("toolchain_limit", "Toolchain contains too many directories.");
+                    foreach (string path in Directory.EnumerateFiles(current).Order(StringComparer.Ordinal)) Add(path);
+                    foreach (string child in Directory.EnumerateDirectories(current).Order(StringComparer.Ordinal)) pending.Push(child);
+                }
+            }
+        }
+        return inputs.Values.OrderBy(input => input.Path, StringComparer.Ordinal).ToArray();
+
+        void Add(string path)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (inputs.ContainsKey(path)) return;
+            if (inputs.Count >= MaximumInputCount) throw Error("toolchain_limit", "Toolchain exceeds 4096 files.");
+            byte[] bytes = ProgramFiles.ReadBytes(path, MaximumInputBytes, cancellationToken);
+            total += bytes.Length;
+            if (total > 256L * 1024 * 1024) throw Error("toolchain_limit", "Toolchain snapshot exceeds 256 MiB.");
+            inputs[path] = new(path, ProgramFiles.Hash(bytes));
         }
     }
 
@@ -353,7 +463,7 @@ public static class Cc65Compiler
     }
 
     private static async Task<ProcessResult> Run(string executable, IEnumerable<string> arguments,
-        string workingDirectory, int timeoutSeconds, CancellationToken cancellationToken)
+        string workingDirectory, int timeoutSeconds, CancellationToken cancellationToken, string? toolchainRoot = null)
     {
         using Process process = new();
         process.StartInfo = new(executable)
@@ -364,6 +474,14 @@ public static class Cc65Compiler
             RedirectStandardOutput = true,
             RedirectStandardError = true
         };
+        if (toolchainRoot is not null)
+        {
+            process.StartInfo.Environment["CC65_HOME"] = toolchainRoot;
+            foreach (string name in new[] { "CC65_INC", "CA65_INC", "LD65_LIB", "LD65_OBJ", "LD65_CFG" })
+                process.StartInfo.Environment.Remove(name);
+            process.StartInfo.Environment.TryGetValue("PATH", out string? inheritedPath);
+            process.StartInfo.Environment["PATH"] = Path.Combine(toolchainRoot, "bin") + Path.PathSeparator + inheritedPath;
+        }
         foreach (string argument in arguments) process.StartInfo.ArgumentList.Add(argument);
         using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(timeoutSeconds));
         using CancellationTokenSource linked = CancellationTokenSource.CreateLinkedTokenSource(timeout.Token, cancellationToken);

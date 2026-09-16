@@ -5,6 +5,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using A2Utils.Core.Backends;
 using A2Utils.Core.Operations;
 using A2Utils.Core.Programs;
 
@@ -21,39 +22,69 @@ public static partial class ExecutionRunner
     {
         ArgumentNullException.ThrowIfNull(spec);
         MameAdapter.Validate(spec);
+        if (spec.ToolchainLock is not null) Setup.DevelopmentEnvironment.ValidateExecutionLock(spec, cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
         string artifacts = Path.GetFullPath(artifactDirectory);
         ImageTransactions.ValidatePath(artifacts);
-        ImageTransactions.ValidatePath(spec.DiskImage);
         if (Directory.Exists(artifacts) || File.Exists(artifacts))
             throw new DiskException("execution.artifacts_exist", "Use a new artifact directory for each execution.", 2);
-        if (!File.Exists(spec.DiskImage)) throw new DiskException("execution.disk_missing", "The specified disk image does not exist.", 2);
-        HostFiles.EnsureRegularFile(spec.DiskImage, cancellationToken);
+        IReadOnlyList<ExecutionDisk> mounts = spec.GetDisks();
+        foreach (ExecutionDisk mount in mounts)
+        {
+            if (!File.Exists(mount.Image))
+                throw new DiskException("execution.disk_missing", $"The disk image for {mount.Device} does not exist: {mount.Image}", 2);
+            HostFiles.EnsureRegularFile(mount.Image, cancellationToken);
+        }
         if (!Directory.Exists(spec.RomDirectory)) throw new DiskException("execution.rom_directory_missing", "The specified ROM directory does not exist.", 2);
         Directory.CreateDirectory(artifacts);
         string? version = null;
         string? hash = null;
         ExecutionObservation? observation = null;
         List<ProgramDiagnostic> diagnostics = [];
+        List<ExecutionDiskResult> diskResults = [];
+        List<ExecutionCheckpoint> checkpoints = [];
         string reason = "emulator_error";
+        PreparedRoutine? routine = null;
+        ExecutionAudioResult? audio = null;
+        ExecutionEnvironmentEvidence? environment = null;
+        ExecutionVisualInput? visualInput = null;
+        ExecutionScreenshotResult? screenshotComparison = null;
         using CancellationTokenSource watchdog = new(TimeSpan.FromSeconds(spec.HostTimeoutSeconds));
         using CancellationTokenSource linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, watchdog.Token);
         try
         {
-            string disk = Path.Combine(artifacts, "disk" + Path.GetExtension(spec.DiskImage));
-            await using (FileStream input = new(spec.DiskImage, FileMode.Open, FileAccess.Read, FileShare.Read))
+            environment = CaptureEnvironment(spec, artifacts, linked.Token);
+            Dictionary<string, string> copiedDisks = new(StringComparer.Ordinal);
+            foreach (ExecutionDisk mount in mounts)
             {
-                if (input.Length > 64 * 1024 * 1024) throw new InvalidDataException("Execution disk images are limited to 64 MiB.");
-                hash = Convert.ToHexString(await SHA256.HashDataAsync(input, linked.Token)).ToLowerInvariant();
-                input.Position = 0;
-                await using FileStream copy = new(disk, FileMode.CreateNew, FileAccess.Write, FileShare.None);
-                await input.CopyToAsync(copy, linked.Token);
+                byte[] snapshot = ProgramFiles.ReadBytes(mount.Image, 64 * 1024 * 1024, linked.Token);
+                string disk = Path.Combine(artifacts, (spec.Disks.Count == 0 ? "disk" : "disk-" + mount.Device) + MameAdapter.StorageCopyExtension(mount, snapshot));
+                string inputHash = ProgramFiles.Hash(snapshot);
+                hash ??= inputHash;
+                diskResults.Add(new(mount.Device, Path.GetFullPath(mount.Image), disk, inputHash, null));
+                if (mount.ExpectedSha256 is { } expected && !inputHash.Equals(expected, StringComparison.OrdinalIgnoreCase))
+                    throw new DiskException("execution.disk_hash_mismatch", $"Input disk hash for {mount.Device} does not match expectedSha256.")
+                    {
+                        Diagnostics = [new("execution.disk_hash_mismatch", "error", $"Input disk changed for {mount.Device}.",
+                            Symbol: mount.Device, Expected: expected, Actual: inputHash)]
+                    };
+                await using FileStream copy = new(disk, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None);
+                await copy.WriteAsync(snapshot, linked.Token);
+                copy.Position = 0;
+                string copyHash = Convert.ToHexStringLower(await SHA256.HashDataAsync(copy, linked.Token));
+                if (copyHash != inputHash)
+                    throw new DiskException("execution.disk_copy_mismatch", $"The isolated copy does not match the input snapshot for {mount.Device}.");
+                await copy.DisposeAsync();
+                MameAdapter.ValidateStorageCopy(mount, disk, snapshot);
+                copiedDisks.Add(mount.Device, disk);
             }
+            visualInput = ExecutionVisual.Prepare(spec, artifacts, linked.Token);
+            if (spec.Routine is not null) routine = RoutineHarness.Prepare(spec, artifacts, linked.Token);
             string script = Path.Combine(artifacts, "run.lua");
-            await File.WriteAllTextAsync(script, MameAdapter.CreateScript(spec, artifacts), new UTF8Encoding(false), linked.Token);
+            await File.WriteAllTextAsync(script, MameAdapter.CreateScript(spec, artifacts, routine), new UTF8Encoding(false), linked.Token);
             await File.WriteAllTextAsync(Path.Combine(artifacts, "spec.json"),
                 JsonSerializer.Serialize(spec, ExecutionSpec.JsonOptions), linked.Token);
-            IReadOnlyList<string> arguments = MameAdapter.CreateArguments(spec, disk, script, artifacts);
+            IReadOnlyList<string> arguments = MameAdapter.CreateArguments(spec, copiedDisks, script, artifacts);
             await File.WriteAllTextAsync(Path.Combine(artifacts, "command.json"),
                 JsonSerializer.Serialize(new { executable = Path.GetFullPath(spec.EmulatorPath), arguments }, ExecutionSpec.JsonOptions), linked.Token);
 
@@ -67,7 +98,11 @@ public static partial class ExecutionRunner
             }
             else
             {
+                if (spec.ToolchainLock is not null) Setup.DevelopmentEnvironment.ValidateExecutionLock(spec, linked.Token);
+                if (routine is not null) RoutineHarness.ValidateInputs(routine, linked.Token);
+                ValidateEnvironmentEvidence(environment, linked.Token);
                 ProcessCapture run = await RunProcessAsync(spec.EmulatorPath, arguments, artifacts, "emulator", linked.Token);
+                ValidateEnvironmentEvidence(environment, linked.Token);
                 string errorFile = Path.Combine(artifacts, "adapter-error.txt");
                 string observations = Path.Combine(artifacts, "observations.tsv");
                 if (run.StandardError.Contains("WRONG CHECKSUMS", StringComparison.OrdinalIgnoreCase)
@@ -96,9 +131,21 @@ public static partial class ExecutionRunner
                 else
                 {
                     observation = ParseObservation(ReadBounded(observations, 1024 * 1024),
-                        ReadBounded(Path.Combine(artifacts, "screen.txt"), 4096));
+                        ReadBounded(Path.Combine(artifacts, "screen.txt"), 32768));
+                    if (spec.DecodeIIeText || spec.TextColumns == 80)
+                    {
+                        observation = DecodeText(spec, observation);
+                        await File.WriteAllTextAsync(Path.Combine(artifacts, "screen.txt"), observation.ScreenText, linked.Token);
+                        await File.WriteAllTextAsync(Path.Combine(artifacts, "text-screen.json"),
+                            JsonSerializer.Serialize(observation.TextScreen, ExecutionSpec.JsonOptions), linked.Token);
+                    }
                     reason = observation.StopReason;
                     diagnostics.AddRange(Evaluate(spec, observation));
+                    ReadCheckpoints(spec, observation, artifacts, checkpoints);
+                    diagnostics.AddRange(EvaluateDisks(spec, copiedDisks, linked.Token));
+                    audio = EvaluateAudio(spec, artifacts, diagnostics, linked.Token);
+                    screenshotComparison = EvaluateScreenshot(visualInput, artifacts, diagnostics, linked.Token);
+                    if (routine is not null) RoutineHarness.ValidateInputs(routine, linked.Token);
                     if (spec.Screenshot && !File.Exists(Path.Combine(artifacts, "screen.png")))
                         diagnostics.Add(new("execution.screenshot_missing", "error", "MAME did not create the requested screen.png artifact."));
                 }
@@ -116,16 +163,48 @@ public static partial class ExecutionRunner
             reason = "emulator_unavailable";
             diagnostics.Add(new("execution.emulator_unavailable", "error", "Could not start the specified MAME executable: " + ex.Message));
         }
+        catch (DiskException ex)
+        {
+            reason = ex.Code is "execution.disk_hash_mismatch" or "execution.disk_copy_mismatch" ? ex.Code[10..] : "adapter_error";
+            diagnostics.AddRange(ex.Diagnostics.Count > 0 ? ex.Diagnostics : [new(ex.Code, "error", ex.Message)]);
+        }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or FormatException or InvalidDataException)
         {
             reason = "adapter_error";
             diagnostics.Add(new("execution.adapter_error", "error", ex.Message));
         }
+        for (int index = 0; index < diskResults.Count; index++)
+        {
+            ExecutionDiskResult disk = diskResults[index];
+            if (!File.Exists(disk.ArtifactPath)) continue;
+            try
+            {
+                byte[] bytes = ProgramFiles.ReadBytes(disk.ArtifactPath, 64 * 1024 * 1024);
+                diskResults[index] = disk with { OutputSha256 = ProgramFiles.Hash(bytes) };
+            }
+            catch (Exception ex) when (ex is DiskException or IOException or UnauthorizedAccessException)
+            {
+                diagnostics.Add(new("execution.disk_artifact", "error", $"Cannot hash the resulting {disk.Device} disk: {ex.Message}"));
+            }
+        }
         bool passed = observation is not null && diagnostics.All(d => d.Severity != "error");
         ExecutionResult result = new(1, spec.Name, passed, reason, version, observation?.EmulatedSeconds,
             observation?.Registers ?? new Dictionary<string, long>(), observation?.Memory ?? new Dictionary<int, string>(),
             observation?.ScreenText, hash, artifacts,
-            Directory.GetFiles(artifacts, "*", SearchOption.AllDirectories).Order(StringComparer.Ordinal).ToArray(), diagnostics);
+            Directory.GetFiles(artifacts, "*", SearchOption.AllDirectories).Order(StringComparer.Ordinal).ToArray(), diagnostics)
+        {
+            Disks = diskResults,
+            BankMemory = observation?.BankMemory ?? [],
+            Steps = observation?.Steps ?? [],
+            Checkpoints = checkpoints,
+            Cycles = observation?.Cycles,
+            Audio = audio,
+            Environment = environment,
+            ScreenshotComparison = screenshotComparison,
+            Debug = observation?.Debug,
+            TextScreen = observation?.TextScreen,
+            Video = observation?.Video ?? new Dictionary<string, int>()
+        };
         string resultPath = Path.Combine(artifacts, "result.json");
         result = result with { Artifacts = result.Artifacts.Append(resultPath).ToArray() };
         await File.WriteAllTextAsync(resultPath, JsonSerializer.Serialize(result, ExecutionSpec.JsonOptions));
@@ -136,15 +215,57 @@ public static partial class ExecutionRunner
     {
         MameAdapter.Validate(spec);
         List<ProgramDiagnostic> diagnostics = [];
+        EvaluateInstrumentation(spec, observation, diagnostics);
+        if (spec.CheckBasicRuntime) diagnostics.AddRange(Basic.ApplesoftTools.RuntimeDiagnostics(observation.ScreenText));
+        if (spec.Steps.Count != 0)
+        {
+            foreach (ExecutionStepResult step in observation.Steps)
+            {
+                if (step.Index >= spec.Steps.Count || step.Status != "pass")
+                    diagnostics.Add(new("execution.step_" + (step.Status == "timeout" ? "timeout" : "failed"), "error",
+                        $"Interaction step {step.Index + 1} did not pass.", Symbol: step.Index < spec.Steps.Count ? spec.Steps[step.Index].Name : null));
+            }
+            if (observation.Steps.Count != spec.Steps.Count)
+                diagnostics.Add(new("execution.sequence_incomplete", "error", "The ordered interaction sequence did not complete.",
+                    Expected: spec.Steps.Count.ToString(CultureInfo.InvariantCulture), Actual: observation.Steps.Count.ToString(CultureInfo.InvariantCulture)));
+        }
+        else if (observation.Steps.Count != 0)
+            diagnostics.Add(new("execution.sequence_unexpected", "error", "The emulator returned steps for a run without a sequence."));
         if (spec.Until is not null && observation.StopReason != "completion_condition")
             diagnostics.Add(new("execution.completion_timeout", "error", "The completion byte was not observed before the emulated deadline."));
+        if (spec.Debug is { } debug && (observation.Debug is null || observation.Debug.SteppedInstructions != debug.StepInstructions))
+            diagnostics.Add(new("execution.debug_timeout", "error", "The debug trigger and requested instruction steps did not complete before the deadline."));
+        if (observation.Debug is { } evidence)
+        {
+            ExecutionDebugStop trigger = evidence.Trigger;
+            bool validTrigger = spec.Debug is { } requested && trigger.Index >= 0 &&
+                (trigger.Kind == "breakpoint" && trigger.Index < requested.Breakpoints.Count &&
+                    requested.Breakpoints[trigger.Index].Address == trigger.Address && trigger.Value is null && trigger.ProgramCounter == trigger.Address
+                    && observation.EmulatedSeconds >= requested.Breakpoints[trigger.Index].AfterSeconds
+                    || trigger.Kind == "watchpoint" && trigger.Index < requested.Watchpoints.Count &&
+                    trigger.Address >= requested.Watchpoints[trigger.Index].Address &&
+                    trigger.Address < (long)requested.Watchpoints[trigger.Index].Address! + requested.Watchpoints[trigger.Index].Length
+                    && trigger.Value is >= 0 and <= 255 && observation.EmulatedSeconds >= requested.Watchpoints[trigger.Index].AfterSeconds)
+                && observation.StopReason == (requested.StepInstructions > 0 ? "debug_steps" : trigger.Kind)
+                && observation.Registers.TryGetValue("PC", out long pc) && pc is >= 0 and <= 65535;
+            if (!validTrigger || spec.Debug is not null && evidence.History.Count > spec.Debug.HistoryInstructions)
+                diagnostics.Add(new("execution.debug_evidence", "error", "The emulator debug evidence does not match a requested trigger or history limit."));
+        }
         foreach (MemoryAssertion assertion in spec.Memory)
         {
             string expected = Convert.ToHexString(MameAdapter.ParseHex(assertion.Hex));
-            observation.Memory.TryGetValue(assertion.Address, out string? actual);
+            string? actual = assertion.Bank == "cpu" ? observation.Memory.GetValueOrDefault(assertion.Address)
+                : observation.BankMemory.FirstOrDefault(m => m.Bank == assertion.Bank && m.Address == assertion.Address)?.Hex;
             if (!string.Equals(expected, actual, StringComparison.OrdinalIgnoreCase))
-                diagnostics.Add(new("execution.memory_assertion", "error", $"Memory assertion failed at ${assertion.Address:X4}.",
-                    Symbol: "$" + assertion.Address.ToString("X4"), Expected: expected, Actual: actual ?? "missing"));
+                diagnostics.Add(new("execution.memory_assertion", "error", $"Memory assertion failed in {assertion.Bank} at ${assertion.Address:X4}.",
+                    Symbol: (assertion.Bank == "cpu" ? "" : assertion.Bank + ":") + "$" + assertion.Address.ToString("X4"), Expected: expected, Actual: actual ?? "missing"));
+        }
+        foreach (MemoryCapture range in spec.ObserveMemory)
+        {
+            string? actual = range.Bank == "cpu" ? observation.Memory.GetValueOrDefault(range.Address)
+                : observation.BankMemory.FirstOrDefault(m => m.Bank == range.Bank && m.Address == range.Address)?.Hex;
+            if (actual?.Length != range.Length * 2)
+                diagnostics.Add(new("execution.memory_missing", "error", $"Requested {range.Bank} memory capture at ${range.Address:X4} is missing or incomplete."));
         }
         foreach (RegisterAssertion assertion in spec.Registers)
         {
@@ -157,37 +278,98 @@ public static partial class ExecutionRunner
         foreach (string text in spec.TextContains)
         {
             if (!observation.ScreenText.Contains(text, StringComparison.Ordinal))
-                diagnostics.Add(new("execution.text_assertion", "error", "Expected text was absent from the selected 40-column text page.",
+                diagnostics.Add(new("execution.text_assertion", "error", "Expected text was absent from the selected text page.",
                     Expected: text, Actual: observation.ScreenText));
+        }
+        foreach (string text in spec.TextNotContains)
+            if (observation.ScreenText.Contains(text, StringComparison.Ordinal))
+                diagnostics.Add(new("execution.text_absent_assertion", "error", "Unexpected text was present on the selected page.", Expected: "absent: " + text, Actual: observation.ScreenText));
+        return diagnostics;
+    }
+
+    /// <summary>Checks saved logical files and optional filesystem structure after the emulator has released its disk copies.</summary>
+    public static IReadOnlyList<ProgramDiagnostic> EvaluateDisks(ExecutionSpec spec,
+        IReadOnlyDictionary<string, string> copiedDisks, CancellationToken cancellationToken = default)
+    {
+        MameAdapter.Validate(spec);
+        List<ProgramDiagnostic> diagnostics = [];
+        foreach (ExecutionDisk mount in spec.GetDisks())
+        {
+            DiskFileAssertion[] assertions = spec.DiskAssertions.Where(assertion => assertion.Device == mount.Device).ToArray();
+            if (!mount.Verify && assertions.Length == 0) continue;
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                if (!copiedDisks.TryGetValue(mount.Device, out string? disk))
+                    throw new DiskException("execution.disk_missing", "The resulting disk copy is missing.");
+                ImageTransactions.ValidatePath(disk);
+                HostFiles.EnsureRegularFile(disk, cancellationToken);
+                using DiskSession session = DiskSession.Open(disk, mount.InputOrder, mount.InputFileSystem);
+                if (mount.Verify)
+                {
+                    if (session.Info.IsDubious)
+                        diagnostics.Add(new("execution.disk_structure", "error", $"{mount.Device}: The resulting filesystem is dubious.", Symbol: mount.Device));
+                    foreach (DiskDiagnostic diagnostic in session.Verify())
+                        diagnostics.Add(new("execution.disk_structure", diagnostic.Severity,
+                            $"{mount.Device}: {diagnostic.Code}: {diagnostic.Message}", Symbol: mount.Device));
+                }
+                foreach (DiskFileAssertion assertion in assertions)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    try { EvaluateFile(session, assertion, diagnostics); }
+                    catch (DiskException ex)
+                    {
+                        diagnostics.Add(new("execution.disk_assertion", "error", $"{mount.Device}:{assertion.Path}: {ex.Message}",
+                            Symbol: mount.Device + ":" + assertion.Path));
+                    }
+                }
+            }
+            catch (Exception ex) when (ex is DiskException or IOException or UnauthorizedAccessException)
+            {
+                diagnostics.Add(new("execution.disk_assertion", "error", $"Cannot inspect resulting {mount.Device} disk: {ex.Message}",
+                    Symbol: mount.Device));
+            }
         }
         return diagnostics;
     }
 
-    public static ExecutionObservation ParseObservation(string text, string screenText)
+    private static void EvaluateFile(DiskSession session, DiskFileAssertion assertion, List<ProgramDiagnostic> diagnostics)
     {
-        string[] lines = text.Replace("\r", "", StringComparison.Ordinal).Split('\n', StringSplitOptions.RemoveEmptyEntries);
-        if (lines.Length < 4 || lines[0] != "A2EXEC1" || lines[^1] != "END")
-            throw new InvalidDataException("The emulator observation file is incomplete or has an unsupported version.");
-        Dictionary<string, long> registers = new(StringComparer.Ordinal);
-        Dictionary<int, string> memory = [];
-        string? reason = null;
-        double? seconds = null;
-        foreach (string line in lines.Skip(1).SkipLast(1))
+        string symbol = assertion.Device + ":" + assertion.Path;
+        void Compare(string field, string expected, string actual)
         {
-            string[] fields = line.Split('\t');
-            if (fields is ["STOP", var stop] && reason is null && stop is "completion_condition" or "emulated_limit") reason = stop;
-            else if (fields is ["TIME", var time] && seconds is null
-                && double.TryParse(time, CultureInfo.InvariantCulture, out double parsed) && double.IsFinite(parsed) && parsed >= 0) seconds = parsed;
-            else if (fields is ["REG", var register, var value] && long.TryParse(value, CultureInfo.InvariantCulture, out long number)
-                && registers.TryAdd(register, number)) { }
-            else if (fields is ["MEM", var address, var hex] && int.TryParse(address, CultureInfo.InvariantCulture, out int offset)
-                && offset is >= 0 and <= 65535 && hex.Length % 2 == 0 && HexBytes().IsMatch(hex)
-                && memory.TryAdd(offset, hex)) { }
-            else throw new InvalidDataException("The emulator observation file contains an invalid or duplicate field.");
+            if (expected != actual)
+                diagnostics.Add(new("execution.disk_assertion", "error", $"Saved file {field} differs for {symbol}.",
+                    Symbol: symbol, Expected: expected, Actual: actual));
         }
-        if (reason is null || seconds is null) throw new InvalidDataException("The emulator observation is missing its stop reason or time.");
-        return new(reason, seconds.Value, registers, memory, screenText);
+        DiskEntry? entry;
+        try { entry = session.GetEntry(assertion.Path); }
+        catch (DiskException ex) when (ex.Code == "file_not_found") { entry = null; }
+        Compare("existence", assertion.Exists ? "present" : "absent", entry is null ? "absent" : "present");
+        if (!assertion.Exists || entry is null) return;
+        if (assertion.Type is { } type)
+            Compare("type", $"0x{DiskSession.ParseFileType(type):x2}", $"0x{entry.FileType:x2}");
+        if (assertion.AuxType is { } aux)
+            Compare("auxType", aux.ToString(CultureInfo.InvariantCulture), entry.AuxType.ToString(CultureInfo.InvariantCulture));
+        if (assertion.Length is { } length)
+            Compare("length", length.ToString(CultureInfo.InvariantCulture), entry.Length.ToString(CultureInfo.InvariantCulture));
+        if (assertion.Sha256 is not null || assertion.Hex is not null)
+        {
+            byte[] bytes = session.ReadFile(assertion.Path);
+            if (assertion.Sha256 is { } hash) Compare("sha256", hash.ToLowerInvariant(), ProgramFiles.Hash(bytes));
+            if (assertion.Hex is { } hex)
+            {
+                byte[] expected = MameAdapter.ParseHex(hex);
+                if (!expected.AsSpan().SequenceEqual(bytes))
+                    diagnostics.Add(new("execution.disk_assertion", "error", $"Saved file payload differs for {symbol}.",
+                        Symbol: symbol, Expected: DescribePayload(expected), Actual: DescribePayload(bytes)));
+            }
+        }
     }
+
+    private static string DescribePayload(ReadOnlySpan<byte> bytes)
+        => bytes.Length <= 256 ? Convert.ToHexString(bytes)
+            : $"{Convert.ToHexString(bytes[..256])}... ({bytes.Length} bytes; sha256 {ProgramFiles.Hash(bytes)})";
 
     private static async Task<ProcessCapture> RunProcessAsync(string executable, IReadOnlyList<string> arguments,
         string directory, string logName, CancellationToken cancellationToken)
@@ -259,4 +441,13 @@ public static partial class ExecutionRunner
 }
 
 public sealed record ExecutionObservation(string StopReason, double EmulatedSeconds,
-    IReadOnlyDictionary<string, long> Registers, IReadOnlyDictionary<int, string> Memory, string ScreenText);
+    IReadOnlyDictionary<string, long> Registers, IReadOnlyDictionary<int, string> Memory, string ScreenText)
+{
+    public IReadOnlyList<ExecutionMemory> BankMemory { get; init; } = [];
+    public ExecutionCycleResult? Cycles { get; init; }
+    public ExecutionDebugResult? Debug { get; init; }
+    public IReadOnlyDictionary<string, string> TextPages { get; init; } = new Dictionary<string, string>();
+    public IReadOnlyDictionary<string, int> Video { get; init; } = new Dictionary<string, int>();
+    public AppleIIeTextScreen? TextScreen { get; init; }
+    public IReadOnlyList<ExecutionStepResult> Steps { get; init; } = [];
+}

@@ -2,6 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:a2utils:schema:execution:1",
   "title": "A2Utils execution schema v1",
+  "description": "Bounded Apple II execution. Environment profiles supply tool paths. A standalone routine needs no disk; project suites may omit the build disk.",
   "type": "object",
   "additionalProperties": false,
   "properties": {
@@ -15,13 +16,14 @@
     },
     "emulatorPath": {
       "type": "string",
-      "minLength": 1
+      "description": "An empty value inherits the environment profile; required and nonempty without a profile."
     },
     "expectedVersion": {
       "const": "0.289"
     },
     "machine": {
       "enum": [
+        "",
         "apple2",
         "apple2p",
         "apple2e",
@@ -31,14 +33,225 @@
     },
     "romDirectory": {
       "type": "string",
-      "minLength": 1
+      "description": "An empty value inherits the environment profile; required and nonempty without a profile."
     },
     "diskImage": {
-      "type": "string",
-      "minLength": 1
+      "type": "string"
     },
     "diskDevice": {
-      "enum": ["flop1", "flop2"]
+      "enum": [
+        "flop1",
+        "flop2",
+        "hard1",
+        "hard2"
+      ]
+    },
+    "disks": {
+      "type": "array",
+      "maxItems": 2,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "device",
+          "image"
+        ],
+        "properties": {
+          "device": {
+            "enum": [
+              "flop1",
+              "flop2",
+              "hard1",
+              "hard2"
+            ]
+          },
+          "image": {
+            "type": "string",
+            "minLength": 1
+          },
+          "expectedSha256": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[A-Fa-f0-9]{64}$"
+          },
+          "inputOrder": {
+            "enum": [
+              null,
+              "dos",
+              "prodos"
+            ]
+          },
+          "inputFileSystem": {
+            "enum": [
+              null,
+              "dos33",
+              "prodos"
+            ]
+          },
+          "verify": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "diskAssertions": {
+      "type": "array",
+      "maxItems": 1024,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "device",
+          "path"
+        ],
+        "properties": {
+          "device": {
+            "enum": [
+              "flop1",
+              "flop2",
+              "hard1",
+              "hard2"
+            ]
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096,
+            "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+          },
+          "exists": {
+            "type": "boolean"
+          },
+          "sha256": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[A-Fa-f0-9]{64}$"
+          },
+          "hex": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[A-Fa-f0-9 ]*$",
+            "maxLength": 2097152
+          },
+          "type": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1
+          },
+          "auxType": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 65535
+          },
+          "length": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 33554432
+          }
+        }
+      }
+    },
+    "symbolicMemory": {
+      "type": "array",
+      "maxItems": 1024,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "program",
+          "symbol",
+          "hex"
+        ],
+        "properties": {
+          "program": {
+            "type": "string",
+            "minLength": 1
+          },
+          "symbol": {
+            "type": "string",
+            "minLength": 1
+          },
+          "hex": {
+            "type": "string",
+            "pattern": "^[A-Fa-f0-9 ]+$"
+          },
+          "offset": {
+            "type": "integer"
+          },
+          "bank": {
+            "enum": [
+              null,
+              "cpu",
+              "main",
+              "aux",
+              "lc1",
+              "lc2",
+              "aux-lc1",
+              "aux-lc2"
+            ]
+          }
+        }
+      }
+    },
+    "symbolicUntil": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "required": [
+        "program",
+        "symbol",
+        "value"
+      ],
+      "properties": {
+        "program": {
+          "type": "string",
+          "minLength": 1
+        },
+        "symbol": {
+          "type": "string",
+          "minLength": 1
+        },
+        "value": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 255
+        },
+        "offset": {
+          "type": "integer"
+        },
+        "afterSeconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "bank": {
+          "enum": [
+            null,
+            "cpu",
+            "main",
+            "aux",
+            "lc1",
+            "lc2",
+            "aux-lc1",
+            "aux-lc2"
+          ]
+        }
+      }
     },
     "emulatedSeconds": {
       "type": "number",
@@ -86,6 +299,17 @@
           "hex": {
             "type": "string",
             "pattern": "^[A-Fa-f0-9 ]+$"
+          },
+          "bank": {
+            "enum": [
+              "cpu",
+              "main",
+              "aux",
+              "lc1",
+              "lc2",
+              "aux-lc1",
+              "aux-lc2"
+            ]
           }
         },
         "required": [
@@ -127,7 +351,10 @@
       "maxItems": 128
     },
     "until": {
-      "type": ["object", "null"],
+      "type": [
+        "object",
+        "null"
+      ],
       "additionalProperties": false,
       "properties": {
         "address": {
@@ -143,6 +370,17 @@
         "afterSeconds": {
           "type": "number",
           "minimum": 0
+        },
+        "bank": {
+          "enum": [
+            "cpu",
+            "main",
+            "aux",
+            "lc1",
+            "lc2",
+            "aux-lc1",
+            "aux-lc2"
+          ]
         }
       },
       "required": [
@@ -161,13 +399,1111 @@
     },
     "trace": {
       "type": "boolean"
+    },
+    "observeMemory": {
+      "type": "array",
+      "maxItems": 1024,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "address",
+          "length"
+        ],
+        "properties": {
+          "address": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 65535
+          },
+          "length": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 65536
+          },
+          "bank": {
+            "enum": [
+              "cpu",
+              "main",
+              "aux",
+              "lc1",
+              "lc2",
+              "aux-lc1",
+              "aux-lc2"
+            ]
+          }
+        }
+      }
+    },
+    "textColumns": {
+      "enum": [
+        40,
+        80
+      ]
+    },
+    "decodeIIeText": {
+      "type": "boolean"
+    },
+    "debug": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "breakpoints": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "address": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0,
+                "maximum": 65535
+              },
+              "program": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "minLength": 1
+              },
+              "symbol": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "minLength": 1
+              },
+              "offset": {
+                "type": "integer"
+              },
+              "afterSeconds": {
+                "type": "number",
+                "minimum": 0,
+                "exclusiveMaximum": 3600
+              }
+            },
+            "oneOf": [
+              {
+                "required": [
+                  "address"
+                ],
+                "properties": {
+                  "address": {
+                    "type": "integer"
+                  },
+                  "program": {
+                    "type": "null"
+                  },
+                  "symbol": {
+                    "type": "null"
+                  },
+                  "offset": {
+                    "const": 0
+                  }
+                }
+              },
+              {
+                "required": [
+                  "program",
+                  "symbol"
+                ],
+                "properties": {
+                  "address": {
+                    "type": "null"
+                  },
+                  "program": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "symbol": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "watchpoints": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "address": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0,
+                "maximum": 65535
+              },
+              "program": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "minLength": 1
+              },
+              "symbol": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "minLength": 1
+              },
+              "offset": {
+                "type": "integer"
+              },
+              "afterSeconds": {
+                "type": "number",
+                "minimum": 0,
+                "exclusiveMaximum": 3600
+              },
+              "length": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 65536
+              },
+              "access": {
+                "enum": [
+                  "read",
+                  "write",
+                  "readWrite"
+                ]
+              }
+            },
+            "oneOf": [
+              {
+                "required": [
+                  "address"
+                ],
+                "properties": {
+                  "address": {
+                    "type": "integer"
+                  },
+                  "program": {
+                    "type": "null"
+                  },
+                  "symbol": {
+                    "type": "null"
+                  },
+                  "offset": {
+                    "const": 0
+                  }
+                }
+              },
+              {
+                "required": [
+                  "program",
+                  "symbol"
+                ],
+                "properties": {
+                  "address": {
+                    "type": "null"
+                  },
+                  "program": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "symbol": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "stepInstructions": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1024
+        },
+        "historyInstructions": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 256
+        }
+      },
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "required": [
+            "breakpoints"
+          ],
+          "properties": {
+            "breakpoints": {
+              "minItems": 1
+            }
+          }
+        },
+        {
+          "required": [
+            "watchpoints"
+          ],
+          "properties": {
+            "watchpoints": {
+              "minItems": 1
+            }
+          }
+        }
+      ]
+    },
+    "environment": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1
+    },
+    "toolchainLock": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1
+    },
+    "storageProfile": {
+      "enum": [
+        "floppy",
+        "cffa2"
+      ]
+    },
+    "gamePort": {
+      "enum": [
+        "none",
+        "joystick",
+        "paddles"
+      ]
+    },
+    "checkBasicRuntime": {
+      "type": "boolean"
+    },
+    "textNotContains": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "maxItems": 128
+    },
+    "steps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "action": {
+            "enum": [
+              "wait",
+              "assert",
+              "keys",
+              "delay",
+              "input",
+              "capture"
+            ]
+          },
+          "condition": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "memory": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "address": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 65535
+                    },
+                    "hex": {
+                      "type": "string",
+                      "pattern": "^[A-Fa-f0-9 ]+$"
+                    },
+                    "bank": {
+                      "enum": [
+                        "cpu",
+                        "main",
+                        "aux",
+                        "lc1",
+                        "lc2",
+                        "aux-lc1",
+                        "aux-lc2"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "address",
+                    "hex"
+                  ]
+                },
+                "maxItems": 1024
+              },
+              "memoryNotEqual": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "address": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 65535
+                    },
+                    "hex": {
+                      "type": "string",
+                      "pattern": "^[A-Fa-f0-9 ]+$"
+                    },
+                    "bank": {
+                      "enum": [
+                        "cpu",
+                        "main",
+                        "aux",
+                        "lc1",
+                        "lc2",
+                        "aux-lc1",
+                        "aux-lc2"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "address",
+                    "hex"
+                  ]
+                },
+                "maxItems": 1024
+              },
+              "symbolicMemory": {
+                "type": "array",
+                "maxItems": 1024,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "program",
+                    "symbol",
+                    "hex"
+                  ],
+                  "properties": {
+                    "program": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "symbol": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "hex": {
+                      "type": "string",
+                      "pattern": "^[A-Fa-f0-9 ]+$"
+                    },
+                    "offset": {
+                      "type": "integer"
+                    },
+                    "bank": {
+                      "enum": [
+                        null,
+                        "cpu",
+                        "main",
+                        "aux",
+                        "lc1",
+                        "lc2",
+                        "aux-lc1",
+                        "aux-lc2"
+                      ]
+                    }
+                  }
+                }
+              },
+              "registers": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "pattern": "^[A-Z][A-Z0-9_]{0,15}$"
+                    },
+                    "value": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 65535
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "value"
+                  ]
+                },
+                "maxItems": 128
+              },
+              "textContains": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "maxItems": 128
+              },
+              "textNotContains": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "maxItems": 128
+              }
+            }
+          },
+          "timeoutSeconds": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 3600
+          },
+          "seconds": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 3600
+          },
+          "text": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "maxLength": 16384
+          },
+          "input": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "control": {
+                "enum": [
+                  "paddle0",
+                  "paddle1",
+                  "paddle2",
+                  "paddle3",
+                  "button0",
+                  "button1",
+                  "button2",
+                  "button3"
+                ]
+              },
+              "value": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0,
+                "maximum": 255
+              }
+            },
+            "required": [
+              "control",
+              "value"
+            ]
+          }
+        }
+      },
+      "maxItems": 128
+    },
+    "routine": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "enum": [
+            "asm",
+            "binary"
+          ]
+        },
+        "origin": {
+          "type": "integer",
+          "minimum": 2048,
+          "maximum": 49151
+        },
+        "entryPoint": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 2048,
+          "maximum": 49151
+        },
+        "entrySymbol": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "startAfterSeconds": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 3600
+        },
+        "maxCycles": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000000000
+        },
+        "registers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "enum": [
+                  "A",
+                  "X",
+                  "Y",
+                  "P"
+                ]
+              },
+              "value": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 255
+              }
+            },
+            "required": [
+              "name",
+              "value"
+            ]
+          },
+          "maxItems": 4
+        },
+        "memory": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "address": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 65535
+              },
+              "hex": {
+                "type": "string",
+                "pattern": "^[A-Fa-f0-9 ]+$"
+              },
+              "bank": {
+                "const": "cpu"
+              }
+            },
+            "required": [
+              "address",
+              "hex"
+            ]
+          },
+          "maxItems": 128
+        }
+      },
+      "required": [
+        "source"
+      ]
+    },
+    "cycles": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "start": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "address": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0,
+              "maximum": 65535
+            },
+            "program": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "minLength": 1
+            },
+            "symbol": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "minLength": 1
+            },
+            "offset": {
+              "type": "integer"
+            },
+            "afterSeconds": {
+              "type": "number",
+              "minimum": 0,
+              "exclusiveMaximum": 3600
+            }
+          },
+          "oneOf": [
+            {
+              "required": [
+                "address"
+              ],
+              "properties": {
+                "address": {
+                  "type": "integer"
+                },
+                "program": {
+                  "type": "null"
+                },
+                "symbol": {
+                  "type": "null"
+                },
+                "offset": {
+                  "const": 0
+                }
+              }
+            },
+            {
+              "required": [
+                "program",
+                "symbol"
+              ],
+              "properties": {
+                "address": {
+                  "type": "null"
+                },
+                "program": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "symbol": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          ]
+        },
+        "end": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "address": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0,
+              "maximum": 65535
+            },
+            "program": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "minLength": 1
+            },
+            "symbol": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "minLength": 1
+            },
+            "offset": {
+              "type": "integer"
+            },
+            "afterSeconds": {
+              "type": "number",
+              "minimum": 0,
+              "exclusiveMaximum": 3600
+            }
+          },
+          "oneOf": [
+            {
+              "required": [
+                "address"
+              ],
+              "properties": {
+                "address": {
+                  "type": "integer"
+                },
+                "program": {
+                  "type": "null"
+                },
+                "symbol": {
+                  "type": "null"
+                },
+                "offset": {
+                  "const": 0
+                }
+              }
+            },
+            {
+              "required": [
+                "program",
+                "symbol"
+              ],
+              "properties": {
+                "address": {
+                  "type": "null"
+                },
+                "program": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "symbol": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          ]
+        },
+        "maxCycles": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000000000
+        }
+      },
+      "required": [
+        "start",
+        "end"
+      ]
+    },
+    "screenshotAssertion": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "expectedImage": {
+          "type": "string",
+          "minLength": 1
+        },
+        "channelTolerance": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 255
+        },
+        "maxDifferentFraction": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "crop": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "x": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 2147483647
+            },
+            "y": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 2147483647
+            },
+            "width": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 2147483647
+            },
+            "height": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 2147483647
+            }
+          },
+          "required": [
+            "x",
+            "y",
+            "width",
+            "height"
+          ]
+        }
+      },
+      "required": [
+        "expectedImage"
+      ]
+    },
+    "audio": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "afterSeconds": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 120
+        },
+        "durationSeconds": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "exclusiveMinimum": 0,
+          "maximum": 120
+        },
+        "nonSilent": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "minRms": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1
+        },
+        "maxRms": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1
+        },
+        "minPeak": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1
+        },
+        "maxPeak": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1
+        }
+      }
     }
   },
   "required": [
-    "schemaVersion",
-    "emulatorPath",
-    "machine",
-    "romDirectory",
-    "diskImage"
+    "schemaVersion"
+  ],
+  "oneOf": [
+    {
+      "required": [
+        "diskImage"
+      ],
+      "properties": {
+        "diskImage": {
+          "minLength": 1
+        },
+        "disks": {
+          "maxItems": 0
+        }
+      }
+    },
+    {
+      "required": [
+        "disks"
+      ],
+      "properties": {
+        "diskImage": {
+          "const": ""
+        },
+        "disks": {
+          "minItems": 1
+        }
+      }
+    },
+    {
+      "description": "Mount-free project test or standalone routine; other standalone runs require a mount.",
+      "properties": {
+        "diskImage": {
+          "const": ""
+        },
+        "disks": {
+          "maxItems": 0
+        }
+      }
+    }
+  ],
+  "allOf": [
+    {
+      "if": {
+        "required": [
+          "debug"
+        ],
+        "properties": {
+          "debug": {
+            "type": "object"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "until": {
+            "type": "null"
+          },
+          "symbolicUntil": {
+            "type": "null"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "machine"
+        ],
+        "properties": {
+          "machine": {
+            "enum": [
+              "apple2",
+              "apple2p"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "textColumns": {
+            "const": 40
+          },
+          "decodeIIeText": {
+            "const": false
+          },
+          "memory": {
+            "items": {
+              "properties": {
+                "bank": {
+                  "const": "cpu"
+                }
+              }
+            }
+          },
+          "observeMemory": {
+            "items": {
+              "properties": {
+                "bank": {
+                  "const": "cpu"
+                }
+              }
+            }
+          },
+          "until": {
+            "properties": {
+              "bank": {
+                "const": "cpu"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "anyOf": [
+        {
+          "required": [
+            "environment"
+          ],
+          "properties": {
+            "environment": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "required": [
+            "emulatorPath",
+            "machine",
+            "romDirectory"
+          ],
+          "properties": {
+            "emulatorPath": {
+              "minLength": 1
+            },
+            "romDirectory": {
+              "minLength": 1
+            },
+            "machine": {
+              "enum": [
+                "apple2",
+                "apple2p",
+                "apple2e",
+                "apple2ee",
+                "apple2c"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "if": {
+        "required": [
+          "toolchainLock"
+        ],
+        "properties": {
+          "toolchainLock": {
+            "type": "string"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "environment"
+        ],
+        "properties": {
+          "environment": {
+            "type": "string"
+          }
+        }
+      }
+    }
   ]
 }

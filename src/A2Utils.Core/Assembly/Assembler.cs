@@ -34,6 +34,11 @@ public static partial class Assembler
         CpuKind cpu = CpuKind.Mos6502, CancellationToken cancellationToken = default) =>
         AssembleDocument(SourceDocument.FromFile(path, cancellationToken), origin, cpu, cancellationToken);
 
+    /// <summary>Assembles with generated inputs held in memory; virtual paths obey the usual include boundary.</summary>
+    public static AssemblyResult AssembleFile(string path, IReadOnlyDictionary<string, byte[]> generatedInputs,
+        ushort? origin = null, CpuKind cpu = CpuKind.Mos6502, CancellationToken cancellationToken = default) =>
+        AssembleDocument(SourceDocument.FromFile(path, cancellationToken, generatedInputs), origin, cpu, cancellationToken);
+
     private static AssemblyResult AssembleDocument(SourceDocument document, ushort? origin,
         CpuKind cpu, CancellationToken cancellationToken)
     {

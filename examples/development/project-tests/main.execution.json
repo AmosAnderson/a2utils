@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "name": "DOS data disk program",
+  "emulatorPath": "tools/mame",
+  "romDirectory": "roms",
+  "machine": "apple2ee",
+  "disks": [{ "device": "flop1", "image": "dos33-boot.do" }],
+  "emulatedSeconds": 25,
+  "hostTimeoutSeconds": 60,
+  "keys": [
+    { "atSeconds": 10, "text": "CATALOG,D2\r" },
+    { "atSeconds": 12, "text": "BLOAD MAIN,D2\r" },
+    { "atSeconds": 14, "text": "CALL 8192\r" }
+  ],
+  "symbolicMemory": [{ "program": "MAIN", "symbol": "RESULT", "hex": "2A" }],
+  "symbolicUntil": { "program": "MAIN", "symbol": "RESULT", "value": 42, "afterSeconds": 15 },
+  "diskAssertions": [{ "device": "flop2", "path": "MAIN", "type": "BIN", "auxType": 8192 }],
+  "screenshot": true,
+  "trace": true
+}

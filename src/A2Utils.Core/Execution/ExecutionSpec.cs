@@ -14,17 +14,36 @@ public sealed record ExecutionSpec
     public string ExpectedVersion { get; init; } = MameAdapter.ApiVersion;
     public string Machine { get; init; } = "";
     public string RomDirectory { get; init; } = "";
+    public string? Environment { get; init; }
+    public string? ToolchainLock { get; init; }
+    public string StorageProfile { get; init; } = "floppy";
+    public string GamePort { get; init; } = "none";
     public string DiskImage { get; init; } = "";
     public string DiskDevice { get; init; } = "flop1";
+    public IReadOnlyList<ExecutionDisk> Disks { get; init; } = [];
+    public IReadOnlyList<DiskFileAssertion> DiskAssertions { get; init; } = [];
+    public IReadOnlyList<SymbolicMemoryAssertion> SymbolicMemory { get; init; } = [];
+    public SymbolicCompletionCondition? SymbolicUntil { get; init; }
     public double EmulatedSeconds { get; init; } = 15;
     public double HostTimeoutSeconds { get; init; } = 60;
     public IReadOnlyList<ExecutionKeys> Keys { get; init; } = [];
+    public IReadOnlyList<ExecutionStep> Steps { get; init; } = [];
+    public IReadOnlyList<string> TextNotContains { get; init; } = [];
+    public bool CheckBasicRuntime { get; init; }
     public IReadOnlyList<MemoryAssertion> Memory { get; init; } = [];
+    public IReadOnlyList<MemoryCapture> ObserveMemory { get; init; } = [];
     public IReadOnlyList<RegisterAssertion> Registers { get; init; } = [];
     public IReadOnlyList<string> TextContains { get; init; } = [];
     public CompletionCondition? Until { get; init; }
     public int TextPage { get; init; } = 1;
+    public int TextColumns { get; init; } = 40;
+    public bool DecodeIIeText { get; init; }
+    public ExecutionRoutine? Routine { get; init; }
+    public ExecutionCycleMeasurement? Cycles { get; init; }
+    public ExecutionDebug? Debug { get; init; }
     public bool Screenshot { get; init; }
+    public ScreenshotAssertion? ScreenshotAssertion { get; init; }
+    public ExecutionAudioOptions? Audio { get; init; }
     public bool Trace { get; init; }
 
     public static JsonSerializerOptions JsonOptions { get; } = new()
@@ -43,7 +62,8 @@ public sealed record ExecutionSpec
         {
             ExecutionSpec spec = JsonSerializer.Deserialize<ExecutionSpec>(ProgramFiles.ReadText(path), JsonOptions)
                 ?? throw new JsonException("Execution specification must be an object.");
-            return spec.ResolvePaths(Path.GetDirectoryName(Path.GetFullPath(path))!);
+            ExecutionSpec resolved = spec.ResolvePaths(Path.GetDirectoryName(Path.GetFullPath(path))!);
+            return resolved.Environment is null ? resolved : Setup.DevelopmentEnvironment.Apply(resolved, resolved.Environment);
         }
         catch (JsonException ex)
         {
@@ -55,17 +75,35 @@ public sealed record ExecutionSpec
     {
         EmulatorPath = Resolve(EmulatorPath, directory),
         RomDirectory = Resolve(RomDirectory, directory),
-        DiskImage = Resolve(DiskImage, directory)
+        Environment = Environment is null ? null : Resolve(Environment, directory),
+        ToolchainLock = ToolchainLock is null ? null : Resolve(ToolchainLock, directory),
+        DiskImage = Resolve(DiskImage, directory),
+        Routine = Routine is null ? null : Routine with { Source = Resolve(Routine.Source, directory) },
+        ScreenshotAssertion = ScreenshotAssertion is { } screenshot
+            ? screenshot with { ExpectedImage = Resolve(screenshot.ExpectedImage, directory) } : null,
+        Disks = Disks?.Select(disk => disk is null ? null! : disk with { Image = Resolve(disk.Image, directory) }).ToArray()!
     };
+
+    /// <summary>Returns explicit mounts, or the legacy single-disk mount. Validate before using untrusted specifications.</summary>
+    public IReadOnlyList<ExecutionDisk> GetDisks()
+        => Disks is { Count: > 0 } ? Disks : Routine is not null && string.IsNullOrEmpty(DiskImage) ? [] : [new(DiskDevice, DiskImage)];
 
     private static string Resolve(string path, string directory)
         => string.IsNullOrWhiteSpace(path) ? path : Path.GetFullPath(path, directory);
 }
 
+public sealed record ExecutionDisk(string Device, string Image, string? ExpectedSha256 = null,
+    string? InputOrder = null, string? InputFileSystem = null, bool Verify = false);
+
+/// <summary>Assertions compare logical file payload bytes and logical lengths, excluding DOS host headers.</summary>
+public sealed record DiskFileAssertion(string Device, string Path, bool Exists = true,
+    string? Sha256 = null, string? Hex = null, string? Type = null, int? AuxType = null, long? Length = null);
+
 public sealed record ExecutionKeys(double AtSeconds, string Text);
-public sealed record MemoryAssertion(int Address, string Hex);
+public sealed record MemoryAssertion(int Address, string Hex, string Bank = "cpu");
+public sealed record MemoryCapture(int Address, int Length, string Bank = "cpu");
 public sealed record RegisterAssertion(string Name, long Value);
-public sealed record CompletionCondition(int Address, int Value, double AfterSeconds = 0);
+public sealed record CompletionCondition(int Address, int Value, double AfterSeconds = 0, string Bank = "cpu");
 
 public sealed record ExecutionSuite
 {

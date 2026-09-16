@@ -1212,8 +1212,10 @@ public sealed record ProjectManifest
     public List<MemoryRegion> Reserve { get; init; } = [];
     public bool CheckMemory { get; init; } = true;
     public int BasicWorkspaceBytes { get; init; }
+    public string Runtime { get; init; } = "auto";
     public ProjectStartup? Startup { get; init; }
     public Cc65Options? Cc65 { get; init; }
+    public ProjectExecutionSettings? Execution { get; init; }
 }
 
 public sealed record ProjectDisk
@@ -1239,6 +1241,9 @@ public sealed record ProjectFile
     public ushort? EntryPoint { get; init; }
     public bool Replace { get; init; }
     public bool Resident { get; init; } = true;
+    public string MemoryBank { get; init; } = "main";
+    public string? OverlayGroup { get; init; }
+    public List<MemoryRegion> RuntimeMemory { get; init; } = [];
     public bool CheckBasic { get; init; } = true;
 }
 
@@ -1249,7 +1254,8 @@ public sealed record ProjectStartup
     public bool Replace { get; init; }
 }
 
-public sealed record MemoryRegion(string Name, int Start, int Length);
+public sealed record MemoryRegion(string Name, int Start, int Length,
+    string MemoryBank = "main", string Kind = "data");
 ```
 
 Manifest paths, including a relative `ProjectBuilder.Build` output override,
@@ -1263,7 +1269,26 @@ for inference and conflict behavior.
 extends resident BASIC ranges. `Reserve` adds caller-defined occupied memory.
 `CheckMemory: false` disables overlap checks but not address-range validation.
 `Startup` generates a BASIC RUN/BRUN launcher only when building from an OS
-template.
+template, and must target a main-memory program.
+
+`MemoryBank` accepts `main`, `aux`, `lc1`, `lc2`, `aux-lc1`, and `aux-lc2`.
+Main/auxiliary payloads fit `$0000-$BFFF`; language-card payloads fit
+`$D000-$FFFF`. Both language-card selections on each side share `$E000-$FFFF`,
+so overlapping ranges there conflict even when their bank names differ.
+All banked files require BIN metadata and an explicit loader. Bank annotations
+do not change stored bytes, `AuxType`, load headers, or execute bank switches.
+Bank/range validation applies even with `Resident: false` or `CheckMemory: false`.
+Earlier unchecked manifests placing a payload above `$BFFF` in default main
+memory must now select its physical language-card bank; `$C000-$CFFF` remains I/O
+and ROM rather than payload RAM. See [IIe memory banks](iie-memory.md).
+
+`RuntimeMemory` declares additional BSS, zero-page, software-stack, heap or data
+allocations using explicit ranges. Compiler segments and its inferred software
+stack populate the built report automatically. `OverlayGroup` names mutually
+exclusive programs; different groups and always-resident files still conflict.
+`Runtime` accepts `auto`, `basic-system`, and `system` to select ProDOS runtime
+reservations. See [runtime accounting](runtime-memory.md) for the allocation and
+overlay lifetime contracts.
 
 ### Project result records
 
@@ -1281,7 +1306,12 @@ public sealed record BuiltFile(
     string Sha256,
     bool Resident,
     IReadOnlyDictionary<string, int> Symbols,
-    object? SourceMap);
+    object? SourceMap)
+{
+    public string MemoryBank { get; init; } = "main";
+    public string? OverlayGroup { get; init; }
+    public IReadOnlyList<MemoryRegion> RuntimeMemory { get; init; } = [];
+}
 
 public sealed record ProjectBuildResult(
     string OutputPath,
@@ -1306,6 +1336,22 @@ reservations. `Bootability` is `data-volume` for a new format or
 `template-preserved-unverified` for a copied template. In check-only mode no
 image is produced and `Sha256` is the empty string.
 
+`ProjectBuildResult` also has additive init properties `CheckOnly`, `Preflight`,
+`ProjectBuildPlan? Plan`, and `ProjectExecutionSettings? Execution`. `Plan` is
+populated for real builds and full preflight; execution suite paths in results
+are absolute. The additional records are:
+
+```csharp
+public sealed record ProjectFileChange(string Path, string Action, long? PreviousLength, int Length);
+public sealed record ProjectBuildPlan(long ImageSizeBytes, long FreeBytesBefore, long FreeBytesAfter,
+    IReadOnlyList<ProjectFileChange> Files, IReadOnlyList<string> CreatedDirectories);
+public sealed record ProjectExecutionSettings(string Suite, string DiskDevice = "flop1");
+```
+
+Changes use `Action` values `add` and `replace`. Lengths/free space are bytes;
+`PreviousLength` is null for additions. An empty plan is not inferred from a
+fast source check.
+
 ### `ProjectJson`
 
 ```csharp
@@ -1327,11 +1373,27 @@ public sealed record PlatformSymbol(
     string Name,
     int Address,
     string Description);
+public sealed record TargetMemoryBank(
+    string Name,
+    int Start,
+    int Length,
+    string? SharedUpperBank = null)
+{
+    public int? SharedUpperStart { get; } // $E000 when SharedUpperBank is set
+}
 public sealed record TargetProfile(
     string Name,
     string Description,
     string Cpu,
-    int MainMemoryBytes);
+    int MainMemoryBytes)
+{
+    public int BankedMainMemoryBytes { get; init; }
+    public int AuxiliaryMemoryBytes { get; init; }
+    public string? AuxiliaryMemoryRequirement { get; init; }
+    public bool Supports80ColumnText { get; init; }
+    public bool SupportsMouseText { get; init; }
+    public IReadOnlyList<TargetMemoryBank> MemoryBanks { get; init; }
+}
 
 public static class TargetProfiles
 {
@@ -1345,12 +1407,23 @@ public static class TargetProfiles
 
 `All` contains `apple2plus`, `apple2e`, `apple2enh`, and `apple2c`.
 `Symbols` exposes common monitor, soft-switch, keyboard, speaker, and ProDOS MLI
-addresses. `Get` requires an exact profile name. `ParseCpu` accepts exact
+addresses, including IIe bank-selection and 80-column switches. `Get` requires an exact profile name. `ParseCpu` accepts exact
 `6502`, `65c02`, or `w65c02` and maps them to `CpuKind`. `Reserved` returns zero
-page/stack/system workspace, display page 1, and a DOS (`$9600` onward) or ProDOS
-(`$BF00` onward) upper reservation; pass `dos33` for the DOS layout and any other
-value currently selects the ProDOS description. Invalid profile/CPU values use
-`project.target` or `project.cpu`.
+page/stack/system workspace, display page 1, and a DOS (`$9600-$BFFF`) or ProDOS
+(`$BF00-$BFFF`) main reservation. Pass `dos33` or `prodos`; the latter also protects
+both main language-card banks for the kernel, dispatcher and reserved runtime
+space. Invalid profile/CPU values use `project.target` or `project.cpu`.
+
+`MemoryBanks` reports physical windows and their shared-upper-memory aliases.
+IIe/IIc profiles expose six windows; the baseline 48 KiB Apple II Plus profile
+exposes only `main`. `MainMemoryBytes` remains the 48 KiB contiguous region;
+`BankedMainMemoryBytes` is 16 KiB on IIe/IIc. Auxiliary capability is 64 KiB and
+`AuxiliaryMemoryRequirement` distinguishes optional IIe expansion from built-in
+IIc RAM. Bank annotations cannot confirm that a user's machine has that expansion.
+Unenhanced IIe supports 80-column text with auxiliary display RAM, but MouseText
+requires the enhanced IIe or IIc character ROM. ProDOS auxiliary-bank files emit
+`project.prodos_auxiliary_memory` to remind the loader to protect its memory from
+`/RAM` or disconnect that RAM disk.
 
 ### `Cc65Options`, `Cc65Result`, and `Cc65Compiler`
 
@@ -1365,6 +1438,9 @@ public sealed record Cc65Options
     public List<string> AdditionalSources { get; init; } = [];
     public List<string> Includes { get; init; } = [];
     public List<string> Defines { get; init; } = [];
+    public string? LinkerConfig { get; init; }
+    public string? ToolchainRoot { get; init; }
+    public Dictionary<string, string> SegmentBanks { get; init; } = new(StringComparer.Ordinal);
 }
 
 public sealed record Cc65Result(
@@ -1372,7 +1448,16 @@ public sealed record Cc65Result(
     string Version,
     string Map,
     string Labels,
-    IReadOnlyList<BuildInput> Inputs);
+    IReadOnlyList<BuildInput> Inputs)
+{
+    public string CompilerPath { get; init; } = "";
+    public IReadOnlyList<BuildInput> ToolchainInputs { get; init; } = [];
+    public IReadOnlyDictionary<string, int> Symbols { get; init; }
+    public IReadOnlyList<Cc65Segment> Segments { get; init; } = [];
+    public IReadOnlyList<ProgramDiagnostic> Diagnostics { get; init; } = [];
+}
+
+public sealed record Cc65Segment(string Name, int Start, int Length, string Kind);
 
 public static class Cc65Compiler
 {
@@ -1380,7 +1465,8 @@ public static class Cc65Compiler
         string source,
         Cc65Options options,
         string projectRoot,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        IReadOnlyDictionary<string, byte[]>? generatedInputs = null);
 }
 ```
 
@@ -1400,6 +1486,12 @@ then run with map and VICE-label output. A nonzero compiler exit raises
 `cc65.timeout`; missing/start failures use exit code 5. The returned AppleSingle
 has already passed `AppleSingleProgram.Decode`, but consumers still decode it
 to obtain the data fork/type/auxiliary value. See [cc65 reproducibility limits](cc65.md).
+Located compiler diagnostics map staged sources back to original paths. Parsed
+VICE symbols and ld65 segments feed project symbols and runtime footprints.
+`LinkerConfig` selects a validated project-local single-output `.cfg`; `SegmentBanks`
+assigns runtime segment banks. `ToolchainRoot` selects and fingerprints bounded
+distribution trees. Optional `generatedInputs` supplies absolute project paths
+and bytes for isolated compilation without writing generated host source files.
 
 ### `ProjectBuilder`
 
@@ -1411,7 +1503,8 @@ public static class ProjectBuilder
         string? outputPath = null,
         bool overwrite = false,
         bool checkOnly = false,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        bool preflight = false);
 }
 ```
 
@@ -1428,9 +1521,42 @@ and final image validation do not. Normal builds reopen the staged image and
 verify structure, payload, type, and applicable load metadata before commit.
 Inputs/templates remain unchanged on failure.
 
+With `preflight: true`, the full build/validation runs on a disposable image and
+returns its hash and change/capacity plan. The output path and overwrite policy
+are checked, but no output parent is created or output committed. Combining
+`checkOnly` and `preflight` is refused. Preflight cannot guarantee host capacity
+or emulator behavior.
+
 Failures primarily use `project.*`; compilation and lower-level disk/graphics
 errors can propagate with their own codes. Source diagnostics are attached for
 BASIC checking, assembly, memory overlap, and external compiler failures.
+
+### `ProjectWorkflow`
+
+```csharp
+public sealed record ProjectWorkflowResult(int SchemaVersion, bool Passed, ProjectBuildResult Build,
+    ExecutionSuiteResult Tests, string ArtifactDirectory)
+{
+    public bool Cancelled { get; init; }
+}
+public static class ProjectWorkflow
+{
+    public static ProjectWorkflowResult Run(string manifestPath, string artifactDirectory,
+        string? outputPath = null, bool overwrite = false, CancellationToken cancellationToken = default);
+    public static bool HasAssertions(ExecutionSpec spec);
+}
+```
+
+`Run` requires manifest execution settings. It preflights, validates suite inputs
+and symbols, builds with input/image hash guards before commit, and runs each
+case with the selected mount pinned to the build. Other disks are also pinned.
+The artifact directory must be new. Invalid manifest/suite fields, missing input
+files, and input/hash conflicts are rejected before output replacement. Runtime
+setup failures (such as a wrong emulator version or invalid ROMs), behavioral
+failures, and later artifact I/O failures retain a successfully committed image.
+`HasAssertions` expects validated fields and counts symbolic assertions and explicit
+disk verification. See [project testing](projects.md#build-and-test-together) for
+target matching, reports, cancellation, and source-map limits.
 
 ## MAME execution
 
@@ -1450,42 +1576,142 @@ public sealed record ExecutionSpec
     public string RomDirectory { get; init; } = "";
     public string DiskImage { get; init; } = "";
     public string DiskDevice { get; init; } = "flop1";
+    public IReadOnlyList<ExecutionDisk> Disks { get; init; } = [];
+    public IReadOnlyList<DiskFileAssertion> DiskAssertions { get; init; } = [];
+    public IReadOnlyList<SymbolicMemoryAssertion> SymbolicMemory { get; init; } = [];
+    public SymbolicCompletionCondition? SymbolicUntil { get; init; }
     public double EmulatedSeconds { get; init; } = 15;
     public double HostTimeoutSeconds { get; init; } = 60;
     public IReadOnlyList<ExecutionKeys> Keys { get; init; } = [];
     public IReadOnlyList<MemoryAssertion> Memory { get; init; } = [];
+    public IReadOnlyList<MemoryCapture> ObserveMemory { get; init; } = [];
     public IReadOnlyList<RegisterAssertion> Registers { get; init; } = [];
     public IReadOnlyList<string> TextContains { get; init; } = [];
     public CompletionCondition? Until { get; init; }
     public int TextPage { get; init; } = 1;
+    public int TextColumns { get; init; } = 40;
+    public bool DecodeIIeText { get; init; }
+    public ExecutionDebug? Debug { get; init; }
     public bool Screenshot { get; init; }
     public bool Trace { get; init; }
 
     public static JsonSerializerOptions JsonOptions { get; }
     public static ExecutionSpec Load(string path);
     public ExecutionSpec ResolvePaths(string directory);
+    public IReadOnlyList<ExecutionDisk> GetDisks();
 }
 
 public sealed record ExecutionKeys(double AtSeconds, string Text);
-public sealed record MemoryAssertion(int Address, string Hex);
+public sealed record MemoryAssertion(int Address, string Hex, string Bank = "cpu");
+public sealed record MemoryCapture(int Address, int Length, string Bank = "cpu");
 public sealed record RegisterAssertion(string Name, long Value);
 public sealed record CompletionCondition(
     int Address,
     int Value,
-    double AfterSeconds = 0);
+    double AfterSeconds = 0, string Bank = "cpu");
 ```
 
 `Load` strictly decodes JSON with camel-case names, required `schemaVersion`, no
 unknown/duplicate properties, and maximum depth 32. It resolves emulator, ROM,
 and disk paths relative to the specification file. JSON failures become
 `execution.invalid_spec`; host read failures propagate. `ResolvePaths` performs
-the same three path resolutions for a record constructed in code and otherwise
-leaves it unchanged.
+the same path resolutions, including explicit disk mounts, for a record constructed
+in code. `GetDisks` normalizes legacy single-image fields into one mount; validate
+untrusted specifications before using it.
 
 Times are finite seconds since power-on. Key text is posted through MAME's
 natural keyboard. Memory hex may contain spaces. Register names are uppercase
 MAME CPU-state names. Completion polls one observable byte after its delay.
-Text assertions inspect case-sensitive decoded 40-column page memory.
+Text assertions inspect case-sensitive decoded text-page memory. The default is
+legacy 40-column decoding; `TextColumns: 80` or `DecodeIIeText: true` selects physical
+IIe text pages, display attributes, and MouseText tokens. See [IIe observations](iie-execution.md).
+
+```csharp
+public sealed record ExecutionDisk(string Device, string Image, string? ExpectedSha256 = null,
+    string? InputOrder = null, string? InputFileSystem = null, bool Verify = false);
+public sealed record DiskFileAssertion(string Device, string Path, bool Exists = true,
+    string? Sha256 = null, string? Hex = null, string? Type = null, int? AuxType = null, long? Length = null);
+public sealed record SymbolicMemoryAssertion(string Program, string Symbol, string Hex, int Offset = 0, string? Bank = null);
+public sealed record SymbolicCompletionCondition(string Program, string Symbol, int Value,
+    int Offset = 0, double AfterSeconds = 0, string? Bank = null);
+public sealed record ExecutionSourceLocation(string Program, int Address, string? File, int Line,
+    string Source, string Observation)
+{
+    public string MemoryBank { get; init; } = "main";
+}
+
+public static class BuildExecution
+{
+    public static ExecutionSpec Bind(ExecutionSpec spec, ProjectBuildResult build, string device = "flop1");
+    public static int ResolveAddress(ProjectBuildResult build, string program, string symbol, int offset = 0);
+    public static IReadOnlyList<ExecutionSourceLocation> Locate(ProjectBuildResult build, ExecutionResult result);
+    public static ExecutionResult Annotate(ExecutionSpec source, ProjectBuildResult build, ExecutionResult result);
+}
+```
+
+`Bind` requires a full build/preflight hash, replaces the selected mount, resolves
+symbols, clears symbolic fields, and validates the resulting specification.
+`ResolveAddress` resolves one exported symbol plus offset into a 16-bit address.
+`Locate` uses in-memory native assembly maps and final/unique sampled PCs;
+serialized opaque `SourceMap` objects are not automatically rehydrated.
+`Annotate` adds symbol names and available source locations to symbolic memory
+failures. Disk mount and assertion limits are in
+[execution disk assertions](execution.md#multiple-disks-and-saved-file-assertions).
+
+### Debugging and bank-aware observations
+
+```csharp
+public sealed record ExecutionDebug
+{
+    public IReadOnlyList<ExecutionBreakpoint> Breakpoints { get; init; } = [];
+    public IReadOnlyList<ExecutionWatchpoint> Watchpoints { get; init; } = [];
+    public int StepInstructions { get; init; }
+    public int HistoryInstructions { get; init; } = 64;
+}
+public sealed record ExecutionBreakpoint(int? Address = null, string? Program = null,
+    string? Symbol = null, int Offset = 0, double AfterSeconds = 0);
+public sealed record ExecutionWatchpoint(int? Address = null, int Length = 1,
+    string Access = "write", string? Program = null, string? Symbol = null,
+    int Offset = 0, double AfterSeconds = 0);
+public sealed record ExecutionMemory(string Bank, int Address, string Hex);
+public sealed record ExecutionDebugStop(string Kind, int Index, int Address,
+    int? Value, int ProgramCounter);
+public sealed record ExecutionInstruction(int Address, string Disassembly);
+public sealed record ExecutionDebugResult(ExecutionDebugStop Trigger,
+    int SteppedInstructions, IReadOnlyList<ExecutionInstruction> History);
+```
+
+See [debugging](runtime-debugging.md) for trigger timing, bounded steps, and
+capture-time disassembly limitations. Symbolic addresses are resolved by
+`BuildExecution.Bind`; standalone execution requires numeric points.
+
+`ExecutionObservation` and `ExecutionResult` add `BankMemory`, `Debug`,
+`TextScreen`, and `Video` init properties. `BankMemory` includes CPU and physical
+captures; the legacy `Memory` dictionary contains CPU captures only.
+`ExecutionObservation.TextPages` holds raw text-page hex by `main`/`aux` bank.
+
+```csharp
+public static class AppleIIeMemory
+{
+    public static bool IsIIeMachine(string? machine);
+    public static bool IsValidRange(string? bank, int address, int length);
+    public static string CreateLuaHelpers();
+}
+public static class AppleIIeTextDecoder
+{
+    public static AppleIIeTextScreen Decode(ReadOnlySpan<byte> mainPage,
+        ReadOnlySpan<byte> auxiliaryPage, int columns, bool alternateCharacterSet,
+        bool mouseTextSupported = true);
+}
+public sealed record AppleIIeTextScreen(int Columns, int Rows, string Text,
+    IReadOnlyList<AppleIIeTextCell> Cells);
+public sealed record AppleIIeTextCell(int Row, int Column, string Bank, int Offset,
+    byte Value, string Text, string DisplayMode, int? MouseTextIndex);
+```
+
+`Decode` requires one complete 1024-byte main page and, for 80 columns, one
+auxiliary page. It preserves inverse/flashing attributes and enhanced-machine
+MouseText indices. Unenhanced IIe callers pass `mouseTextSupported: false`.
 
 ### `ExecutionSuite`
 
@@ -1518,6 +1744,11 @@ public static partial class MameAdapter
         string copiedDisk,
         string script,
         string artifacts);
+    public static IReadOnlyList<string> CreateArguments(
+        ExecutionSpec spec,
+        IReadOnlyDictionary<string, string> copiedDisks,
+        string script,
+        string artifacts);
     public static string CreateScript(
         ExecutionSpec spec,
         string artifacts);
@@ -1537,6 +1768,9 @@ argument array for the supplied disk/script/artifact paths. It disables host
 configuration, plugins, video/sound output, throttling, and separates all
 mutable MAME directories under `artifacts`; non-IIc profiles also clear the
 default slot-2/slot-4 cards.
+
+The dictionary overload maps every device to its isolated copy; the single-string
+overload requires exactly one mount. Unresolved symbolic assertions are refused.
 
 `CreateScript` validates the spec and returns generated Lua that posts keys,
 samples optional PC trace data once per frame, polls completion, captures
@@ -1584,6 +1818,18 @@ diagnostic. Optional values can be null when execution fails before capture.
 `Artifacts` contains absolute paths produced under the run directory, including
 `result.json`. `ExecutionSuiteResult` is the aggregate data contract used by
 suite orchestration; constructing it performs no validation.
+
+`ExecutionResult` also has `IReadOnlyList<ExecutionDiskResult> Disks { get; init; }`
+(default empty), where `ExecutionDiskResult` contains `Device`, `InputPath`,
+`ArtifactPath`, `InputSha256`, and nullable `OutputSha256` strings. The legacy
+`InputSha256` is the first mount's input hash.
+
+`ExecutionRunner.EvaluateDisks(ExecutionSpec spec,
+IReadOnlyDictionary<string, string> copiedDisks,
+CancellationToken cancellationToken = default)` returns
+`IReadOnlyList<ProgramDiagnostic>` for filesystem and saved-file checks. Call it
+only after the emulator has released its copies. It reads those copies, reports
+inspection failures as diagnostics, and does not modify original images.
 
 ### `ExecutionRunner`
 
@@ -1635,3 +1881,38 @@ diagnostics. It does not run MAME.
 accepting one stop reason/time and unique register/memory records. It attaches
 the separately supplied screen text verbatim. Invalid, missing, or duplicate
 fields throw `InvalidDataException`.
+
+## Extended AI programming APIs
+
+The additive APIs below are described in their focused guides. They follow the
+same versioned project/execution JSON options and bounded input rules as the
+original workflow.
+
+| Namespace / entry point | Purpose |
+| --- | --- |
+| `Setup.DevelopmentEnvironmentProfile.Load` | Resolve a local emulator/ROM/template/compiler profile |
+| `Setup.DevelopmentEnvironment.CheckAsync`, `CreateLock`, `ValidateLock` | Check tool readiness and pin/verify file identities and directory membership |
+| `Setup.DevelopmentEnvironment.Apply` | Fill project or execution defaults from a profile |
+| `Setup.DevelopmentEnvironment.ValidateExecutionLock`, `ValidateProjectLock` | Validate both lock content and the effective inputs used by a run/build |
+| `Setup.ProjectStarter.Create` | Stage a BASIC/assembly/C starter into a new directory |
+| `Execution.ExecutionStep`, `ExecutionCondition`, `GameInput` | Describe ordered waits, assertions, keyboard/game input, delays, and checkpoints |
+| `Execution.ExecutionRunner.ConditionMatches` | Compare captured memory/register/text evidence with a condition |
+| `Execution.RoutineHarness.Assemble`, `Prepare`, `ValidateInputs` | Read/assemble a routine, retain payload/source evidence, and revalidate dependencies |
+| `Execution.ExecutionRoutine`, `ExecutionCycleMeasurement` | Configure initial routine state or an instruction-boundary cycle window |
+| `Execution.ExecutionAudio.Validate`, `Analyze` | Inspect bounded PCM16 WAV input and report normalized RMS/peak/silence metrics |
+| `Execution.ExecutionVisual.Validate`, `Prepare`, `Compare` | Pin expected PNG input and retain screenshot comparison/difference evidence |
+| `Graphics.VisualComparison.Validate`, `Compare` | Compare RGB pixels with a crop, per-channel tolerance, and differing-pixel fraction |
+| `Projects.ProjectAssets.Compile` | Convert a declared asset into immutable virtual binary/include/header/metadata outputs |
+| `Projects.Cc65Feedback.ParseLabels`, `ParseSegments`, `ParseDiagnostics` | Normalize compiler/linker feedback for callers |
+| `Projects.Cc65LinkerConfiguration.Validate` | Validate the supported single-output linker configuration subset |
+| `Basic.ApplesoftTools.RuntimeDiagnostics` | Recognize captured Applesoft errors, optionally mapping through a build's line maps |
+
+`ExecutionResult` adds `Steps`, `Checkpoints`, `Cycles`, `Audio`,
+`ScreenshotComparison`, and environment fingerprint evidence. Project results
+include generated asset output hashes; built files include `RuntimeMemory` and
+`OverlayGroup`. Compiler results include parsed symbols, segments, diagnostics,
+the resolved compiler path, and toolchain inputs.
+
+See [setup](setup.md), [runtime memory](runtime-memory.md),
+[assets](project-assets.md), [interactive execution](interactive-testing.md),
+[audio](audio-execution.md), and [block storage](block-storage-execution.md).

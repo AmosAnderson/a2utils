@@ -704,7 +704,9 @@
     },
     {
       "path": "DiskArc/FS/ProDOS_FileEntry.cs",
-      "sha256": "02ad3af3211a1fefd54ed93a551d872b13c4b8d1439d3deb30c0040305c3f66a"
+      "sha256": "405363b261e7ed0c87e4cf8390bacb5114ebb93511164ccabcb2bfe898568495",
+      "upstreamSha256": "02ad3af3211a1fefd54ed93a551d872b13c4b8d1439d3deb30c0040305c3f66a",
+      "localPatch": "Synchronize redundant ProDOS subdirectory-header creation date; see README.a2utils.md."
     },
     {
       "path": "DiskArc/FS/ProDOS_VolBitmap.cs",

@@ -1,6 +1,80 @@
 Apple II disk image utility — implementation plan
 ================================================
 
+Remaining AI programming tools milestone (September 16, 2026)
+------------------------------------------------------------
+
+- [x] Ordered wait/input/assert sequences, per-step deadlines and inspectable checkpoints.
+- [x] cc65 segment/symbol/diagnostic feedback, staged custom linker configuration,
+  runtime BSS/zero-page/stack/heap accounting, and explicit overlay groups.
+- [x] Original reusable text/keyboard, clipped HGR sprite, DOS/ProDOS file, and BASIC CALL examples.
+- [x] Project asset conversion with generated assembly/C metadata and screenshot assertions/diffs.
+- [x] Environment checks, BASIC/assembly/C starters, and hash-pinned toolchain profiles.
+- [x] Conservative BASIC loop/arity/array checks and mapped runtime error diagnostics.
+- [x] Game-port overrides, bounded audio capture/metrics, instruction-cycle budgets,
+  and disk-free routine execution with explicit initial state.
+- [x] Explicit CFFA2 slot-7 single-volume ProDOS block-device execution profile.
+- [x] Schemas, documentation, unit/process-contract tests, and opt-in actual MAME tests.
+- [x] Locked restore, warning-free Release build, 1,158 passing local tests, formatting,
+  schema/example checks, and installed local tool smoke checks. Fifteen actual-MAME
+  cases remain skipped without external emulator/ROM inputs.
+
+These additions complete the remaining AI-programming suggestions from this round.
+They use the existing disk engine and pinned MAME 0.289 API. Runtime/asset/lock
+operations retain bounded inputs and immutable snapshots. Runtime memory is
+conservative static accounting, and overlay groups are an explicit application
+promise about lifetimes. CFFA2 firmware, emulator ROMs, boot systems, and cc65
+remain external inputs. Optional machine checks do not become validation evidence
+until run with those inputs; see [VALIDATION.md](docs/VALIDATION.md).
+
+Runtime debugging and Apple IIe memory/display milestone
+--------------------------------------------------------
+
+- [x] Numeric and build-symbol instruction breakpoints and CPU read/write watchpoints.
+- [x] Bounded instruction stepping, recent PC/disassembly evidence, source locations,
+  and memory observations without expected values.
+- [x] Physical main/auxiliary/language-card observations independent of soft switches.
+- [x] Bank-aware project declarations, physical range/alias validation, target capabilities,
+  and explicit loader examples.
+- [x] 40/80-column physical text decoding, display attributes, and MouseText cells.
+- [x] Schemas, Core/CLI integration coverage, and optional real-MAME smoke cases.
+
+The backend remains pinned to MAME 0.289 with no new production dependency. History
+stores instruction addresses and disassembles from capture-time memory; historical
+bank mappings/bytes remain outside this milestone; the subsequent milestone adds cycle profiling. Project bank
+annotations require application loaders. Actual MAME validation is separate from
+contract and Lua-helper checks; see [VALIDATION.md](docs/VALIDATION.md).
+
+Development reliability milestone (September 13, 2026)
+------------------------------------------------------
+
+The selected next milestone connects the existing build and execution tools:
+
+- [x] Full `build --preflight` with disposable allocation/validation, image hash,
+  additions/replacements, created directories, and free-space reporting.
+- [x] Project-owned `build --test`, pinned build/test inputs, symbol resolution,
+  source annotations, and build/execution evidence. Preflight input and image
+  expectations are rechecked before the actual output is committed.
+- [x] Isolated `flop1`/`flop2` mounts, per-image hashes, optional post-run filesystem
+  verification, and saved-file content/type/load-address assertions.
+- [x] Independent ProDOS fixture, sparse/indexed files, directory capacity,
+  valid maximum-size volume edits, and bounded malformed-image process probes.
+- [x] Optional actual DOS/ProDOS catalog/load/save interoperability tests with
+  explicit local emulator/ROM/boot-disk configuration.
+- [x] Release build, 887 passing local tests, formatting, schemas/examples, and
+  local tool/self-contained macOS smoke checks completed September 16.
+
+Actual OS checks are skipped when their external resources are absent; adding a
+test does not constitute emulator evidence. See [VALIDATION.md](docs/VALIDATION.md)
+for the completed local checks. Existing single-disk execution and fast source
+checks remain available. The subsequent milestone adds an explicit CFFA2 block-device profile.
+
+The subsequent AI-tools milestone above adds runtime memory accounting, compiler
+diagnostics, project graphics assets, and toolchain fingerprints. The separate disk
+roadmap still includes DOS/ProDOS file migration, a higher-level transactional Core
+editing API, per-image capabilities, disk diffs, and resource forks. No new
+disk-engine dependency is introduced.
+
 AI development workflow implementation (September 10, 2026)
 ----------------------------------------------------------
 

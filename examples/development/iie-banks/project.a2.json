@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "target": "apple2e",
+  "output": "build.do",
+  "disk": { "fileSystem": "dos33" },
+  "files": [
+    { "source": "demo.asm", "path": "BANK.DEMO", "kind": "asm" }
+  ],
+  "reserve": [
+    { "name": "copy source", "start": 12288, "length": 256 },
+    { "name": "main sentinel", "start": 16384, "length": 1 },
+    { "name": "aux copy", "start": 16384, "length": 256, "memoryBank": "aux" },
+    { "name": "lc1 copy", "start": 53248, "length": 256, "memoryBank": "lc1" },
+    { "name": "lc2 sentinel", "start": 53248, "length": 1, "memoryBank": "lc2" }
+  ]
+}

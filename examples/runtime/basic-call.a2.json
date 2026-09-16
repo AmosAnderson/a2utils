@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "target": "apple2e",
+  "output": "basic-call.po",
+  "disk": { "fileSystem": "prodos", "volumeName": "CALLDEMO" },
+  "reserve": [{ "name": "CALL mailbox", "start": 24640, "length": 4 }],
+  "files": [
+    { "source": "basic-call.asm", "path": "ADDER", "kind": "asm" },
+    { "source": "basic-call.bas", "path": "CALL.DEMO", "kind": "basic" }
+  ]
+}

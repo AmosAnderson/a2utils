@@ -93,6 +93,8 @@ a2 schema NAME
 | `build --to IMAGE` | Override the manifest's `output`; this CLI path resolves from the current working directory. |
 | `build --overwrite` | Permit replacement of an existing output only after the complete staged build validates. |
 | `build --check` | Compile and validate source, metadata, and resident-memory ranges without writing an image. It does not prove disk capacity or bootability. |
+| `build --preflight` | Create, populate, reopen, and validate a disposable image; report its hash and allocation/change plan without committing output or creating output parents. Existing output policies apply. |
+| `build --test --artifacts DIR` | Preflight and build the project, then run its `execution.suite` against the exact output hash with symbolic assertions resolved. `DIR` must be new. Mutually exclusive with `--check`/`--preflight`; artifacts are retained on behavioral failure. |
 | `targets` | Return the four target profiles, platform symbols, and DOS/ProDOS runtime reservations. Text mode prints the profiles; use `--json` for the complete data. |
 | `capabilities` | Return declared command metadata plus CPUs, targets, filesystems, containers, source kinds, graphics modes, schemas, external tools, and current limitations. For machine discovery, combine top-level `globalOptions` with each command's local arguments/options; inherited globals are not repeated on nested leaves, and direct root children may list the root-only `--version`. Use `--help` as the authority for effective syntax. |
 | `schema NAME` | Return an embedded JSON Schema. `NAME` is `project`, `diagnostic`, `execution`, or `execution-suite`. With `--json`, the schema is the envelope's `data`; text mode writes the schema itself. |
@@ -199,6 +201,11 @@ for palette, packing, JSON metadata, and hardware limitations.
 
 ## Execution commands
 
+Specifications support [breakpoints, watchpoints and instruction steps](runtime-debugging.md),
+as well as [physical banks, 80-column text and MouseText](iie-execution.md).
+Project tests resolve native assembly symbols in debug points. These features use
+the existing `run`, `test`, and `build --test` commands.
+
 ```text
 a2 run SPEC --artifacts NEW_DIRECTORY
 a2 test SUITE --artifacts NEW_DIRECTORY
@@ -207,7 +214,7 @@ a2 test SUITE --artifacts NEW_DIRECTORY
 `run` loads one strict version 1 execution specification. `test` first loads
 and validates every specification named by a strict version 1 suite, then runs
 at most 128 cases sequentially. Every suite case needs a memory, register, text,
-or completion assertion. `--artifacts` is required and must name a path that
+completion, saved-file assertion, or mounted-disk verification. `--artifacts` is required and must name a path that
 does not exist; the commands create it and retain the isolated disk copy,
 configuration, logs, observations, and results there. A suite uses numbered
 `case-001`, `case-002`, ... subdirectories plus `suite-result.json`.
@@ -219,6 +226,12 @@ A completed behavioral failure returns a normal result and exit status 1;
 cancellation returns 6. The complete specification fields, MAME 0.289 pin,
 machine names, assertion rules, bounds, and artifact list are in
 [automated execution](execution.md).
+
+Execution supports at most two distinct `flop1`/`flop2` mounts, each with an
+isolated copy and optional input hash pin. The legacy `diskImage`/`diskDevice`
+fields remain supported. `diskAssertions` checks files after MAME exits.
+Symbolic assertions require `build --test`; plain `run` and `test` use numeric
+addresses.
 
 ## Shared disk write options
 
@@ -417,3 +430,17 @@ Always check the exit status. `verify` can emit a normal result with
 causes than the status alone. See [scripting](scripting.md) for envelopes,
 stdout/stderr handling, and shell examples, or [troubleshooting](troubleshooting.md)
 for remedies.
+
+### Setup and extended execution
+
+`a2 env check PROFILE [--json]` checks local tools/ROMs/template readiness.
+`a2 env lock PROFILE --output LOCK` records the configured input hashes.
+`a2 init DIRECTORY --language basic|asm|c [--environment PROFILE]` creates a staged
+starter project. `a2 schema environment --json` returns the profile schema.
+See [setup](setup.md).
+
+Existing `run`, `test`, and `build --test` commands accept ordered steps,
+routines/cycle budgets, game-port controls, audio assertions, screenshot
+comparisons, and the explicit CFFA2 storage profile through their JSON documents.
+See [interactive testing](interactive-testing.md), [audio](audio-execution.md),
+[graphics assets](project-assets.md), and [block storage](block-storage-execution.md).

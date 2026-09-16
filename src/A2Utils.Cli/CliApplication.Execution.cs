@@ -2,6 +2,7 @@ using System.CommandLine;
 using A2Utils.Core;
 using A2Utils.Core.Execution;
 using A2Utils.Core.Operations;
+using A2Utils.Core.Projects;
 
 namespace A2Utils.Cli;
 
@@ -34,7 +35,7 @@ public sealed partial class CliApplication
                 foreach (ExecutionSpec item in cases)
                 {
                     MameAdapter.Validate(item);
-                    if (item.Until is null && item.Memory.Count == 0 && item.Registers.Count == 0 && item.TextContains.Count == 0)
+                    if (!ProjectWorkflow.HasAssertions(item))
                         throw new DiskException("execution.invalid_suite", "Every test case needs at least one assertion or completion condition.", 2);
                 }
                 if (Directory.Exists(directory) || File.Exists(directory))

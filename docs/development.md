@@ -312,8 +312,9 @@ and reopened by DiskArc alone cannot establish interoperability. Program tests
 use known opcode/token vectors as well as round-trip checks.
 
 The [fixture guide](../tests/TestData/README.md) records the catalogs, hashes,
-provenance, and generator for two synthetic DOS 3.3 images in different sector
-orders. Neither contains boot code. Make temporary copies for mutation tests;
+provenance, and generators for two synthetic DOS 3.3 sector-order images and an
+independent ProDOS image covering indexed/sparse files and directories. None
+contains boot code. Make temporary copies for mutation tests;
 never write to the reference fixtures. Regeneration with
 `pwsh -File tests/TestData/Generate-Fixtures.ps1` is an intentional fixture
 maintenance step, not a prerequisite to run the tests. Review generated hashes
@@ -349,7 +350,8 @@ transaction checks. Keep A2Utils behavior in the adapter; explicitly document
 any exceptional vendor patch. `.gitattributes` disables newline conversion for
 vendored files and disk images so their hashes survive checkout.
 
-To verify the recorded upstream file hashes in PowerShell:
+To verify the recorded vendored file hashes (including the documented local
+ProDOS timestamp patch) in PowerShell:
 
 ```powershell
 $vendorRoot = Join-Path (Get-Location) 'third_party/CiderPress2'
@@ -358,7 +360,7 @@ foreach ($entry in $manifest.files) {
     $actual = (Get-FileHash -LiteralPath (Join-Path $vendorRoot $entry.path) -Algorithm SHA256).Hash
     if ($actual -ne $entry.sha256) { throw "Vendor hash mismatch: $($entry.path)" }
 }
-Write-Output "Verified $($manifest.files.Count) upstream files."
+Write-Output "Verified $($manifest.files.Count) vendored files."
 ```
 
 The evaluation probe is available separately from the solution test suite:
@@ -482,3 +484,9 @@ hosted confirmation and actual publication; see [PLAN.md](../PLAN.md).
 For a contribution, use a focused imperative commit subject and explain the
 problem, resulting behavior, affected formats, and validation in the pull request.
 Link relevant issues and update the plan when scope or architecture changes.
+
+The extended AI workflow is described in [setup profiles](setup.md),
+[runtime memory](runtime-memory.md), [project assets](project-assets.md), and
+[interactive tests](interactive-testing.md). Changes to generated Lua or pinned
+MAME internals require contract checks plus the appropriate configured optional
+machine tests; record skipped external checks separately in the validation log.

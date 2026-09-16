@@ -112,7 +112,8 @@ and `test`. Namespaced canonical names are `asm.compile`, `asm.decompile`,
 | `basic check` | `valid` and structured `diagnostics` |
 | `basic renumber` | `outputPath`, old/new/source-line `mapping`, and advisory `diagnostics` |
 | `basic prepare` | `outputPath`, source/generated-line/label `mapping`, and `diagnostics` |
-| `build` | Output path/hash, target, CPU, filesystem, bootability, tool version, timestamp, hashed inputs, built files, resident memory, and diagnostics. With `--check`, no image is written and `sha256` is `""`. |
+| `build` | Output path/hash, target, CPU, filesystem, bootability, tool version, timestamp, hashed inputs, built files, resident memory, diagnostics, mode flags, and optional execution settings. Full builds/preflight include `plan` with changes/directories and free space before/after. With `--check`, `plan` is null and `sha256` is `""`. |
+| `build.test` | `schemaVersion`, `passed`, `cancelled`, complete `build`, `tests` suite result, and `artifactDirectory`. Behavioral failure still returns the result on stdout with exit 1; cancellation uses exit 6. |
 | `targets` | `profiles`, `symbols`, and DOS/ProDOS `runtimeReservations` |
 | `capabilities` | Declared command metadata, separate `globalOptions`, supported values, schema names, external tools, and limitations. Nested command-local option arrays omit inherited globals; direct root children may include root options, including root-only `--version`. Consult `--help` for effective syntax. |
 | `schema` | The requested JSON Schema object itself |
@@ -121,8 +122,15 @@ and `test`. Namespaced canonical names are `asm.compile`, `asm.decompile`,
 | `graphics assets pack`, `unpack` | Output path/hash/length plus complete cell-layout `metadata` and per-cell offsets |
 | `graphics shapes encode` | Output path/hash/payload length and per-shape metadata |
 | `graphics dhires encode`, `decode` | Output path/hash, mode, bank order/offsets/lengths, dimensions, and rendering description |
-| `run` | Name/pass state/stop reason, emulator version/time, registers, observed memory, screen text, input hash, artifact directory/list, and diagnostics |
+| `run` | Name/pass state/stop reason, emulator version/time, registers, observed memory, screen text, legacy first input hash, `disks` with input/output hashes and paths, artifact directory/list, and diagnostics |
 | `test` | Suite schema version/pass state and the complete ordered `tests` result array |
+
+Execution results also expose `bankMemory` (`bank`, `address`, `hex`), optional
+`debug` trigger/step/history evidence, optional `textScreen` cells, and captured
+`video` flags. The legacy `memory` dictionary continues to contain only CPU-mapped
+observations. See [debugging](runtime-debugging.md) and [IIe observations](iie-execution.md).
+Source-location records include `memoryBank`; CPU addresses may match more than
+one resident bank and all matches are retained.
 
 Numbers are numeric JSON values, including addresses and file types. For
 example, `$2000` is `8192`. Dates are strings or `null`, and byte arrays such

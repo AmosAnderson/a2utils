@@ -132,6 +132,7 @@ public static partial class ApplesoftTools
                 $"Target line {reference.Target} does not exist.", file, reference.Line, reference.Token,
                 actual: reference.Target.ToString(CultureInfo.InvariantCulture)));
         }
+        CheckDevelopment(analysis, file, cancellationToken);
         return analysis;
     }
 
@@ -489,13 +490,19 @@ public static partial class ApplesoftTools
             if (token.Text == "FN")
             {
                 Position++;
-                return Position < end && tokens[Position].Kind == "identifier" && Variable(depth);
+                if (Position >= end || tokens[Position++].Kind != "identifier" || !Consume("(")) return false;
+                return Arguments(depth, 1, 1);
             }
             if (token.Text is "SGN" or "INT" or "ABS" or "USR" or "FRE" or "SCRN(" or "PDL" or "POS" or "SQR" or "RND" or "LOG" or "EXP" or "COS" or "SIN" or "TAN" or "ATN" or "PEEK" or "LEN" or "STR$" or "VAL" or "ASC" or "CHR$" or "LEFT$" or "RIGHT$" or "MID$" or "TAB(" or "SPC(")
             {
                 Position++;
                 if (!token.Text.EndsWith('(') && !Consume("(")) return false;
-                return Arguments(depth);
+                return token.Text switch
+                {
+                    "LEFT$" or "RIGHT$" or "SCRN(" => Arguments(depth, 2, 2),
+                    "MID$" => Arguments(depth, 2, 3),
+                    _ => Arguments(depth, 1, 1)
+                };
             }
             return false;
         }
@@ -507,11 +514,16 @@ public static partial class ApplesoftTools
             return !Consume("(") || Arguments(depth);
         }
 
-        private bool Arguments(int depth)
+        private bool Arguments(int depth, int minimum = 1, int maximum = int.MaxValue)
         {
             if (!Expression(depth + 1)) return false;
-            while (Consume(",")) if (!Expression(depth + 1)) return false;
-            return Consume(")");
+            int count = 1;
+            while (Consume(","))
+            {
+                count++;
+                if (!Expression(depth + 1)) return false;
+            }
+            return Consume(")") && count >= minimum && count <= maximum;
         }
 
         private bool Consume(string text)

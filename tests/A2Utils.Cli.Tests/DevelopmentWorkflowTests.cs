@@ -25,6 +25,7 @@ public sealed class DevelopmentWorkflowTests : IDisposable
     [InlineData("diagnostic")]
     [InlineData("execution")]
     [InlineData("execution-suite")]
+    [InlineData("environment")]
     public void Schema_PackagedResource_ReturnsActualJsonSchema(string name)
     {
         var result = Run("schema", name, "--json");

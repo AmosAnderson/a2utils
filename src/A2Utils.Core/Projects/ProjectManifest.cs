@@ -13,11 +13,16 @@ public sealed record ProjectManifest
     public ProjectDisk Disk { get; init; } = new();
     public DateTime Timestamp { get; init; } = new(2000, 1, 1);
     public List<ProjectFile> Files { get; init; } = [];
+    public List<ProjectAsset> Assets { get; init; } = [];
     public List<MemoryRegion> Reserve { get; init; } = [];
     public bool CheckMemory { get; init; } = true;
     public int BasicWorkspaceBytes { get; init; }
+    public string Runtime { get; init; } = "auto";
     public ProjectStartup? Startup { get; init; }
     public Cc65Options? Cc65 { get; init; }
+    public ProjectExecutionSettings? Execution { get; init; }
+    public string? Environment { get; init; }
+    public string? ToolchainLock { get; init; }
 }
 
 public sealed record ProjectDisk
@@ -43,6 +48,9 @@ public sealed record ProjectFile
     public ushort? EntryPoint { get; init; }
     public bool Replace { get; init; }
     public bool Resident { get; init; } = true;
+    public string MemoryBank { get; init; } = "main";
+    public string? OverlayGroup { get; init; }
+    public List<MemoryRegion> RuntimeMemory { get; init; } = [];
     public bool CheckBasic { get; init; } = true;
 }
 
@@ -54,15 +62,30 @@ public sealed record ProjectStartup
     public bool Replace { get; init; }
 }
 
-public sealed record MemoryRegion(string Name, int Start, int Length);
+public sealed record MemoryRegion(string Name, int Start, int Length, string MemoryBank = "main", string Kind = "data");
 public sealed record BuildInput(string Path, string Sha256);
 public sealed record BuiltFile(string Path, string Kind, string Type, ushort AuxType,
     int? Origin, int? EntryPoint, int Length, string Sha256, bool Resident,
-    IReadOnlyDictionary<string, int> Symbols, object? SourceMap);
+    IReadOnlyDictionary<string, int> Symbols, object? SourceMap)
+{
+    public string MemoryBank { get; init; } = "main";
+    public string? OverlayGroup { get; init; }
+    public IReadOnlyList<MemoryRegion> RuntimeMemory { get; init; } = [];
+}
+public sealed record ProjectFileChange(string Path, string Action, long? PreviousLength, int Length);
+public sealed record ProjectBuildPlan(long ImageSizeBytes, long FreeBytesBefore, long FreeBytesAfter,
+    IReadOnlyList<ProjectFileChange> Files, IReadOnlyList<string> CreatedDirectories);
 public sealed record ProjectBuildResult(string OutputPath, string Sha256, string Target, string Cpu,
     string FileSystem, string Bootability, string ToolVersion, DateTime Timestamp,
     IReadOnlyList<BuildInput> Inputs, IReadOnlyList<BuiltFile> Files,
-    IReadOnlyList<MemoryRegion> Memory, IReadOnlyList<ProgramDiagnostic> Diagnostics);
+    IReadOnlyList<MemoryRegion> Memory, IReadOnlyList<ProgramDiagnostic> Diagnostics)
+{
+    public IReadOnlyList<ProjectAssetReport> Assets { get; init; } = [];
+    public bool CheckOnly { get; init; }
+    public bool Preflight { get; init; }
+    public ProjectBuildPlan? Plan { get; init; }
+    public ProjectExecutionSettings? Execution { get; init; }
+}
 
 public static class ProjectJson
 {

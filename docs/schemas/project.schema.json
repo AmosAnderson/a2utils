@@ -148,8 +148,75 @@
           "resident": {
             "type": "boolean"
           },
+          "memoryBank": {
+            "enum": [
+              "main",
+              "aux",
+              "lc1",
+              "lc2",
+              "aux-lc1",
+              "aux-lc2"
+            ],
+            "default": "main",
+            "description": "Physical residency; banked BIN files require a main-memory loader. This does not change disk load metadata or generate bank-switching code."
+          },
           "checkBasic": {
             "type": "boolean"
+          },
+          "overlayGroup": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[A-Za-z0-9_.-]{1,64}$"
+          },
+          "runtimeMemory": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "start": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 65535
+                },
+                "length": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 65536
+                },
+                "memoryBank": {
+                  "enum": [
+                    "main",
+                    "aux",
+                    "lc1",
+                    "lc2",
+                    "aux-lc1",
+                    "aux-lc2"
+                  ],
+                  "default": "main"
+                },
+                "kind": {
+                  "enum": [
+                    "data",
+                    "bss",
+                    "zero-page",
+                    "stack",
+                    "heap"
+                  ]
+                }
+              },
+              "required": [
+                "name",
+                "start",
+                "length"
+              ]
+            },
+            "maxItems": 1024
           }
         },
         "required": [
@@ -178,6 +245,26 @@
             "type": "integer",
             "minimum": 0,
             "maximum": 65536
+          },
+          "memoryBank": {
+            "enum": [
+              "main",
+              "aux",
+              "lc1",
+              "lc2",
+              "aux-lc1",
+              "aux-lc2"
+            ],
+            "default": "main"
+          },
+          "kind": {
+            "enum": [
+              "data",
+              "bss",
+              "zero-page",
+              "stack",
+              "heap"
+            ]
           }
         },
         "required": [
@@ -215,6 +302,31 @@
       },
       "required": [
         "program"
+      ]
+    },
+    "execution": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "suite": {
+          "type": "string",
+          "minLength": 1
+        },
+        "diskDevice": {
+          "enum": [
+            "flop1",
+            "flop2",
+            "hard1",
+            "hard2"
+          ],
+          "default": "flop1"
+        }
+      },
+      "required": [
+        "suite"
       ]
     },
     "cc65": {
@@ -267,9 +379,167 @@
             "type": "string"
           },
           "maxItems": 128
+        },
+        "linkerConfig": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "toolchainRoot": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "segmentBanks": {
+          "type": "object",
+          "additionalProperties": {
+            "enum": [
+              "main",
+              "aux",
+              "lc1",
+              "lc2",
+              "aux-lc1",
+              "aux-lc2"
+            ]
+          }
         }
       },
       "required": []
+    },
+    "environment": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1
+    },
+    "toolchainLock": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1
+    },
+    "runtime": {
+      "enum": [
+        "auto",
+        "basic-system",
+        "system"
+      ]
+    },
+    "assets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[A-Z_][A-Z0-9_]{0,47}$"
+          },
+          "source": {
+            "type": "string",
+            "minLength": 1
+          },
+          "output": {
+            "type": "string",
+            "minLength": 1
+          },
+          "kind": {
+            "enum": [
+              "sprite",
+              "tile",
+              "font",
+              "shapes",
+              "dhires",
+              "lores",
+              "hires",
+              "hires-color"
+            ]
+          },
+          "cellWidth": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 4096
+          },
+          "cellHeight": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 4096
+          },
+          "bitsPerByte": {
+            "enum": [
+              7,
+              8
+            ]
+          },
+          "bitOrder": {
+            "enum": [
+              "lsb",
+              "msb"
+            ]
+          },
+          "threshold": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 255
+          },
+          "invert": {
+            "type": "boolean"
+          },
+          "firstCodePoint": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 1114111
+          },
+          "mode": {
+            "enum": [
+              "mono",
+              "color"
+            ]
+          },
+          "bankOrder": {
+            "enum": [
+              "aux-main",
+              "main-aux"
+            ]
+          },
+          "assemblyInclude": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1
+          },
+          "cHeader": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1
+          },
+          "metadataOutput": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1
+          }
+        },
+        "required": [
+          "name",
+          "source",
+          "output"
+        ]
+      },
+      "maxItems": 128
     }
   },
   "required": [

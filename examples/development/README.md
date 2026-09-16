@@ -34,3 +34,11 @@ provided by ProDOS BASIC.SYSTEM; the returned string is printed after closing it
 `shapes.json` contains two original vector examples for the Applesoft shape-table
 encoder. See [Graphics assets](../../docs/graphics-assets.md) for loading shape
 tables and packing sprite, tile, font, and double-hires assets.
+
+The [project testing example](project-tests/README.md) adds full preflight and a
+project-owned suite that boots a supplied DOS disk alongside a newly built data
+disk. It demonstrates symbolic assertions and build/execution evidence.
+
+The [IIe bank examples](iie-banks/README.md) demonstrate explicit main-to-auxiliary
+and language-card loaders. See [runtime debugging](../../docs/runtime-debugging.md)
+for stopping at source symbols and observing the loaded physical banks.

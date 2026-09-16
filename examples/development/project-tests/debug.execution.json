@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "name": "Stop MAIN at its entry and execute two instructions",
+  "emulatorPath": "tools/mame",
+  "romDirectory": "roms",
+  "machine": "apple2ee",
+  "disks": [{ "device": "flop1", "image": "dos33-boot.do" }],
+  "emulatedSeconds": 25,
+  "hostTimeoutSeconds": 60,
+  "keys": [
+    { "atSeconds": 10, "text": "CATALOG,D2\r" },
+    { "atSeconds": 12, "text": "BLOAD MAIN,D2\r" },
+    { "atSeconds": 14, "text": "CALL 8192\r" }
+  ],
+  "debug": {
+    "breakpoints": [{ "program": "MAIN", "symbol": "start", "afterSeconds": 13 }],
+    "stepInstructions": 2,
+    "historyInstructions": 16
+  },
+  "symbolicMemory": [{ "program": "MAIN", "symbol": "RESULT", "hex": "2A" }],
+  "observeMemory": [{ "address": 256, "length": 256 }]
+}

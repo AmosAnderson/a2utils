@@ -1,10 +1,16 @@
 # Automated Apple II execution
 
+For ordered interactions, game inputs, checkpoints, direct routines and CPU cycle
+budgets, see [interactive testing](interactive-testing.md). See also
+[visual assertions](project-assets.md), [audio capture](audio-execution.md), and
+[environment profiles](setup.md). These are optional execution-schema extensions;
+existing timed-key specifications remain supported.
+
 `a2 run SPEC --artifacts NEW_DIRECTORY --json` launches MAME, boots a disposable copy
-of a disk, injects scheduled keystrokes, and returns observations and assertions.
+of each mounted disk, injects scheduled keystrokes, and returns observations and assertions.
 `a2 test SUITE --artifacts NEW_DIRECTORY --json` runs up to 128 specifications in
-sequence and returns an aggregate result. Every suite case requires an assertion or
-completion condition. Exit status is 0 on success, 1 on execution/assertion failure,
+sequence and returns an aggregate result. Every suite case requires an assertion,
+completion condition, debug trigger, or mounted-disk verification. Exit status is 0 on success, 1 on execution/assertion failure,
 2 for invalid input, and 6 for cancellation. An unavailable emulator is a failure.
 
 Install MAME **0.289** separately and provide its executable and machine ROM directory.
@@ -15,6 +21,12 @@ The real integration smoke was run with `apple2ee` on MAME 0.289 on Windows x64.
 The other profiles share the adapter but have not received that machine smoke test.
 The slot-based profiles disable the default serial card in slot 2 and speech card
 in slot 4; other slot configuration uses the pinned MAME defaults.
+
+Execution also supports [bounded debugging](runtime-debugging.md): instruction
+breakpoints, CPU read/write watchpoints, fixed instruction steps, and recent PC
+history. [IIe observations](iie-execution.md) add physical main/auxiliary/language-card
+reads, 80-column text, and MouseText cells. These use the same isolated disks and
+host/emulated deadlines.
 
 ## Specification
 
@@ -47,8 +59,10 @@ See [the schema](schemas/execution.schema.json) and this example:
 The specification is strict and case-sensitive: unknown or duplicate properties
 are rejected. Specification and suite JSON inputs are capped at 4 MiB with a
 maximum nesting depth of 32. Required properties are `schemaVersion`,
-`emulatorPath`, `machine`, `romDirectory`, and `diskImage`. Omitted optional
-properties use these defaults:
+`emulatorPath`, `machine`, and `romDirectory` (or an `environment` profile supplying them). Standalone execution also requires
+either `diskImage` or a nonempty `disks` array. Project tests can omit media;
+`build --test` inserts the selected build mount. Omitted optional properties use
+these defaults:
 
 | Property | Default, range, and behavior |
 | --- | --- |
@@ -58,16 +72,23 @@ properties use these defaults:
 | `expectedVersion` | `0.289`; this adapter accepts only that exact version. |
 | `machine` | Required: `apple2`, `apple2p`, `apple2e`, `apple2ee`, or `apple2c`. |
 | `romDirectory` | Required MAME ROM directory, relative to the specification when not absolute. |
-| `diskImage` | Required input image, relative to the specification; maximum 64 MiB. A disposable copy is mounted. |
-| `diskDevice` | `flop1`; `flop1` or `flop2`. |
+| `diskImage` | Legacy single input image, relative to the specification; maximum 64 MiB. Use this or `disks`. |
+| `diskDevice` | `flop1`; `flop1` or `flop2`, plus `hard1`/`hard2` with `storageProfile: "cffa2"`. |
+| `disks` | `[]`; one or two explicit mounts with distinct devices and input files. See below. A nonempty array requires `diskImage` to be absent or empty. |
+| `diskAssertions` | `[]`; up to 1,024 saved-file assertions, checked after a clean emulator exit. |
+| `symbolicMemory`, `symbolicUntil` | Project-build-only symbolic addresses; see [build and test together](projects.md#build-and-test-together). |
 | `emulatedSeconds` | `15`; finite value greater than 0 and at most 3,600. |
 | `hostTimeoutSeconds` | `60`; independent finite watchdog greater than 0 and at most 3,600. |
 | `keys` | `[]`; at most 1,024 `{atSeconds,text}` items. Each time is at least 0 and strictly before the emulated deadline; text is at most 16,384 characters. |
 | `memory` | `[]`; at most 1,024 unique start addresses with complete hexadecimal bytes in `hex`. Spaces are allowed; the combined observation is at most 65,536 bytes. |
+| `observeMemory` | `[]`; up to 1,024 `{address,length,bank}` ranges captured without expected values; shares the 65,536-byte budget with assertions. |
 | `registers` | `[]`; at most 128 unique `{name,value}` items. Names are uppercase identifiers of 1–16 characters; values are 0–65,535. |
 | `textContains` | `[]`; at most 128 nonempty, case-sensitive substrings. |
 | `until` | `null`; optional `{address,value,afterSeconds}` completion byte. Address must be observable (`$0000`–`$BFFF` or `$D000`–`$FFFF`), value is 0–255, and `afterSeconds` defaults to 0 and must precede the deadline. |
-| `textPage` | `1`; selected 40-column text page, `1` or `2`. |
+| `textPage` | `1`; selected text-memory page, `1` or `2`, independently of the visible display. |
+| `textColumns` | `40`; `40` or `80`. 80 columns require IIe/IIc and use physical main/auxiliary text memory. |
+| `decodeIIeText` | `false`; preserve IIe display attributes and MouseText cells for 40-column text too. Implied by 80 columns. |
+| `debug` | `null`; bounded breakpoint/watchpoint/step configuration. Mutually exclusive with `until`/`symbolicUntil`; see [runtime debugging](runtime-debugging.md). |
 | `screenshot` | `false`; request `screen.png` and fail if MAME does not create it. |
 | `trace` | `false`; request the once-per-frame `trace.tsv` PC sample. |
 
@@ -75,7 +96,7 @@ The suite document is also strict. It contains only `schemaVersion: 1` and a
 required `tests` array of 1–128 nonempty specification paths. Paths resolve from
 the suite file. Before creating the suite artifact directory or launching MAME,
 the CLI parses every case and validates its intrinsic specification constraints,
-including the requirement for at least one assertion or `until` condition.
+including the requirement for at least one assertion, completion/debug condition, or mounted-disk verification.
 External path existence and emulator availability are checked per case during
 execution, so a later external-resource failure can leave the suite root and
 earlier case artifacts in place.
@@ -90,20 +111,70 @@ be represented as JSON escapes. No arbitrary Lua or shell commands are accepted.
 Initialize that byte in your program and leave the result stable until observation.
 This is suited to a persistent completion mailbox, not detecting transient CPU
 states or cycle-exact breakpoints. A missing completion byte fails at the emulated
-deadline. Without `until`, assertions are evaluated at the deadline. Register values
+deadline. Without `until` or `debug`, assertions are evaluated at the deadline. Register values
 are MAME state values: for example, `SP` includes the 6502 stack page (`$0100`).
 
-Memory assertions compare complete byte sequences. Addresses must stay within
+Memory assertions compare complete byte sequences. With the default `bank: "cpu"`, addresses must stay within
 `$0000-$BFFF` or `$D000-$FFFF`; reads of `$C000-$CFFF` are refused because they can
 change Apple II soft switches. At most 64 KiB total memory is observed. These are
-the CPU's currently mapped addresses, not a bank-independent RAM dump.
+the CPU's currently mapped addresses. On IIe/IIc, `bank` can instead name physical
+`main`, `aux`, `lc1`, `lc2`, `aux-lc1`, or `aux-lc2` RAM; physical reads do not
+touch soft switches. `until` accepts the same bank field. See [bank ranges](iie-execution.md).
 
 Text assertions decode a selected **40-column text memory page**, default page 1;
 `textPage: 2` selects page 2. Text is case-sensitive and display attributes are
 discarded. This does not establish that text mode/page is currently visible, decode
-80-column auxiliary memory, MouseText, graphics, or perform screenshot OCR.
+graphics or perform screenshot OCR. Opt into `textColumns: 80` or `decodeIIeText`
+for physical text-page decoding with character attributes and MouseText tokens.
 Use `screen.png` to inspect the rendered display. `trace.tsv` is a once-per-frame
 PC sample, not an instruction trace or cycle profiler.
+
+## Multiple disks and saved-file assertions
+
+Explicit mounts let an OS boot in drive 1 while a program reads/writes a data
+disk in drive 2. For example, the following fragment mounts both disks and checks
+a saved binary file after the machine exits:
+
+```json
+{
+  "disks": [
+    { "device": "flop1", "image": "dos33-boot.do" },
+    { "device": "flop2", "image": "data.do", "inputFileSystem": "dos33", "verify": true }
+  ],
+  "diskAssertions": [
+    { "device": "flop2", "path": "RESULT", "hex": "2A", "type": "B", "auxType": 768, "length": 1 },
+    { "device": "flop2", "path": "TEMP", "exists": false }
+  ]
+}
+```
+
+Each mount requires `device` and `image`. Floppy mounts use `flop1`/`flop2`; the
+[explicit CFFA2 profile](block-storage-execution.md) adds `hard1`/`hard2`. Optional
+`expectedSha256` pins the whole input image; `inputOrder` (`dos`/`prodos`) and
+`inputFileSystem` (`dos33`/`prodos`) disambiguate post-run inspection. `verify: true`
+requires a supported filesystem without dubious state or error diagnostics after
+execution; warnings are retained in the report. Each input is limited to
+64 MiB and receives its own isolated copy. Device collisions, linked paths,
+detectable source aliases, and invalid hashes are refused. Controller configuration and block-device mounts
+remain outside this milestone.
+
+Each disk assertion requires a mounted `device` and an image name or `path` of
+1–4,096 characters without control characters. Names are resolved by the image's
+filesystem: DOS catalog names are literal and case-sensitive, including slashes
+and dot segments; ProDOS uses its usual image path rules. These are not host paths.
+`exists` defaults to `true`. Optional fields are `hex` **or** `sha256` for logical
+file contents, `type`, `auxType` (0–65,535), and logical `length` (0–32 MiB).
+DOS binary headers are excluded from payload comparisons; the load address is
+checked through `auxType`. Type aliases use the selected filesystem's rules.
+Expected hex payloads are bounded to a combined 1 MiB. Identical assertion path
+strings cannot repeat on a device, and `exists: false` cannot include payload or metadata expectations.
+Image originals are never used as writable emulator media.
+
+The result's `disks` array records each device, original path, isolated artifact
+path, input SHA-256, and output SHA-256 when available. A saved-file mismatch is a
+behavioral test failure even if all screen/memory assertions pass. Failed starts,
+cancellation, and host timeouts keep available disk evidence but do not establish
+that post-run filesystem assertions passed.
 
 ## Suites, results, and file protection
 
@@ -117,8 +188,8 @@ Suite paths resolve relative to the suite. Cases receive separate `case-001`,
 emulator process tree and stops the suite.
 
 Each run records the resolved spec and argument array, MAME version/stdout/stderr,
-SHA-256 of the input image, generated Lua, observations, screen text, optional PNG
-and PC trace, the emulated disk copy, and `result.json`. Machine config, NVRAM and
+SHA-256 of each input/output image, generated Lua, observations, screen text, optional PNG
+and PC trace, the emulated disk copies, and `result.json`. Machine config, NVRAM and
 write-difference files are isolated in the new artifact directory; host configuration
 is not read. Existing artifact directories are refused. Images are limited to
 64 MiB. Emulator logs are drained to avoid pipe deadlocks and retained up to 4 MiB
@@ -126,7 +197,8 @@ per stream. A separate host watchdog also covers startup and the version probe.
 
 Machine results distinguish `completion_condition`, `emulated_limit`, `host_timeout`,
 `cancelled`, `version_mismatch`, `rom_mismatch`, `emulator_unavailable`,
-`emulator_error`, `adapter_error`, and `missing_observations`. Failed comparisons
+`emulator_error`, `adapter_error`, `missing_observations`, `disk_hash_mismatch`, and
+`disk_copy_mismatch`. Failed comparisons
 include stable diagnostic codes with expected and actual values. Assertions can
 fail even when the machine itself reaches its requested stop condition.
 
@@ -153,6 +225,15 @@ Without those environment variables that test is explicitly skipped. The ordinar
 `ExecutionTests` use a named process-contract test double; they test cancellation,
 process-tree cleanup, artifact isolation, errors, and assertions without claiming
 to emulate an Apple II.
+
+The optional `DiskOperatingSystemSmokeTests` separately checks a real OS catalog,
+then loads and calls original assembly and saves a known binary result. Set
+`A2_DOS33_SMOKE_DISK` or `A2_PRODOS_SMOKE_DISK` as well as the MAME variables, using
+a local 140 KiB bootable image that reaches an Applesoft/BASIC.SYSTEM prompt.
+Template catalog/space requirements and provenance are documented in the
+[fixture guide](../tests/TestData/README.md#optional-real-dos-and-prodos-interoperability).
+Missing resources skip these tests; passing the ordinary suite does not establish
+that either operating-system check ran.
 
 For the validation run, MAME's official portable Windows release was verified
 against its published SHA-256 (`a1aa7912168c9d1b05e611906bc21b8b9be3935822aead36d12a1da363150b7d`).

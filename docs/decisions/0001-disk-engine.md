@@ -12,9 +12,10 @@ details. Do not maintain a second production filesystem engine.
 
 The pinned projects target `net10.0`, compile with the installed .NET SDK
 10.0.400, and have no NuGet dependencies. DiskArc references only CommonUtil.
-The vendored source is unchanged. `third_party/CiderPress2/SOURCE_MANIFEST.json`
-records SHA-256 digests for all 208 upstream project files; the files were
-compared byte-for-byte against the pinned checkout before removing that checkout.
+`third_party/CiderPress2/SOURCE_MANIFEST.json` records SHA-256 digests for all
+208 vendored project files. The original files were compared byte-for-byte
+against the pinned checkout; the one local patch below records its upstream
+digest separately as `upstreamSha256`.
 The upstream narrative source notes lag behind the actual project target.
 
 ## API fit
@@ -91,3 +92,20 @@ their own provenance. No official NuGet package is assumed.
 Updates replace both projects at an exact revision, refresh hashes and notices,
 and rerun preservation and failure tests. Keep A2Utils behavior in the adapter;
 record and prominently label any future vendor source patches.
+
+## September 16, 2026: redundant ProDOS directory creation date
+
+Local patch in `DiskArc/FS/ProDOS_FileEntry.cs`: `SaveChanges` now copies a
+changed subdirectory creation date into the redundant creation-date field at
+offset `$1c` of the subdirectory header, as it already does for directory names.
+The pinned implementation changed only the directory entry's creation date,
+leaving the header's wall-clock date from `CreateFile`. Consequently project
+preflight and build hashes could differ when creation crossed a minute boundary,
+even with an explicit manifest timestamp.
+
+The adapter cannot synchronize this field through the public entry API, and
+writing directory blocks behind DiskArc's filesystem state would bypass its
+mutation model. The patch retains upstream formatting and changes only the
+redundant date when the creation date or name is changed. Raw and 2IMG project
+regressions independently inspect both timestamp copies in nested directories,
+then reopen and verify the filesystem. All other vendor files remain unchanged.

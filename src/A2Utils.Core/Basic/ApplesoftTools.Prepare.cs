@@ -5,7 +5,10 @@ using A2Utils.Core.Programs;
 
 namespace A2Utils.Core.Basic;
 
-public sealed record BasicPreparedLine(int SourceLine, int BasicLine, IReadOnlyList<string> Labels);
+public sealed record BasicPreparedLine(int SourceLine, int BasicLine, IReadOnlyList<string> Labels)
+{
+    public string? File { get; init; }
+}
 public sealed record BasicPrepareResult(string Source, IReadOnlyList<BasicPreparedLine> Mapping,
     IReadOnlyList<ProgramDiagnostic> Diagnostics);
 
@@ -105,7 +108,7 @@ public static partial class ApplesoftTools
                 else body.Remove(reference.Start, reference.Length).Insert(reference.Start, label.Number.Value.ToString(CultureInfo.InvariantCulture));
             }
             output.Append(statement.Number.ToString(CultureInfo.InvariantCulture)).Append(' ').Append(body).Append('\n');
-            mapping.Add(new(statement.SourceLine, statement.Number, statement.Labels));
+            mapping.Add(new(statement.SourceLine, statement.Number, statement.Labels) { File = file });
         }
         ThrowPreparationErrors(diagnostics);
         string numbered = output.ToString();

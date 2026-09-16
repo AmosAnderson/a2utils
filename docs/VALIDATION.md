@@ -1,5 +1,106 @@
 # Development preview validation
 
+## Remaining AI programming tools — September 16, 2026
+
+Validated locally on macOS ARM64 with the pinned .NET SDK's permitted patch roll-forward:
+
+| Check | Result |
+| --- | --- |
+| Locked restore; Release build with warnings as errors | Passed; zero warnings/errors |
+| Full Core and CLI suites | 1,158 passed (1,021 Core, 137 CLI); 15 external-MAME tests skipped |
+| Formatting outside vendored code and `git diff --check` | Passed |
+| Interactive execution | Ordered conditions/input/checkpoints, failure/timeout evidence, cycle/routine evidence validation, initial-state bounds, and source preservation covered |
+| Compiler/runtime memory | Labels/segments/diagnostics, staged linker configuration, generated includes, BSS/zero-page/stack/heap declarations, overlays, and failed-build preservation covered |
+| Graphics/runtime library | Deterministic virtual asset outputs, native and compiler integration, visual tolerance/crops/diff artifacts, assembled original routine examples, and optional machine smoke cases |
+| Setup/BASIC/audio | Staged starters, effective tool-path locks, directory membership, simultaneous profile/lock mutation refusal, retained fingerprint evidence, BASIC source/runtime diagnostics, known PCM metrics and malformed WAV rejection |
+| Block storage | CFFA2 arguments, CPU-compatible firmware selection, raw/2IMG validation, copied-image hashes, and unsupported-image preservation covered with process contracts |
+| Reproducible ProDOS directories | Raw/2IMG nested directory-entry and redundant-header timestamps independently match the fixed manifest timestamp |
+| Schemas/examples | Five valid JSON Schemas and 24 complete example documents validated; local documentation links resolve |
+| Generated Lua | 256 temporary mocked-backend checks cover sequence/cycle/routine control and all joystick/paddle input mappings; 1,024 text-byte/charset/MouseText parity cases pass |
+| Installed local tool package | New environment schema, capabilities, staged starter, generated-asset source check, and disk-free routine process contract passed |
+| Vendor integrity | All 208 recorded hashes verified; one documented local ProDOS timestamp patch retains its upstream hash separately |
+
+Actual MAME and cc65 executables were unavailable in this environment. The 15
+optional real-machine tests cover the earlier boot/OS/debug/bank cases plus
+runtime routines, clipping, exact cycles, cycle-limit stopping, joystick input,
+and audio capture. They were skipped. Source inspection, Lua mocks, known PCM,
+and the explicitly named execution/compiler test host do not establish actual
+emulator, controller, compiler, or boot-template interoperability. The CFFA2
+profile requires its external firmware and an actual boot check with the chosen
+OS template. Previous real-tool evidence below applies to its recorded revision.
+
+The package smoke used an isolated local .NET tool installation under ignored
+`artifacts/ai-tools-validation/`. No package or release was published. Windows,
+Linux, self-contained packages, and release automation were not rerun this round.
+The dependency revision and NuGet packages remain pinned; the minimal vendor
+patch and preservation regression are recorded in [ADR 0001](decisions/0001-disk-engine.md).
+
+
+## Runtime debugging and IIe memory/display — September 16, 2026
+
+Validated locally on macOS ARM64 with the pinned .NET SDK's permitted patch roll-forward:
+
+| Check | Result |
+| --- | --- |
+| Locked restore and Release build with `--warnaserror` | Passed; zero warnings/errors |
+| Core and CLI suites | 1,006 passed (873 Core, 133 CLI); eight external-MAME tests skipped |
+| Formatting and `git diff --check` | Passed, excluding vendored formatting |
+| Execution contracts | Debug evidence consistency, missing triggers, bank identity, observation bounds, 80-column/MouseText results, CLI exits, input preservation, and symbolic resolution covered |
+| Project banks | Physical ranges, target availability, language-card shared storage, startup restrictions, template/output preservation, and loader assembly covered |
+| Schemas and examples | Four schemas and thirteen complete tracked example documents validate; local documentation links resolve |
+| Lua helpers | Temporary mocked-backend checks exercised physical saved-memory reads and debugger callback/step sequencing; these are not emulator evidence |
+
+New optional real-MAME tests cover instruction breakpoints, exact two-instruction
+stepping, write watchpoint attribution, bank-copy routines, physical observations
+with auxiliary CPU mapping, and 80-column MouseText. They were skipped because
+`A2_MAME_PATH` and `A2_MAME_ROMS` were not configured. The existing boot and two OS
+checks were also skipped. No claim of actual debugger/banked-display interoperability
+is made by the ordinary suite or Lua mock checks; run these cases with MAME 0.289
+and matching local ROMs before treating the backend extension as machine-validated.
+
+The backend was checked against pinned upstream source for debugger callback ordering,
+saved RAM/video layouts, watchpoint attribution, and history semantics. Native history
+retains PCs and uses capture-time memory for disassembly, so it does not reconstruct
+historical bytes or bank mappings. Banked project declarations require explicit
+loaders. No production dependency changed and no release/package was published.
+
+## Development reliability milestone — September 16, 2026
+
+Validated locally on macOS ARM64 with .NET SDK 10.0.401. This covers the selected
+four-item milestone: full build preflight, connected project testing, multiple
+isolated disks with saved-file assertions, and independent disk validation.
+
+| Check | Result |
+| --- | --- |
+| Locked restore and Release build with `--warnaserror` | Passed; zero warnings/errors |
+| Core and CLI suites | 887 passed (757 Core, 130 CLI); three external-MAME tests skipped |
+| Formatting excluding `third_party` and `git diff --check` | Passed |
+| Full build preflight | DOS/ProDOS/2MG preview hashes agree with real builds; capacity, locks, collisions, aliases, protection, and cancellation covered |
+| Project workflow | Exact image/input pins, symbol resolution, source annotations, precommit change guards, explicit assertions, cancellation summaries, and CLI exit codes covered |
+| Multiple disks and saved files | Both input images preserved; post-run bytes/hash/type/load-address/length checks, literal DOS names, mismatch/failure/timeout/cancellation paths covered |
+| Independent ProDOS | Known seedling/sapling/tree payloads, sparse maps, directory/root capacity, valid 65,535-block volume edits, and preserved unused trailing block passed |
+| Bounded malformed-image probes | Nineteen deterministic mutations run in isolated child processes with per-case and corpus deadlines |
+| Fixture provenance | Independently regenerated ProDOS bytes, all five documented payload hashes, and allocation counts match |
+| Schemas/examples | Four JSON Schemas and thirteen complete tracked/inline examples validate; serialized explicit mounts, mount-free project tests, and conflicting mounts checked |
+| Local packages | Installed .NET tool and self-contained `osx-arm64` executable passed embedded-schema, preflight, project-test contract, input-preservation, and independent ProDOS verification checks |
+| Restore after publishing | Normal locked restore passed; RID locks remain under `obj` |
+
+Local package smoke artifacts are under ignored `artifacts/milestone-validation/`.
+The tool package uses the local-only version `0.4.0-dev.milestone20260916`; the
+repository version remains `0.4.0-dev`. Packages were built directly with .NET
+because PowerShell was unavailable; `eng/Package.ps1`, release automation, and
+hosted Windows/Linux checks were not rerun in this environment. No package or
+release was published, and no production NuGet or vendored dependency changed.
+
+The project-test package checks used the explicitly named process-contract helper,
+not a real emulator. The self-booting MAME check and the new DOS/ProDOS OS checks
+were skipped because their external resources were absent. Real OS tests now
+observe a catalog separately, then load/call original assembly and save a known
+binary result. See [fixture setup](../tests/TestData/README.md#optional-real-dos-and-prodos-interoperability).
+These tests provide a repeatable release check; actual OS success and broader
+platform/emulator coverage remain outstanding. The previous Windows MAME evidence
+below applies to its recorded revision and workflows.
+
 ## Preview 0.4 development workflow — September 10, 2026
 
 Validated locally on Windows x64 with .NET SDK 10.0.401 (the pinned SDK's

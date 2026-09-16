@@ -103,6 +103,7 @@ public sealed partial class CliApplication
         AddGraphicsCommands(root);
         AddExecutionCommands(root);
         AddCc65Commands(root);
+        AddSetupCommands(root);
         return root;
     }
 

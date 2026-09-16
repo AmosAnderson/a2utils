@@ -30,8 +30,27 @@ decodes text memory, and saves an actual machine screenshot. Process-contract
 tests also cover missing executables, version disagreement, process failure,
 malformed/incomplete observations, cancellation and host timeouts.
 
-Current scope excludes native IIgs execution, custom slot selection, bank-independent
-RAM access, instruction tracing, cycle-accurate breakpoint assertions, 80-column
-text decoding and CPU-only routine simulation. Frame PC samples are labelled as
-such. New backends should preserve the versioned execution/result boundary rather
-than embed emulator-specific behavior in disk operations.
+The runtime-debugging/IIe extension adds instruction breakpoints and bus watchpoints
+through the same pinned backend. A synchronous debugger-stop callback captures state;
+bounded registerpoint stops implement instruction stepping with the headless provider.
+Native PC history is disassembled from capture-time memory and is not a historical
+byte/bank trace. See [the design and upstream evidence](../runtime-debugging.md).
+
+Physical main/auxiliary/language-card observations read verified saved RAM items
+without touching soft switches. Optional 40/80-column text decoding preserves
+attributes and MouseText codes. The saved-item layouts are part of the pinned
+backend contract and must be revalidated when changing MAME versions; missing or
+different layouts fail rather than falling back to CPU reads. No dependency changes.
+
+The September 16 extension adds ordered conditions/input/checkpoints, screenshot
+comparison, game-port inputs, bounded PCM audio evidence, cycle windows, direct
+routine injection into the real machine, and an explicit CFFA2 slot-7 profile.
+Cycle windows use native totalcycles counters at instruction boundaries. The
+routine harness supplies stack/return state and retains its exact code/input hashes.
+Environment locks pin emulator/ROM/toolchain content. These features preserve the
+same isolated-image and host/emulated-deadline contract.
+
+Current scope excludes native IIgs execution, arbitrary slot selection,
+full historical instruction traces, and a separate CPU-only simulator. Frame PC samples
+remain separately labelled. New backends should preserve the versioned execution/result
+boundary rather than embed emulator-specific behavior in disk operations.

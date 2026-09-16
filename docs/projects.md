@@ -1,5 +1,9 @@
 # Building Apple II projects
 
+Projects can also declare [runtime memory and overlay groups](runtime-memory.md),
+[generated graphics assets](project-assets.md), and [environment/toolchain locks](setup.md).
+Execution suites accept the [ordered interaction and cycle options](interactive-testing.md).
+
 `a2 build PROJECT --json` compiles a versioned manifest, checks source and load
 metadata, and commits one validated disk image. Paths inside the manifest are
 relative to the manifest's directory. `--to PATH` overrides the output relative
@@ -23,6 +27,7 @@ to the current directory. Output parents are created after source checks pass.
 ```sh
 a2 build examples/development/mixed.a2.json --to artifacts/mixed.po --json
 a2 build examples/development/hires.a2.json --check --json
+a2 build examples/development/mixed.a2.json --preflight --json
 a2 targets --json
 a2 capabilities --json
 a2 schema project --json
@@ -34,6 +39,16 @@ previous output. `--check` compiles and checks metadata/memory without producing
 an image; it is not a disk-allocation or bootability test. cc65 checks still run
 the compiler in temporary staging. The JSON Schema is bundled in the executable
 and also available at [project.schema.json](schemas/project.schema.json).
+
+`--preflight` performs the complete build in a disposable image, including actual
+allocation, name validation, template replacement rules, and stored-file checks.
+It returns the would-be image hash and a `plan` with file additions/replacements,
+created directories, image size, and free bytes before/after. It creates no output
+parent directories and leaves existing outputs and templates unchanged. Output
+overwrite/read-only rules still apply, so pass `--overwrite` when previewing a
+replacement. Preflight validates the image contents; it does not test host free
+space, power-loss behavior, or bootability. The existing fast `--check` has no plan
+or image hash. Choose only one of `--check`, `--preflight`, or `--test`.
 
 Project JSON is strict and case-sensitive: unknown or duplicate properties are
 errors. `schemaVersion` and a nonempty `files` array are required; omitted
@@ -59,6 +74,7 @@ are decimal numbers (8192 is `$2000`).
 | `basicWorkspaceBytes` | `0`; extra bytes reserved immediately after each resident BASIC payload, range 0–65,536. |
 | `startup` | `null`; optional generated BASIC launcher for a supplied OS template. |
 | `cc65` | `null`; required when any file has `kind: "cc65"`. |
+| `execution` | `null`; optional `{ "suite": "tests/suite.json", "diskDevice": "flop1" }` used by `build --test`. Suite paths resolve relative to the manifest; the build device may be `flop1`/`flop2`, or `hard1`/`hard2` with an execution CFFA2 profile. |
 
 | `disk` property | Default and meaning |
 | --- | --- |
@@ -84,6 +100,7 @@ slash, and backslashes are refused. File extensions do not select `kind`.
 | `entryPoint` | Origin by default; when explicit, it must fall inside the payload. It is reported metadata and does not relocate code. |
 | `replace` | `false`; authorize replacement of the exact entry in a template. It is unrelated to host `--overwrite`. |
 | `resident` | `true`; include the load range in simultaneous-memory checks. |
+| `memoryBank` | `main`; explicit destination RAM bank. IIe/IIc also support `aux`, `lc1`, `lc2`, `aux-lc1`, `aux-lc2`; requires an application loader. See [banked projects](iie-memory.md). |
 | `checkBasic` | `true`; run the conservative source checker for `basic`. Tokenizer validation always runs, and `basic-labels` is always prepared and checked. |
 
 The optional `startup` object requires `program`, the image path of one manifest
@@ -92,6 +109,76 @@ to `false`. The optional `cc65` object defaults to compiler `cl65`, target
 `apple2`, no expected-version pin, a 60-second timeout, optimization enabled,
 and empty `additionalSources`, `includes`, and `defines` arrays. Each list accepts
 at most 128 entries. See [C and ca65](cc65.md) for path and isolation rules.
+
+## Build and test together
+
+Add `execution` to a project, then run:
+
+```sh
+a2 build project.a2.json --test --artifacts evidence/run-001 --json
+```
+
+`--artifacts` is required with `--test` and must name a new directory outside the
+build output and inputs. A normal build never starts an emulator. The configured
+suite uses the [execution specification](execution.md), with paths relative to each
+test file. The chosen `execution.diskDevice` is replaced or added with the newly
+built image; other mounts retain their configured OS/data disks. The runner pins
+every mounted image to its input hash and creates isolated copies for each case.
+Any image path or hash on the selected build mount is replaced by the build output.
+If no additional disks are needed, omit `diskImage` and `disks`; the workflow
+inserts only the selected build mount. Standalone `run`/`test` still requires media.
+
+The workflow first performs full preflight, binds symbols, checks test inputs,
+and then builds again. Source hashes, test inputs, and the would-be image hash
+must still match before replacement. A nonreproducible compiler output is refused.
+After a valid image is committed, failed tests retain it and their evidence;
+an artifact I/O failure after commit can also leave the validated image in place.
+
+Each source test must explicitly configure an assertion, completion condition,
+or mounted-disk `verify: true`. Automatic verification on an added build mount
+does not qualify an otherwise assertion-free test. Emulator executable hashes
+are streamed without the disk-image size cap; configuration and disk inputs
+retain their documented limits.
+
+Build targets must match the test machine: `apple2plus` → `apple2p`, `apple2e` →
+`apple2e`, `apple2enh` → `apple2ee`, and `apple2c` → `apple2c`. A data volume still
+needs an OS on another mounted disk, or use an existing bootable template.
+
+For native assembly, a test can use an exported label or constant instead of a
+numeric address:
+
+```json
+{
+  "symbolicMemory": [{ "program": "MAIN", "symbol": "RESULT", "hex": "2A" }],
+  "symbolicUntil": { "program": "MAIN", "symbol": "RESULT", "value": 42, "afterSeconds": 8 }
+}
+```
+
+This is a fragment of an execution specification. `program` is the file's image
+path. Symbol names follow the assembler's case-insensitive matching; `offset`
+defaults to zero and the resolved address must fit the 16-bit observable range.
+Use either `until` or `symbolicUntil`. Ordinary `run`/`test` refuse unresolved
+symbolic assertions; `build --test` resolves them using this build's symbols.
+cc65 map text is not parsed into exported build symbols in this milestone.
+
+Breakpoint/watchpoint addresses in `debug` also accept `program`, `symbol`, and
+`offset`. Symbolic memory assertions/completion inherit a banked file's declared
+bank unless `bank` is explicit; a main-memory file retains the legacy `cpu` default.
+Debug points always use CPU addresses. Source-location evidence includes the
+declared bank and all matching resident programs when a PC is ambiguous.
+
+Evidence includes `build.json`, execution input hashes, the resolved per-case
+specifications, `suite-result.json`, and `project-result.json`. Each case also
+receives `source-locations.json`, mapping final and sampled PCs to native resident
+assembly source when available. Multiple matches are retained for overlapping
+regions. These are source annotations of observations, not instruction traces.
+Symbolic memory failures include their program/symbol name and a source location
+when the address maps to emitted assembly. Exit status is 0 for passing tests,
+1 for behavioral failure, and 6 for execution cancellation.
+
+The [project test example](../examples/development/project-tests/README.md) shows
+a separate boot disk and an assembled data disk. MAME, ROMs, and OS disks must be
+provided locally.
 
 ## Sources and metadata
 
@@ -142,10 +229,15 @@ that every DOS configuration allocates those exact bytes.
 Use `resident: false` for files that are not loaded simultaneously, such as
 overlays or alternative programs. `checkMemory: false` explicitly disables
 overlap checking for layouts managed by the application. The checker does not
-infer dynamic allocations, prove stack safety, model bank switching, or prove
+infer dynamic allocations, prove stack safety, execute bank switching, or prove
 C runtime safety: linker maps report additional BSS/stack/zero-page regions that
 need application review. Double-hires assets need an explicit auxiliary/main
 bank loader and are handled by the standalone graphics commands.
+
+Physical bank ranges and language-card aliases are now checked explicitly; see
+[IIe project memory](iie-memory.md). `reserve` entries accept `memoryBank` too.
+These declarations describe residency after loading; they do not change where
+DOS/ProDOS loads a file. Generated startup must launch a main-memory loader.
 
 Shared constants and executable projects are under
 [examples/development](../examples/development/README.md). ROM calls can alter

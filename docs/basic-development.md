@@ -33,9 +33,23 @@ to review.
 
 This is a conservative development checker, not a complete Applesoft grammar,
 type checker, or interpreter. Other statements receive only delimiter checks.
-It does not prove runtime success, variable initialization, function arity,
-FOR/NEXT pairing, numeric ranges, array bounds, or the behavior of CALL/POKE.
+It checks built-in function arity (including optional MID$ length), literal
+negative subscripts, and a small set of certain numeric domain errors such as
+`SQR(-1)`, `LOG(0)`, and `CHR$(256)`. Lexical FOR/NEXT pairing, GOSUB/RETURN
+context, and literal subscripts exceeding a preceding DIM's inclusive bounds
+produce advisory warnings: branches and external callers can change the runtime
+context. Computed dimensions and subscripts are not guessed. It does not prove
+runtime success, variable initialization, general numeric ranges, dynamic array
+bounds, or the behavior of CALL/POKE.
 Exercise the program in an Apple II environment as well.
+
+Project executions can opt into `checkBasicRuntime` to recognize Applesoft
+`?… ERROR IN n` messages on the captured text screen. Diagnostics map the BASIC
+line through the build's source map to the original file and physical source
+line, including labeled source. If several BASIC programs share that line
+number, the diagnostic reports ambiguity rather than choosing a source file.
+This detection is opt-in because a program can intentionally print the same
+text. Errors that have scrolled off the captured screen cannot be recovered.
 
 Renumbering changes numbered line prefixes and supported literal branch targets
 together. It preserves the rest of the source, including strings, DATA, REM,

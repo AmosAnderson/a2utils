@@ -5,7 +5,7 @@
       "a2utils.core": {
         "type": "Project",
         "dependencies": {
-          "DiskArc": "[0.4.0-dev, )"
+          "DiskArc": "[0.6.0-dev, )"
         }
       },
       "commonutil": {
@@ -14,7 +14,7 @@
       "diskarc": {
         "type": "Project",
         "dependencies": {
-          "CommonUtil": "[0.4.0-dev, )"
+          "CommonUtil": "[0.6.0-dev, )"
         }
       }
     }

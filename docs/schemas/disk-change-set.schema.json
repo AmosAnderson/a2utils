@@ -1,0 +1,124 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:a2utils:schema:disk-change-set:1",
+  "title": "A2Utils declarative disk change set v1",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "expectedSha256": {
+      "type": ["string", "null"],
+      "pattern": "^[A-Fa-f0-9]{64}$"
+    },
+    "timestamp": {
+      "type": "string",
+      "pattern": "^(?:19[89][0-9]|20[0-3][0-9])-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12][0-9]|3[01])(?:T(?:[01][0-9]|2[0-3]):[0-5][0-9](?::00(?:\\.0{1,7})?)?Z?)?$",
+      "description": "Timestamp for newly created entries. Defaults to 2000-01-01T00:00:00."
+    },
+    "changes": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 1024,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "action": { "enum": ["add", "replace", "delete", "rename", "mkdir", "attr"] },
+          "path": { "type": "string", "minLength": 1 },
+          "source": { "type": ["string", "null"], "minLength": 1 },
+          "hex": {
+            "type": ["string", "null"],
+            "pattern": "^(?: *[A-Fa-f0-9] *[A-Fa-f0-9])* *$",
+            "description": "Complete hexadecimal bytes with optional spaces; an empty string represents an empty payload."
+          },
+          "expectedSourceSha256": {
+            "type": ["string", "null"],
+            "pattern": "^[A-Fa-f0-9]{64}$"
+          },
+          "type": { "type": ["string", "null"] },
+          "auxType": { "type": ["integer", "null"], "minimum": 0, "maximum": 65535 },
+          "newName": { "type": ["string", "null"], "minLength": 1 },
+          "recursive": { "type": "boolean", "default": false },
+          "parents": { "type": "boolean", "default": false },
+          "locked": { "type": ["boolean", "null"] }
+        },
+        "required": ["action", "path"],
+        "allOf": [
+          {
+            "if": { "properties": { "action": { "enum": ["add", "replace"] } } },
+            "then": {
+              "oneOf": [
+                { "required": ["source"], "properties": { "source": { "type": "string" }, "hex": { "type": "null" } } },
+                { "required": ["hex"], "properties": { "hex": { "type": "string" }, "source": { "type": "null" } } }
+              ]
+            }
+          },
+          {
+            "if": { "properties": { "action": { "const": "add" } } },
+            "then": {
+              "required": ["type"],
+              "properties": { "type": { "type": "string", "minLength": 1 } }
+            }
+          },
+          {
+            "if": { "properties": { "action": { "const": "rename" } } },
+            "then": {
+              "required": ["newName"],
+              "properties": { "newName": { "type": "string", "minLength": 1 } }
+            }
+          },
+          {
+            "if": { "properties": { "action": { "enum": ["delete", "rename", "mkdir", "attr"] } } },
+            "then": {
+              "properties": {
+                "source": { "type": "null" },
+                "hex": { "type": "null" },
+                "expectedSourceSha256": { "type": "null" }
+              }
+            }
+          },
+          {
+            "if": { "properties": { "action": { "enum": ["replace", "delete", "rename", "mkdir"] } } },
+            "then": {
+              "properties": {
+                "type": { "type": "null" },
+                "auxType": { "type": "null" }
+              }
+            }
+          },
+          {
+            "if": { "properties": { "action": { "enum": ["add", "replace", "delete", "mkdir", "attr"] } } },
+            "then": { "properties": { "newName": { "type": "null" } } }
+          },
+          {
+            "if": { "properties": { "action": { "enum": ["add", "replace", "rename", "mkdir", "attr"] } } },
+            "then": { "properties": { "recursive": { "const": false } } }
+          },
+          {
+            "if": { "properties": { "action": { "enum": ["replace", "delete", "rename", "attr"] } } },
+            "then": { "properties": { "parents": { "const": false } } }
+          },
+          {
+            "if": { "properties": { "action": { "enum": ["add", "replace", "delete", "rename", "mkdir"] } } },
+            "then": { "properties": { "locked": { "type": "null" } } }
+          },
+          {
+            "if": { "properties": { "action": { "const": "attr" } } },
+            "then": {
+              "anyOf": [
+                { "required": ["locked"], "properties": { "locked": { "type": "boolean" } } },
+                { "required": ["type"], "properties": { "type": { "type": "string", "minLength": 1 } } },
+                { "required": ["auxType"], "properties": { "auxType": { "type": "integer" } } }
+              ]
+            }
+          },
+          {
+            "if": { "properties": { "source": { "type": "null" } } },
+            "then": { "properties": { "expectedSourceSha256": { "type": "null" } } }
+          }
+        ]
+      }
+    }
+  },
+  "required": ["schemaVersion", "changes"]
+}

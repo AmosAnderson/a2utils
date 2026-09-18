@@ -22,6 +22,10 @@ public sealed partial class CliApplication
     private ParseResult? _parse;
     private readonly List<ProgramDiagnostic> _pendingDiagnostics = [];
     private readonly HashSet<ProgramDiagnostic> _renderedProgramDiagnostics = [];
+    private static ParserConfiguration ParserConfiguration { get; } = new()
+    {
+        ResponseFileTokenReplacer = null
+    };
 
     private CliApplication(TextWriter output, TextWriter error, CancellationToken cancellationToken)
     {
@@ -39,7 +43,7 @@ public sealed partial class CliApplication
         try
         {
             RootCommand root = BuildCommands();
-            _parse = root.Parse(args);
+            _parse = root.Parse(args, ParserConfiguration);
             if (_parse.Errors.Count > 0)
             {
                 return Fail("invalid_arguments", string.Join(Environment.NewLine,
@@ -97,6 +101,7 @@ public sealed partial class CliApplication
         AddMutationCommands(disk);
         AddAttributeCommand(disk);
         AddConvertCommand(disk);
+        AddDiskPlanningCommands(disk);
         AddTransferCommands(disk);
         AddProgramCommands(root);
         AddDevelopmentCommands(root);
@@ -104,6 +109,7 @@ public sealed partial class CliApplication
         AddExecutionCommands(root);
         AddCc65Commands(root);
         AddSetupCommands(root);
+        AddMcpCommands(root);
         return root;
     }
 
@@ -455,7 +461,12 @@ public sealed partial class CliApplication
     {
         if (_parse!.GetValue(_json))
         {
-            _output.WriteLine(JsonSerializer.Serialize(new { schemaVersion = 1, command, data, diagnostics = _pendingDiagnostics }, FileTransfer.JsonOptions));
+            CliResultEnvelope envelope = new(1, command, data, _pendingDiagnostics)
+            {
+                ResultSchemaId = command == "project.resolve"
+                    ? CliContractSchemas.ProjectResolution : CliContractSchemas.Result
+            };
+            _output.WriteLine(JsonSerializer.Serialize(envelope, FileTransfer.JsonOptions));
         }
         else if (!_parse.GetValue(_quiet))
         {
@@ -468,18 +479,9 @@ public sealed partial class CliApplication
     {
         if (_parse?.GetValue(_json) == true)
         {
-            _error.WriteLine(JsonSerializer.Serialize(new
-            {
-                schemaVersion = 1,
-                error = new
-                {
-                    code,
-                    message,
-                    exitCode,
-                    diagnostics = _pendingDiagnostics.Concat(diagnostics ?? []).ToArray()
-                }
-            },
-                FileTransfer.JsonOptions));
+            CliErrorEnvelope envelope = new(1, new(code, message, exitCode,
+                _pendingDiagnostics.Concat(diagnostics ?? []).ToArray()));
+            _error.WriteLine(JsonSerializer.Serialize(envelope, FileTransfer.JsonOptions));
         }
         else
         {

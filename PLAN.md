@@ -1,6 +1,30 @@
 Apple II disk image utility — implementation plan
 ================================================
 
+Agentic software development milestone (September 18, 2026)
+-----------------------------------------------------------
+
+- [x] Read-only logical/physical disk diffs and hash-bound declarative change-set
+  planning/apply with immutable input snapshots and transactional commits.
+- [x] Noncommitting project resolution with effective settings, hashed build and
+  execution dependencies, tool requirements, memory layout, and disk/boot plans.
+- [x] Existing-image project import with a pinned template, editable source exports,
+  locked reference exports, and optional reassemblable binary disassembly.
+- [x] Original bare-metal DOS-order boot sectors without an operating-system template.
+- [x] Deterministic in-process 6502/Apple-compatible 65C02 routine execution, plus
+  selective and parallel suites, reruns, progress events, and bounded evidence.
+- [x] Graphics-memory assertions, symbolic build bindings, compiler/native source
+  traces, and structured repair-oriented diagnostics.
+- [x] Typed result/error/envelope contracts, complete capability discovery, bundled
+  schemas, and a bounded local MCP stdio server for coding agents.
+- [x] Opt-in content-addressed project image caching with exact input/tool pins,
+  validated transactional restores, and bounded/concurrency-safe metadata.
+
+All new write paths preserve source inputs, validate staged results, and refuse
+changed evidence before commit. MAME, cc65, ROMs, firmware, and operating-system
+media remain explicit external inputs. Local validation for this milestone is
+recorded at the top of [VALIDATION.md](docs/VALIDATION.md).
+
 Remaining AI programming tools milestone (September 16, 2026)
 ------------------------------------------------------------
 
@@ -13,6 +37,8 @@ Remaining AI programming tools milestone (September 16, 2026)
 - [x] Conservative BASIC loop/arity/array checks and mapped runtime error diagnostics.
 - [x] Game-port overrides, bounded audio capture/metrics, instruction-cycle budgets,
   and disk-free routine execution with explicit initial state.
+- [x] Self-contained deterministic MOS 6502/Apple-compatible 65C02 routine engine
+  with bounded cycles, assertions, and instruction-level trace evidence.
 - [x] Explicit CFFA2 slot-7 single-volume ProDOS block-device execution profile.
 - [x] Schemas, documentation, unit/process-contract tests, and opt-in actual MAME tests.
 - [x] Locked restore, warning-free Release build, 1,158 passing local tests, formatting,
@@ -20,7 +46,8 @@ Remaining AI programming tools milestone (September 16, 2026)
   cases remain skipped without external emulator/ROM inputs.
 
 These additions complete the remaining AI-programming suggestions from this round.
-They use the existing disk engine and pinned MAME 0.289 API. Runtime/asset/lock
+They use the existing disk engine and selectable execution backends: pinned MAME
+0.289 for machine behavior and an in-process CPU engine for pure routines. Runtime/asset/lock
 operations retain bounded inputs and immutable snapshots. Runtime memory is
 conservative static accounting, and overlay groups are an explicit application
 promise about lifetimes. CFFA2 firmware, emulator ROMs, boot systems, and cc65
@@ -72,7 +99,7 @@ checks remain available. The subsequent milestone adds an explicit CFFA2 block-d
 The subsequent AI-tools milestone above adds runtime memory accounting, compiler
 diagnostics, project graphics assets, and toolchain fingerprints. The separate disk
 roadmap still includes DOS/ProDOS file migration, a higher-level transactional Core
-editing API, per-image capabilities, disk diffs, and resource forks. No new
+editing API, per-image capabilities, and resource forks. No new
 disk-engine dependency is introduced.
 
 AI development workflow implementation (September 10, 2026)
@@ -87,12 +114,13 @@ and validation are tracked here:
 - [x] Versioned project manifests and transactional, reproducible source-to-disk builds.
 - [x] Machine/runtime profiles, memory conflict checks, and documented platform symbols.
 - [x] MAME execution/test adapter, bounded automation, assertions, and failure evidence.
-- [x] cc65 integration and AppleSingle metadata decoding.
+- [x] cc65 integration, AppleSingle metadata decoding, ld65 source maps, and source-aware traces.
 - [x] Lo-res/hi-res PNGs, sprites, tiles, fonts, shape tables, and double-hires screens.
 - [x] Build, unit/integration tests, formatting, schema/examples verification, and documentation.
 
-Bootable builds preserve a supplied bootable template; new formatted disks remain
-data volumes. External emulator execution requires a configured emulator, matching
+Bootable builds either preserve a supplied bootable template or emit explicitly
+declared original boot sectors; otherwise new formatted disks remain data volumes.
+External emulator execution requires a configured emulator, matching
 ROMs, and a suitable disk image. Emulator validation is recorded
 separately from tests of the adapter contract. Native IIgs development, broad archive
 formats, and broader emulator/platform validation remain subsequent milestones.
@@ -114,7 +142,7 @@ The original proposal below now has a working implementation. The workspace star
 | Read-only DOS slice | Implemented and tested against independent synthetic DO/PO fixtures |
 | DOS writes | Implemented with staged commits, backups, conversion, and failure tests; emulator release check remains |
 | ProDOS operations | Implemented with directories, metadata restore, sparse files, and larger volumes; emulator release check remains |
-| Packaging and release | Tag-only builds and private GitHub Releases with versioned binaries, tool package, and checksums implemented; the `v0.4.0-dev` attempt passed Linux but exposed cc65 staging defects on Windows/macOS, now fixed and locally validated; a new version tag, emulator checks, and original-code license selection remain before public/stable release |
+| Packaging and release | Tag-only builds and private GitHub Releases with versioned binaries, tool package, and checksums implemented; original A2Utils code is GPL-2.0-only; emulator checks and resolution of the Apache-2.0/GPL-2.0-only dependency incompatibility remain before public binary distribution |
 
 See `README.md` for actual commands and supported limits. This is a development preview, not a stable release. The [GitHub repository](https://github.com/AmosAnderson/a2utils) is private; no public package or release has been created.
 
@@ -262,7 +290,7 @@ Develop tests alongside each milestone, especially before enabling writes. Requi
 
 If DiskArc is reused, CiderPress checks alone are not independent validation. Keep documented, redistributable fixtures with provenance and hashes; add independent hand-checked layout vectors and fixtures made by another implementation or an Apple II environment.
 
-Build and test on Windows, Linux, and macOS only when a release version tag is pushed for a commit on main. Package a .NET tool and self-contained downloads for Windows x64, Linux x64, and macOS ARM64, using the tag's version. Test installation and representative commands from the packaged artifacts. After all builds pass, upload archives, the tool package, and SHA-256 checksums to a draft GitHub Release and publish it after upload verification; retain private repository visibility. Document supported format combinations, examples, metadata handling, transaction behavior, and known limitations. Choose the project license before public distribution and preserve required dependency notices.
+Build and test on Windows, Linux, and macOS only when a release version tag is pushed for a commit on main. Package a .NET tool and self-contained downloads for Windows x64, Linux x64, and macOS ARM64, using the tag's version. Test installation and representative commands from the packaged artifacts. After all builds pass, upload archives, the tool package, and SHA-256 checksums to a draft GitHub Release and publish it after upload verification; retain private repository visibility. Document supported format combinations, examples, metadata handling, transaction behavior, and known limitations. Original A2Utils code is GPL-2.0-only. Before public binary distribution, replace or separately license the Apache-2.0 dependencies, or revisit the project license, and preserve every required dependency notice.
 
 Completion criterion: a reproducible release with passing tests, installable artifacts, sample workflows, and no advertised write operation lacking preservation and failure-path coverage.
 

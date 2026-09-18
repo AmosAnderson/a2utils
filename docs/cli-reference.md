@@ -12,24 +12,30 @@ help, for example `a2 disk add --help`.
 
 | Command | Purpose and guide |
 | --- | --- |
-| `build PROJECT [--to IMAGE] [--overwrite] [--check]` | [Project manifests](projects.md), source checks, memory reports, and transactional disk output. |
-| `capabilities --json` | Discover the declared command tree, supported values, targets, and schema names; combine `globalOptions` with command-local metadata. |
+| `build PROJECT [--to IMAGE] [--overwrite] [MODE OPTIONS]` | [Project manifests](projects.md), source checks, optional content-addressed caching, memory reports, build-bound tests, and transactional disk output. |
+| `project resolve PROJECT` | Resolve effective settings, dependencies, tools, memory, and a disk plan without committing the output image. Alias: `project inspect`. |
+| `project import IMAGE --to DIR` | Adopt an existing image as a hash-pinned editable project; optionally disassemble load-addressed binaries. |
+| `capabilities --json` | Discover the typed command tree, defaults, constraints, path roles, side effects, result schemas, targets, and supported values. |
 | `targets --json` | Inspect machine profiles, platform symbols, and runtime memory reservations. |
-| `schema NAME --json` | Return project, diagnostic, execution, or execution-suite JSON Schema under `data`. |
+| `schema NAME --json` | Return an embedded project, project-resolution, diagnostic, execution, execution-suite, environment, disk-change-set, result, error, or envelope JSON Schema under `data`. |
+| `disk diff BEFORE AFTER` | Compare logical entries, metadata, payload hashes, and physical byte ranges without changing either image. |
+| `disk plan IMAGE CHANGES` / `disk apply IMAGE CHANGES` | Preflight or atomically apply a strict declarative disk change set. |
+| `mcp serve` | Serve the typed CLI contract to coding agents over local stdio MCP. |
 | `asm listing INPUT --to OUTPUT` | Assembly listing with addresses and bytes; accepts origin/CPU options. |
 | `asm map INPUT --to OUTPUT` | JSON symbols/source-map/dependency report. |
 | `basic check INPUT` | [Applesoft source checks](basic-development.md); failures return a result with diagnostics. |
 | `basic renumber INPUT --to OUTPUT` | Safe line-reference rewriting and mappings; `--start` and `--step` default to 10. |
 | `basic prepare INPUT --to OUTPUT` | Unnumbered source with symbolic labels to numbered Applesoft, with source mappings. |
 | `cc compile INPUT --to OUTPUT` | [Optional cc65 compiler](cc65.md); AppleSingle output, maps, labels, and input hashes. |
-| `run SPEC --artifacts NEWDIR` | [MAME execution](execution.md) with bounded input, assertions, and captured state. |
-| `test SUITE --artifacts NEWDIR` | Execute a list of run specifications and aggregate results. |
+| `run SPEC --artifacts NEWDIR` | [Apple II execution](execution.md) with bounded input, assertions, and captured state. |
+| `test SUITE [--artifacts DIR] [--list] [SUITE OPTIONS]` | List or execute selected run specifications and aggregate results. |
 | `graphics encode INPUT --mode MODE --to OUTPUT` | [PNG to display memory](graphics.md); lores, hires, or hires-color. |
 | `graphics decode INPUT --mode MODE --to OUTPUT` | Display-memory preview as PNG. |
 | `graphics assets`, `graphics shapes`, `graphics dhires` | [Sprites, fonts, tiles, shape tables and double-hires](graphics-assets.md); consult subcommand help. |
 
 Development commands accept the usual `--json` output option. File-producing
-commands require explicit overwrite; run/test use a new artifact directory.
+commands require explicit overwrite. Run always uses a new artifact directory;
+test and build-test can instead create a unique child under an artifact parent.
 
 The remainder of this reference lists the complete syntax and command-specific
 options. The five custom global options in the next section are recursive and
@@ -53,12 +59,15 @@ The five recursive options (`--json`, `--quiet`, `--verbose`, `--input-order`,
 and `--input-fs`) can follow subcommands. Layout/filesystem overrides describe
 the image being opened: for `disk copy`, this is the destination `IMAGE`; use the
 source-specific options for `--from`. Program commands accept image overrides
-only with `--from-image`. `disk create` uses its own `--fs` and `--order` options;
+only with `--from-image`; `project import` applies them to its source image.
+`disk create` uses its own `--fs` and `--order` options;
 `disk convert` uses `--input-order` but does not use `--input-fs`.
 Because the command-line parser displays recursive global options on every help
 page, their appearance does not make them meaningful for host-only build,
 source, graphics, discovery, or execution commands. Do not pass image overrides
 to those commands; non-applicable values are either rejected or ignored.
+Response-file expansion is disabled: a token beginning with `@` remains a literal
+argument and never causes the CLI to read more arguments from a host file.
 
 Use the documented lowercase spellings for commands and choice values such as
 `dos33`, `prodos`, `binary`, `text`, `raw`, `dos`, `2mg`, and `65c02`. The CLI
@@ -81,7 +90,15 @@ are separate concepts: a `.po` file can contain DOS 3.3.
 ## Build and discovery commands
 
 ```text
-a2 build PROJECT [--to IMAGE] [--overwrite] [--check]
+a2 build PROJECT [--to IMAGE] [--overwrite] [--cache DIRECTORY]
+a2 build PROJECT [--to IMAGE] [--overwrite] --check
+a2 build PROJECT [--to IMAGE] [--overwrite] --preflight
+a2 build PROJECT [--to IMAGE] [--overwrite] --test --artifacts DIRECTORY
+         [--filter GLOB] [--jobs N] [--rerun-failed PREVIOUS]
+         [--progress] [--run-subdirectory]
+a2 project resolve PROJECT
+a2 project inspect PROJECT
+a2 project import IMAGE --to DIR [--disassemble] [--target TARGET]
 a2 targets
 a2 capabilities
 a2 schema NAME
@@ -92,12 +109,15 @@ a2 schema NAME
 | `build PROJECT` | Load a strict version 1 project manifest, compile every source, validate metadata and memory, then commit one image. Manifest-relative paths resolve from the directory containing `PROJECT`. |
 | `build --to IMAGE` | Override the manifest's `output`; this CLI path resolves from the current working directory. |
 | `build --overwrite` | Permit replacement of an existing output only after the complete staged build validates. |
+| `build --cache DIRECTORY` | Use an opt-in content-addressed image cache for a normal build. A verified hit is restored transactionally and reported as `cacheHit: true`; a miss builds and populates the cache. Outputs must be outside the cache. This option conflicts with `--check`, `--preflight`, and `--test`. |
 | `build --check` | Compile and validate source, metadata, and resident-memory ranges without writing an image. It does not prove disk capacity or bootability. |
 | `build --preflight` | Create, populate, reopen, and validate a disposable image; report its hash and allocation/change plan without committing output or creating output parents. Existing output policies apply. |
-| `build --test --artifacts DIR` | Preflight and build the project, then run its `execution.suite` against the exact output hash with symbolic assertions resolved. `DIR` must be new. Mutually exclusive with `--check`/`--preflight`; artifacts are retained on behavioral failure. |
+| `build --test --artifacts DIR` | Preflight and build the project, then run its build-bound `execution.suite` with symbolic assertions resolved. `DIR` must be new unless `--run-subdirectory` treats it as an existing parent for a unique child. Mutually exclusive with `--check`/`--preflight`/`--cache`; artifacts are retained on behavioral failure. The selected mount of each MAME case is pinned to the output hash; CPU cases remain disk-free. |
+| `project resolve PROJECT` | Apply defaults and environment settings, compile checks, validate locks, and return effective settings, resolved boot metadata, hashed build/execution dependencies, required tools, memory ranges, and a disk/file/boot-sector plan. It does not create the declared output or its parent or start MAME. cc65 projects may invoke the compiler in temporary storage. `project inspect` is an alias. |
+| `project import IMAGE --to DIR` | Create a new project directory from a verified image, including a hash-pinned template, strict manifest, exported sources, locked reference files, and an import report. `--disassemble` emits reassemblable source for load-addressed BIN files; `--target` defaults to `apple2e`. Global input order/filesystem overrides apply. |
 | `targets` | Return the four target profiles, platform symbols, and DOS/ProDOS runtime reservations. Text mode prints the profiles; use `--json` for the complete data. |
-| `capabilities` | Return declared command metadata plus CPUs, targets, filesystems, containers, source kinds, graphics modes, schemas, external tools, and current limitations. For machine discovery, combine top-level `globalOptions` with each command's local arguments/options; inherited globals are not repeated on nested leaves, and direct root children may list the root-only `--version`. Use `--help` as the authority for effective syntax. |
-| `schema NAME` | Return an embedded JSON Schema. `NAME` is `project`, `diagnostic`, `execution`, or `execution-suite`. With `--json`, the schema is the envelope's `data`; text mode writes the schema itself. |
+| `capabilities` | Return typed arguments/options with defaults, choices, conflicts, requirements, path roles, side effects, result/error schema identifiers, plus targets, filesystems, containers, source kinds, graphics modes, schemas, and external tools. Every command record includes its effective inherited global options once; `globalOptions` also provides the reusable root list. Use `--help` as the authority for effective syntax. |
+| `schema NAME` | Return an embedded JSON Schema. `NAME` is `project`, `project-resolution`, `diagnostic`, `execution`, `execution-suite`, `environment`, `disk-change-set`, `result`, `error`, or `envelope`. With `--json`, the schema is the envelope's `data`; text mode writes the schema itself. |
 
 Project defaults and every manifest property are in
 [project builds](projects.md). Output records are described in
@@ -208,24 +228,47 @@ the existing `run`, `test`, and `build --test` commands.
 
 ```text
 a2 run SPEC --artifacts NEW_DIRECTORY
-a2 test SUITE --artifacts NEW_DIRECTORY
+a2 test SUITE [--artifacts NEW_DIRECTORY] [--list] [--filter GLOB]
+              [--jobs N] [--rerun-failed PREVIOUS] [--progress]
+              [--run-subdirectory]
 ```
 
 `run` loads one strict version 1 execution specification. `test` first loads
 and validates every specification named by a strict version 1 suite, then runs
-at most 128 cases sequentially. Every suite case needs a memory, register, text,
-completion, saved-file assertion, or mounted-disk verification. `--artifacts` is required and must name a path that
-does not exist; the commands create it and retain the isolated disk copy,
-configuration, logs, observations, and results there. A suite uses numbered
-`case-001`, `case-002`, ... subdirectories plus `suite-result.json`.
-Ordinary failed cases do not stop later cases; cancellation stops the active
-run and the remaining suite. The suite exit status is the highest mapped case
-status (0 for pass, 1 for execution/assertion failure, or 6 for cancellation).
+at most 128 cases. Every suite case needs an assertion, a bounded completion/debug/
+routine/cycle condition, or mounted-disk verification. `--artifacts` is required for
+execution. It must name a new path unless `test --run-subdirectory` uses it as an
+existing parent for a unique child. `--list` is read-only, does not require
+artifacts, and conflicts with `--progress` and `--run-subdirectory`. The commands
+retain isolated disk copies, configuration, logs, observations, and results in
+the actual run directory. A suite uses numbered `case-001`, `case-002`, ...
+subdirectories plus `suite-result.json`.
+Ordinary failed cases do not stop later cases; cancellation stops active cases
+and prevents remaining cases from starting. The suite exit status is the highest
+mapped case status (0 for pass, 1 for execution/assertion failure, or 6 for
+cancellation).
+
+`--filter` is repeatable and accepts a case-insensitive glob against the case name or
+suite-relative path. Use `name:` or `path:` to restrict the field. `--list` returns
+the matching cases and their stable suite positions without creating artifacts.
+`--jobs` bounds parallel cases from 1 to 16 and defaults to 1. `--rerun-failed`
+selects failures from a previous artifact directory or `suite-result.json`.
+`--progress` flushes structured events to `events.jsonl`. `--run-subdirectory`
+creates a unique run below the `--artifacts` parent. The suite result includes
+the actual artifact directory, ordered case statuses, and planned/completed/passed/
+failed/cancelled/not-run counts.
 
 A completed behavioral failure returns a normal result and exit status 1;
-cancellation returns 6. The complete specification fields, MAME 0.289 pin,
-machine names, assertion rules, bounds, and artifact list are in
+cancellation returns 6. The default `mame` engine provides full-machine execution
+and retains the MAME 0.289 pin. `engine: "cpu"` runs one bounded assembly or binary
+routine without an emulator, ROM, or disk. The complete fields, machine names,
+assertion rules, bounds, and artifact list are in
 [automated execution](execution.md).
+
+Execution specifications and step conditions can use `graphicsMemory` to compare
+a PNG against lo-res, hi-res, artifact-color hi-res, or double-hires display RAM.
+The runner records expected/actual/difference previews and exact byte mismatch
+details. See [graphics-memory assertions](execution.md#graphics-memory-assertions).
 
 Execution supports at most two distinct `flop1`/`flop2` mounts, each with an
 isolated copy and optional input hash pin. The legacy `diskImage`/`diskDevice`
@@ -264,6 +307,42 @@ choosing in-place mode.
 
 `extract` and `export` serve different purposes: see
 [preservation and logical export](disk-images.md#export-or-extract).
+
+## Compare and plan disk changes
+
+```text
+a2 disk diff BEFORE AFTER [--after-input-order dos|prodos]
+                           [--after-input-fs dos33|prodos]
+a2 disk plan IMAGE CHANGES
+a2 disk apply IMAGE CHANGES [--expect-sha256 HASH]
+                            [--expect-plan-sha256 HASH] WRITE_OPTIONS
+```
+
+`disk diff` is read-only. Global `--input-order`/`--input-fs` describe `BEFORE`;
+the `--after-*` options describe `AFTER`. Its result includes both whole-image
+hashes and disk metadata, added/removed/modified entries with changed fields and
+logical/stored payload hashes, bounded physical byte ranges, and the total number
+of differing bytes. Each input image is limited to 34 MiB. At most 4,096 physical
+ranges are retained; `byteRangesTruncated` reports when additional ranges were
+counted but omitted.
+
+`disk plan` accepts a strict version 1 change-set JSON document with 1–1,024
+ordered `add`, `replace`, `delete`, `rename`, `mkdir`, or `attr` operations. Add
+and replace payloads use exactly one of `source` (relative to the change-set file)
+or `hex`; sources can carry `expectedSourceSha256`, while the document can pin the
+input as `expectedSha256`. `a2 schema disk-change-set --json` returns the complete
+field contract. Newly created files and directories use the document's `timestamp`,
+which defaults to `2000-01-01T00:00:00`, so a plan remains reproducible across runs.
+The change-set document is limited to 1 MiB. Each referenced source payload is
+limited to 32 MiB, and their combined size is limited to 128 MiB.
+
+Planning applies the operations to a disposable sibling image, validates and
+diffs it, then removes it. It leaves the requested output and original image
+untouched while returning input/change-set/payload hashes, a reproducible
+`planSha256`, candidate image hash, logical changes, and free space. `disk apply`
+repeats that preflight and transactionally writes the same candidate. Use
+`--expect-sha256` and `--expect-plan-sha256` to reject stale agent decisions;
+the shared output/in-place/overwrite rules still apply.
 
 ## Create and convert images
 
@@ -436,7 +515,9 @@ for remedies.
 `a2 env check PROFILE [--json]` checks local tools/ROMs/template readiness.
 `a2 env lock PROFILE --output LOCK` records the configured input hashes.
 `a2 init DIRECTORY --language basic|asm|c [--environment PROFILE]` creates a staged
-starter project. `a2 schema environment --json` returns the profile schema.
+starter project. `a2 init DIRECTORY --language asm --bare-metal` instead creates
+an original DOS-order 140 KiB boot-sector project without an OS template.
+`a2 schema environment --json` returns the profile schema.
 See [setup](setup.md).
 
 Existing `run`, `test`, and `build --test` commands accept ordered steps,
@@ -444,3 +525,31 @@ routines/cycle budgets, game-port controls, audio assertions, screenshot
 comparisons, and the explicit CFFA2 storage profile through their JSON documents.
 See [interactive testing](interactive-testing.md), [audio](audio-execution.md),
 [graphics assets](project-assets.md), and [block storage](block-storage-execution.md).
+
+## MCP server
+
+```text
+a2 mcp serve
+```
+
+`mcp serve` runs a local Model Context Protocol server over standard input/output
+until its input closes. Configure the MCP client to launch `a2` with arguments
+`mcp serve`; do not put a shell, prompt text, or logging stream between the client
+and the protocol. Relative paths passed to tools resolve from the server process
+working directory.
+
+The server exposes three tools:
+
+| Tool | Contract |
+| --- | --- |
+| `a2_cli` | Run ordinary A2Utils arguments without the executable name. The server adds `--json`; recursive `mcp` invocation and `--quiet` are refused. The structured result contains the exit code and parsed envelope. Text content is a concise status for parsed JSON or the bounded raw output when no envelope can be parsed. |
+| `a2_capabilities` | Return the typed command tree, defaults, constraints, path roles, side effects, schemas, engines, and supported formats. |
+| `a2_schema` | Return one bundled schema by its discovery name. |
+
+`a2_cli` accepts 1–4,096 argument strings, each at most 32 KiB of UTF-8 and with
+no NUL character; their combined UTF-8 size is at most 1 MiB. Response-file
+expansion is disabled, so `@file` is passed literally. One complete MCP response
+is limited to 16 MiB. Commands retain their declared filesystem,
+external-process, and artifact side effects; use the capability metadata and the
+same explicit write options as direct CLI use. The server does not change the
+working directory or grant filesystem access beyond the launched process.

@@ -18,12 +18,14 @@ public static partial class ExecutionRunner
             diagnostics.Add(new("execution.cycles_timeout", "error", "The routine or measured code window did not finish before the deadline."));
             return;
         }
+        if (spec.Engine == "cpu" && observation.StopReason == "cpu_fault") return;
         int? start = spec.Cycles?.Start.Address ?? spec.Routine?.EntryPoint
             ?? (spec.Routine?.EntrySymbol is null ? spec.Routine?.Origin : null);
         int end = spec.Cycles?.End.Address ?? RoutineHarness.ReturnAddress;
         double after = spec.Cycles?.Start.AfterSeconds ?? spec.Routine!.StartAfterSeconds;
         long maximum = spec.Cycles?.MaxCycles ?? spec.Routine!.MaxCycles;
-        if (start.HasValue && cycles.StartAddress != start.Value || cycles.EndAddress != end || observation.EmulatedSeconds < after
+        if (start.HasValue && cycles.StartAddress != start.Value || cycles.EndAddress != end
+            || spec.Engine == "mame" && observation.EmulatedSeconds < after
             || cycles.Returned && observation.StopReason != (spec.Routine is null ? "cycle_complete" : "routine_return")
             || !cycles.Returned && observation.StopReason != "cycle_limit")
             diagnostics.Add(new("execution.cycles_evidence", "error", "Cycle measurement evidence disagrees with the requested interval."));

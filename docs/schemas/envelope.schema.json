@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:a2utils:schema:envelope:2",
+  "title": "A2Utils CLI envelope v2",
+  "type": "object",
+  "oneOf": [
+    {
+      "$ref": "urn:a2utils:schema:result:2"
+    },
+    {
+      "$ref": "urn:a2utils:schema:error:2"
+    }
+  ]
+}

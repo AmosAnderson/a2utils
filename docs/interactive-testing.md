@@ -58,12 +58,15 @@ normal paddle timers and switches.
 ## Direct routine harness
 
 A standalone `a2 run routine.test.json --artifacts NEW-DIRECTORY` can execute a
-routine without a disk. MAME and the machine ROMs are still required.
+routine without a disk. The default `mame` engine injects it into a running machine
+and still requires MAME and the machine ROMs. Set `engine: "cpu"` for a deterministic,
+in-process routine run with no emulator, ROM, or disk.
 
 ```json
 {
   "schemaVersion": 1,
-  "environment": "environment.json",
+  "engine": "cpu",
+  "machine": "apple2ee",
   "emulatedSeconds": 5,
   "routine": {
     "source": "routine.asm",
@@ -81,14 +84,30 @@ routine without a disk. MAME and the machine ROMs are still required.
 `routine.asm` could contain `STA $0300` followed by `RTS`. `kind: "binary"`
 accepts raw payload bytes without a DOS header. An assembly `entrySymbol` or a
 numeric `entryPoint` can select an entry within the payload. Code must fit
-$0800..$BFFF. Initial memory writes must fit main RAM, avoid code, and avoid
-$0100..$02FF, which the harness reserves for stack/return handling. A/X/Y default
+$0800..$BFFF. Initial memory writes must avoid code and `$0100..$02FF`, which the
+harness reserves for stack/return handling. MAME injection restricts them to main
+RAM; the CPU engine accepts the rest of the 16-bit flat address space. A/X/Y default
 to zero, P to $24 (interrupts disabled, decimal clear). Explicit register inputs
 may override these values. SP is $01FD; RTS returns to a breakpoint at $02FF.
-On IIe/IIc, injection selects main RAM, disables 80STORE/ALTZP, and restores ROM
-reads. Other machine state is the state reached by power-on and any preceding
-steps. This is a routine harness on a running machine, not a reset-free CPU
-sandbox or an operating-system loader.
+With MAME, IIe/IIc injection selects main RAM, disables 80STORE/ALTZP, and restores
+ROM reads. Other machine state is the state reached by power-on and any preceding
+steps.
+
+The CPU engine starts with zero-filled flat 64 KiB memory plus the routine and its
+declared initial memory. It maps `apple2`, `apple2p`, and `apple2e` to the documented
+MOS 6502 instruction set; `apple2ee` and `apple2c` select the Apple-compatible 65C02
+set. It implements the documented instructions, addressing modes, decimal arithmetic,
+the NMOS indirect-jump behavior, and instruction cycle accounting. Apple soft
+switches, ROM calls, interrupts, video, audio, keyboard, disks, ordered steps, and
+debug points are absent. I/O addresses behave as ordinary flat memory. The routine's
+`startAfterSeconds` is validated but has no delay effect.
+
+`maxCycles` bounds execution at instruction boundaries. `RTS` to the harness return
+sentinel produces `routine_return`; exceeding the budget produces `cycle_limit`; an
+opcode outside the selected documented instruction set produces `cpu_fault`.
+Assertions inspect final memory and PC/A/X/Y/P/S/SP values. With `trace: true`,
+`trace.tsv` contains every executed PC and opcode, before/after registers, cumulative
+cycles, and logical reads/writes. Trace evidence is capped at 16 MiB.
 
 The adapter snapshots the assembled payload, symbols, source map, and dependency
 hashes as `routine.bin` and `routine.json`. It revalidates source inputs before
@@ -111,11 +130,12 @@ code changes memory mapping or fails to reach the return breakpoint.
 
 Program/symbol references require `build --test`; standalone runs use numeric
 `address`. Start/end CPU addresses must differ. Measurement starts at the first
-start hit and ends before executing the end instruction. It uses MAME's CPU
+start hit and ends before executing the end instruction. MAME uses the CPU's
 `totalcycles` counter, including branches, page crossings, ROM calls and any
-interrupt work within the interval. A routine measurement includes its final
-RTS but excludes the caller's JSR. Budget enforcement stops at the next
-instruction boundary after the count exceeds the budget. Results include the
+interrupt work within the interval. The CPU engine computes cycles from the
+selected processor's documented instruction timings. A routine measurement
+includes its final RTS but excludes the caller's JSR. Budget enforcement stops
+at the next instruction boundary after the count exceeds the budget. Results include the
 start/end addresses, cycle count, and whether the end was reached. Debug,
 routine, cycle, and `until` stops are mutually exclusive. CPU mapping at the
 breakpoint determines which code executes at that address.

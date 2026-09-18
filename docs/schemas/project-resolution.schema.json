@@ -1,0 +1,202 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:a2utils:schema:project-resolution:1",
+  "title": "A2Utils resolved project result v1",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "manifestPath": {
+      "type": "string"
+    },
+    "projectRoot": {
+      "type": "string"
+    },
+    "outputPath": {
+      "type": "string"
+    },
+    "settings": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "target": { "type": "string" },
+        "cpu": { "type": "string" },
+        "runtime": { "type": "string" },
+        "checkMemory": { "type": "boolean" },
+        "basicWorkspaceBytes": { "type": "integer" },
+        "environmentPath": { "type": ["string", "null"] },
+        "toolchainLockPath": { "type": ["string", "null"] },
+        "execution": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "suite": { "type": "string" },
+                "diskDevice": { "enum": ["flop1", "flop2", "hard1", "hard2"] }
+              },
+              "required": ["suite", "diskDevice"]
+            }
+          ]
+        }
+      },
+      "required": ["target", "cpu", "runtime", "checkMemory", "basicWorkspaceBytes",
+        "environmentPath", "toolchainLockPath", "execution"]
+    },
+    "disk": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "fileSystem": { "enum": ["dos33", "prodos"] },
+        "container": { "enum": ["raw", "2mg"] },
+        "order": { "enum": ["dos", "prodos"] },
+        "blocks": { "type": "integer" },
+        "volumeName": { "type": "string" },
+        "volumeNumber": { "type": "integer" },
+        "templatePath": { "type": ["string", "null"] }
+      },
+      "required": ["fileSystem", "container", "order", "blocks", "volumeName",
+        "volumeNumber", "templatePath"]
+    },
+    "boot": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "sourcePath": { "type": "string" },
+            "kind": { "enum": ["asm", "binary"] },
+            "origin": { "const": 2048 },
+            "sectors": { "type": "integer", "minimum": 1, "maximum": 16 },
+            "payloadLength": { "type": "integer", "minimum": 0, "maximum": 4096 },
+            "payloadSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+            "action": { "const": "write-sectors" }
+          },
+          "required": ["sourcePath", "kind", "origin", "sectors", "payloadLength",
+            "payloadSha256", "action"]
+        }
+      ]
+    },
+    "files": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "sourcePath": { "type": "string" },
+          "imagePath": { "type": "string" },
+          "kind": { "type": "string" },
+          "type": { "type": "string" },
+          "origin": { "type": ["integer", "null"] },
+          "entryPoint": { "type": ["integer", "null"] },
+          "length": { "type": "integer" },
+          "memoryBank": { "type": "string" },
+          "overlayGroup": { "type": ["string", "null"] },
+          "resident": { "type": "boolean" },
+          "replace": { "type": "boolean" }
+        },
+        "required": ["sourcePath", "imagePath", "kind", "type", "origin", "entryPoint",
+          "length", "memoryBank", "overlayGroup", "resident", "replace"]
+      }
+    },
+    "assets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string" },
+          "sourcePath": { "type": "string" },
+          "kind": { "type": "string" },
+          "virtualOutputs": { "type": "array", "items": { "type": "string" } }
+        },
+        "required": ["name", "sourcePath", "kind", "virtualOutputs"]
+      }
+    },
+    "dependencies": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "role": { "type": "string" },
+          "path": { "type": "string" },
+          "sha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+          "exists": { "type": "boolean" }
+        },
+        "required": ["role", "path", "sha256", "exists"]
+      }
+    },
+    "toolRequirements": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string" },
+          "required": { "type": "boolean" },
+          "purpose": { "type": "string" },
+          "path": { "type": ["string", "null"] },
+          "expectedVersion": { "type": ["string", "null"] },
+          "available": { "type": ["boolean", "null"] }
+        },
+        "required": ["id", "required", "purpose", "path", "expectedVersion", "available"]
+      }
+    },
+    "memory": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string" },
+          "start": { "type": "integer", "minimum": 0, "maximum": 65535 },
+          "length": { "type": "integer", "minimum": 0, "maximum": 65536 },
+          "memoryBank": { "type": "string" },
+          "kind": { "type": "string" }
+        },
+        "required": ["name", "start", "length", "memoryBank", "kind"]
+      }
+    },
+    "diskPlan": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "imageSizeBytes": { "type": ["integer", "null"] },
+        "freeBytesBefore": { "type": ["integer", "null"] },
+        "compiledPayloadBytes": { "type": "integer" },
+        "bootSectorBytes": { "type": "integer", "minimum": 0, "maximum": 4096 },
+        "entries": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "imagePath": { "type": "string" },
+              "sourcePath": { "type": ["string", "null"] },
+              "kind": { "type": "string" },
+              "action": { "enum": ["add", "replace"] },
+              "type": { "type": "string" },
+              "origin": { "type": ["integer", "null"] },
+              "length": { "type": "integer", "minimum": 0 }
+            },
+            "required": ["imagePath", "sourcePath", "kind", "action", "type", "origin", "length"]
+          }
+        },
+        "directories": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["imageSizeBytes", "freeBytesBefore", "compiledPayloadBytes", "bootSectorBytes",
+        "entries", "directories"]
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": { "$ref": "urn:a2utils:schema:diagnostic:1" }
+    }
+  },
+  "required": ["schemaVersion", "manifestPath", "projectRoot", "outputPath", "settings",
+    "disk", "boot", "files", "assets", "dependencies", "toolRequirements", "memory", "diskPlan", "diagnostics"]
+}

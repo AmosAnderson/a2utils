@@ -37,6 +37,7 @@ using A2Utils.Core.Graphics;
 using A2Utils.Core.Operations;
 using A2Utils.Core.Programs;
 using A2Utils.Core.Projects;
+using A2Utils.Core.Setup;
 ```
 
 Unless a method says otherwise:
@@ -167,8 +168,9 @@ content is not exposed by Core operations.
 ## Disk sessions
 
 Source: [DiskSession.cs](../src/A2Utils.Core/Backends/DiskSession.cs),
-[DiskSession.Transfer.cs](../src/A2Utils.Core/Backends/DiskSession.Transfer.cs), and
-[DiskSession.Development.cs](../src/A2Utils.Core/Backends/DiskSession.Development.cs)
+[DiskSession.Transfer.cs](../src/A2Utils.Core/Backends/DiskSession.Transfer.cs),
+[DiskSession.Development.cs](../src/A2Utils.Core/Backends/DiskSession.Development.cs), and
+[DiskSession.Boot.cs](../src/A2Utils.Core/Backends/DiskSession.Boot.cs)
 
 ```csharp
 public sealed partial class DiskSession : IDisposable
@@ -216,6 +218,8 @@ public sealed partial class DiskSession : IDisposable
         string? type = null,
         ushort? auxType = null);
     public void SetTimestamps(string path, DateTime created, DateTime modified);
+    public byte[] ReadBootSectors(int count);
+    public void WriteBootSectors(byte[] sectors);
 
     public void Copy(
         string sourcePath,
@@ -329,6 +333,10 @@ All instance mutation methods require a writable, safe session:
   write permission unless the same call explicitly unlocks with `locked: false`.
 - `SetTimestamps` assigns creation and modification fields as supported by the
   open filesystem and is mainly used for reproducible staged project builds.
+- `ReadBootSectors` reads 1..16 complete 256-byte track-zero sectors in DOS
+  logical order. `WriteBootSectors` writes the same bounded representation and
+  requires a writable 140 KiB sector image. These are low-level bare-metal
+  operations; use a staged transaction and validate the result before commit.
 - `Flush` flushes filesystem and container state and forces writable stream data
   to disk. Individual mutation helpers also flush after a successful mutation.
 
@@ -434,6 +442,100 @@ copying an input. The creation callback must create the supplied path.
 Important transaction codes include `write.destination_required`,
 `write.source_alias`, `write.destination_exists`, `write.read_only`,
 `write.concurrent_change`, and `write.link_refused`.
+
+### `DiskDiff`
+
+```csharp
+public sealed record DiskEntrySnapshot(
+    string Path, bool IsDirectory, string Type, ushort AuxType, byte Access,
+    long Length, long StoredLength, long StorageSize, string? PayloadSha256,
+    string? StoredSha256, DateTime? Created, DateTime? Modified);
+public sealed record DiskEntryDifference(
+    string Path, string Action, DiskEntrySnapshot? Before, DiskEntrySnapshot? After,
+    IReadOnlyList<string> ChangedFields);
+public sealed record ByteDifference(long Offset, long Length);
+public sealed record DiskDifference(
+    int SchemaVersion, string BeforePath, string AfterPath,
+    string BeforeSha256, string AfterSha256, bool Identical,
+    DiskInfo BeforeInfo, DiskInfo AfterInfo,
+    IReadOnlyList<DiskEntryDifference> Entries,
+    IReadOnlyList<ByteDifference> ByteRanges, long DifferentByteCount,
+    bool ByteRangesTruncated);
+public static class DiskDiff
+{
+    public static DiskDifference Compare(
+        string beforePath,
+        string afterPath,
+        string? beforeOrder = null,
+        string? beforeFileSystem = null,
+        string? afterOrder = null,
+        string? afterFileSystem = null,
+        CancellationToken cancellationToken = default);
+}
+```
+
+`Compare` snapshots both inputs, opens their supported filesystems, and reports
+logical entry additions/removals/field changes together with whole-image byte
+ranges. It never modifies either input. Each image is limited to 34 MiB; at most
+4,096 physical ranges are retained, while `DifferentByteCount` remains complete
+and `ByteRangesTruncated` identifies omitted ranges.
+
+### Declarative disk change sets
+
+```csharp
+public sealed record DiskChangeSet
+{
+    public int SchemaVersion { get; init; } = 1;
+    public string? ExpectedSha256 { get; init; }
+    public DateTime Timestamp { get; init; } = new(2000, 1, 1);
+    public IReadOnlyList<DiskChange> Changes { get; init; } = [];
+}
+public sealed record DiskChange
+{
+    public string Action { get; init; } = "";
+    public string Path { get; init; } = "";
+    public string? Source { get; init; }
+    public string? Hex { get; init; }
+    public string? ExpectedSourceSha256 { get; init; }
+    public string? Type { get; init; }
+    public ushort? AuxType { get; init; }
+    public string? NewName { get; init; }
+    public bool Recursive { get; init; }
+    public bool Parents { get; init; }
+    public bool? Locked { get; init; }
+}
+public sealed record DiskChangeInput(string Path, string Sha256, long Length);
+public sealed record DiskChangePlan(
+    int SchemaVersion, string InputPath, string InputSha256,
+    string ChangeSetPath, string ChangeSetSha256, string PlanSha256,
+    string CandidateSha256, string FileSystem, string Order,
+    long? FreeBytesBefore, long? FreeBytesAfter,
+    IReadOnlyList<DiskChangeInput> Inputs,
+    IReadOnlyList<DiskEntryDifference> Changes);
+public sealed record DiskApplyResult(
+    ImageWriteResult Write, DiskChangePlan Plan, string OutputSha256);
+public static class DiskChangeSetRunner
+{
+    public static DiskChangePlan Plan(
+        string imagePath, string changeSetPath,
+        string? inputOrder = null, string? inputFileSystem = null,
+        CancellationToken cancellationToken = default);
+    public static DiskApplyResult Apply(
+        string imagePath, string changeSetPath, string? outputPath,
+        bool inPlace, bool overwrite, string? expectedInputSha256 = null,
+        string? expectedPlanSha256 = null, string? inputOrder = null,
+        string? inputFileSystem = null,
+        CancellationToken cancellationToken = default);
+}
+```
+
+`Plan` strictly loads 1..1,024 ordered `add`, `replace`, `delete`, `rename`,
+`mkdir`, or `attr` changes, applies them to disposable sibling images, validates
+the candidate, and returns reproducible input/change-set/payload/candidate hashes
+without committing an output. `Apply` repeats that preflight, can require the
+input and plan hashes, rechecks every input, and commits the same candidate through
+`ImageTransactions`. Change-set JSON is limited to 1 MiB, each source payload to
+32 MiB, and combined source payloads to 128 MiB.
 
 ### `ImageConverter`
 
@@ -647,11 +749,31 @@ public sealed record ProgramDiagnostic(
     int? BasicLine = null,
     string? Symbol = null,
     string? Expected = null,
-    string? Actual = null);
+    string? Actual = null)
+{
+    public int? EndLine { get; init; }
+    public int? EndColumn { get; init; }
+    public string? JsonPointer { get; init; }
+    public string? Phase { get; init; }
+    public string? Tool { get; init; }
+    public string? HelpUri { get; init; }
+    public IReadOnlyList<DiagnosticRelatedLocation> Related { get; init; } = [];
+    public IReadOnlyList<DiagnosticFix> Fixes { get; init; } = [];
+}
+public sealed record DiagnosticRelatedLocation(
+    string Message, string? File = null, int? Line = null, int? Column = null,
+    int? EndLine = null, int? EndColumn = null, string? JsonPointer = null);
+public sealed record DiagnosticEdit(
+    string File, string Replacement, int? Line = null, int? Column = null,
+    int? EndLine = null, int? EndColumn = null, string? JsonPointer = null);
+public sealed record DiagnosticFix(
+    string Description, IReadOnlyList<DiagnosticEdit> Edits);
 ```
 
-A source/build/runtime diagnostic. Physical `Line`/`Column`, logical
-`BasicLine`, `Symbol`, and comparison values are populated only when relevant.
+A source/build/runtime diagnostic. Physical source ranges, logical `BasicLine`,
+JSON Pointer, phase/tool, symbol, comparison values, related locations,
+documentation, and machine-applicable replacement edits are populated only when
+relevant. `Code` and `Severity` remain the stable routing fields.
 
 ### `ProgramFiles`
 
@@ -1209,13 +1331,17 @@ public sealed record ProjectManifest
     public ProjectDisk Disk { get; init; } = new();
     public DateTime Timestamp { get; init; } = new(2000, 1, 1);
     public List<ProjectFile> Files { get; init; } = [];
+    public List<ProjectAsset> Assets { get; init; } = [];
     public List<MemoryRegion> Reserve { get; init; } = [];
     public bool CheckMemory { get; init; } = true;
     public int BasicWorkspaceBytes { get; init; }
     public string Runtime { get; init; } = "auto";
     public ProjectStartup? Startup { get; init; }
+    public ProjectBoot? Boot { get; init; }
     public Cc65Options? Cc65 { get; init; }
     public ProjectExecutionSettings? Execution { get; init; }
+    public string? Environment { get; init; }
+    public string? ToolchainLock { get; init; }
 }
 
 public sealed record ProjectDisk
@@ -1254,6 +1380,14 @@ public sealed record ProjectStartup
     public bool Replace { get; init; }
 }
 
+public sealed record ProjectBoot
+{
+    public string Source { get; init; } = "";
+    public string Kind { get; init; } = "asm";
+    public ushort Origin { get; init; } = 0x0800;
+    public int Sectors { get; init; } = 1;
+}
+
 public sealed record MemoryRegion(string Name, int Start, int Length,
     string MemoryBank = "main", string Kind = "data");
 ```
@@ -1269,7 +1403,9 @@ for inference and conflict behavior.
 extends resident BASIC ranges. `Reserve` adds caller-defined occupied memory.
 `CheckMemory: false` disables overlap checks but not address-range validation.
 `Startup` generates a BASIC RUN/BRUN launcher only when building from an OS
-template, and must target a main-memory program.
+template, and must target a main-memory program. `Boot` instead compiles or reads
+1..16 original 256-byte sectors at `$0800` for a 280-block DOS-order DOS 3.3
+image; it does not supply an operating system.
 
 `MemoryBank` accepts `main`, `aux`, `lc1`, `lc2`, `aux-lc1`, and `aux-lc2`.
 Main/auxiliary payloads fit `$0000-$BFFF`; language-card payloads fit
@@ -1325,21 +1461,35 @@ public sealed record ProjectBuildResult(
     IReadOnlyList<BuildInput> Inputs,
     IReadOnlyList<BuiltFile> Files,
     IReadOnlyList<MemoryRegion> Memory,
-    IReadOnlyList<ProgramDiagnostic> Diagnostics);
+    IReadOnlyList<ProgramDiagnostic> Diagnostics)
+{
+    public IReadOnlyList<ProjectAssetReport> Assets { get; init; } = [];
+    public bool CheckOnly { get; init; }
+    public bool Preflight { get; init; }
+    public ProjectBuildPlan? Plan { get; init; }
+    public ProjectExecutionSettings? Execution { get; init; }
+    public BuiltBoot? Boot { get; init; }
+    public bool CacheHit { get; init; }
+}
+
+public sealed record BuiltBoot(
+    string Source, string Kind, int Origin, int Sectors,
+    int Length, string Sha256);
 ```
 
 Paths and hashes identify exact captured inputs and outputs. A `BuiltFile`
 contains effective metadata after kind-specific inference. `Symbols` and
 `SourceMap` are populated for native assembly/BASIC mappings and compiler
 reports as applicable. `Memory` lists resident occupied ranges, not built-in
-reservations. `Bootability` is `data-volume` for a new format or
+reservations. `Bootability` is `data-volume` for an ordinary new format,
+`self-booting-unverified` for declared original boot sectors, or
 `template-preserved-unverified` for a copied template. In check-only mode no
 image is produced and `Sha256` is the empty string.
 
-`ProjectBuildResult` also has additive init properties `CheckOnly`, `Preflight`,
-`ProjectBuildPlan? Plan`, and `ProjectExecutionSettings? Execution`. `Plan` is
+`Plan` is
 populated for real builds and full preflight; execution suite paths in results
-are absolute. The additional records are:
+are absolute. `CacheHit` is true only when `ProjectBuildCache` restored a
+validated cached image. The additional records are:
 
 ```csharp
 public sealed record ProjectFileChange(string Path, string Action, long? PreviousLength, int Length);
@@ -1454,10 +1604,22 @@ public sealed record Cc65Result(
     public IReadOnlyList<BuildInput> ToolchainInputs { get; init; } = [];
     public IReadOnlyDictionary<string, int> Symbols { get; init; }
     public IReadOnlyList<Cc65Segment> Segments { get; init; } = [];
+    public string Debug { get; init; } = "";
+    public IReadOnlyList<AssemblySourceMapEntry> SourceMap { get; init; } = [];
     public IReadOnlyList<ProgramDiagnostic> Diagnostics { get; init; } = [];
 }
 
 public sealed record Cc65Segment(string Name, int Start, int Length, string Kind);
+public sealed record Cc65SourceMap(
+    string CompilerVersion,
+    string CompilerPath,
+    string Map,
+    string Labels,
+    IReadOnlyList<Cc65Segment> Segments,
+    IReadOnlyList<AssemblySourceMapEntry> Entries)
+{
+    public string Format { get; init; } = "cc65-dbg-2.0";
+}
 
 public static class Cc65Compiler
 {
@@ -1481,17 +1643,118 @@ staging, without relaxing link checks on caller-supplied paths. Cleanup is bound
 and best-effort so a lingering compiler-process lock cannot mask the compile result.
 
 The compiler is resolved as an explicit path or from `PATH`, version-probed,
-then run with map and VICE-label output. A nonzero compiler exit raises
+then run with map, VICE-label, and ld65 v2 debug output. A nonzero compiler exit raises
 `cc65.compile_failed` with a diagnostic. Timeout kills the process tree and uses
 `cc65.timeout`; missing/start failures use exit code 5. The returned AppleSingle
 has already passed `AppleSingleProgram.Decode`, but consumers still decode it
 to obtain the data fork/type/auxiliary value. See [cc65 reproducibility limits](cc65.md).
 Located compiler diagnostics map staged sources back to original paths. Parsed
 VICE symbols and ld65 segments feed project symbols and runtime footprints.
+Validated debug file/line/span records feed stable original-source address ranges;
+unmapped external or generated-intermediate files are omitted. Debug input is
+limited to 4 MiB and 131,072 records, and mapped coverage is limited to 1 MiB.
 `LinkerConfig` selects a validated project-local single-output `.cfg`; `SegmentBanks`
 assigns runtime segment banks. `ToolchainRoot` selects and fingerprints bounded
 distribution trees. Optional `generatedInputs` supplies absolute project paths
 and bytes for isolated compilation without writing generated host source files.
+
+### Project inspection and import
+
+`ProjectResolver.Inspect` exposes the same resolved manifest inputs used by a
+build while leaving the declared output untouched:
+
+```csharp
+public sealed record ProjectResolvedSettings(
+    string Target, string Cpu, string Runtime, bool CheckMemory,
+    int BasicWorkspaceBytes, string? EnvironmentPath,
+    string? ToolchainLockPath, ProjectExecutionSettings? Execution);
+public sealed record ProjectResolvedDisk(
+    string FileSystem, string Container, string Order, int Blocks,
+    string VolumeName, int VolumeNumber, string? TemplatePath);
+public sealed record ProjectResolvedBoot(
+    string SourcePath, string Kind, int Origin, int Sectors,
+    int PayloadLength, string PayloadSha256, string Action);
+public sealed record ProjectResolvedFile(
+    string SourcePath, string ImagePath, string Kind, string Type,
+    int? Origin, int? EntryPoint, int Length, string MemoryBank,
+    string? OverlayGroup, bool Resident, bool Replace);
+public sealed record ProjectResolvedAsset(
+    string Name, string SourcePath, string Kind,
+    IReadOnlyList<string> VirtualOutputs);
+public sealed record ProjectDependency(
+    string Role, string Path, string? Sha256, bool Exists);
+public sealed record ProjectToolRequirement(
+    string Id, bool Required, string Purpose, string? Path,
+    string? ExpectedVersion, bool? Available);
+public sealed record ProjectPlannedEntry(
+    string ImagePath, string? SourcePath, string Kind, string Action,
+    string Type, int? Origin, int Length);
+public sealed record ProjectResolutionDiskPlan(
+    long? ImageSizeBytes, long? FreeBytesBefore, long CompiledPayloadBytes,
+    long BootSectorBytes, IReadOnlyList<ProjectPlannedEntry> Entries,
+    IReadOnlyList<string> Directories);
+public sealed record ProjectResolutionResult(
+    int SchemaVersion, string ManifestPath, string ProjectRoot,
+    string OutputPath, ProjectResolvedSettings Settings,
+    ProjectResolvedDisk Disk, ProjectResolvedBoot? Boot,
+    IReadOnlyList<ProjectResolvedFile> Files,
+    IReadOnlyList<ProjectResolvedAsset> Assets,
+    IReadOnlyList<ProjectDependency> Dependencies,
+    IReadOnlyList<ProjectToolRequirement> ToolRequirements,
+    IReadOnlyList<MemoryRegion> Memory, ProjectResolutionDiskPlan DiskPlan,
+    IReadOnlyList<ProgramDiagnostic> Diagnostics);
+public static class ProjectResolver
+{
+    public static ProjectResolutionResult Inspect(
+        string manifestPath,
+        CancellationToken cancellationToken = default);
+}
+
+public sealed record ImportedProjectFile(
+    string ImagePath, string SourcePath, string Kind,
+    bool Editable, string? Reason);
+public sealed record ProjectImportResult(
+    int SchemaVersion, string Directory, string ProjectPath,
+    string TemplatePath, string InputSha256,
+    IReadOnlyList<ImportedProjectFile> Files,
+    IReadOnlyList<string> Diagnostics);
+public static class ProjectImporter
+{
+    public static ProjectImportResult Import(
+        string imagePath, string destination,
+        bool disassembleBinaries = false, string target = "apple2e",
+        string? inputOrder = null, string? inputFileSystem = null,
+        CancellationToken cancellationToken = default);
+}
+```
+
+`ProjectResolutionResult` contains the absolute manifest, project root, and
+output paths; effective target, CPU, runtime, environment, execution, and disk
+settings; compiled file metadata and assets; hashed direct/transitive
+dependencies; external-tool requirements; occupied memory; and a disk-entry
+plan. Inspection uses check-only compilation, so cc65 sources can invoke the
+configured compiler in temporary storage, but it does not create the output
+image or its parent directory. The corresponding schema is
+[project-resolution.schema.json](schemas/project-resolution.schema.json).
+
+The nullable resolved `Boot` record contains its absolute source path, kind,
+origin, sector count, emitted payload length/hash, and `write-sectors` action.
+The disk plan counts emitted boot bytes in `CompiledPayloadBytes` and reports the
+full padded sector span as `BootSectorBytes`. When execution is configured,
+inspection loads every suite case without running an engine and adds hashed
+dependencies for suite/spec/profile/lock files, routine sources and assembler
+includes, visual expectations, and auxiliary disks. MAME cases produce separate
+`mame` executable and `mame-roms` directory requirements. Each reports a path or
+expected version only when every case resolves to one common value, and reports
+availability from the resolved host paths. The project build mount is excluded
+because the workflow replaces it with the future output.
+
+`ProjectImporter.Import` creates a new project directory from a verified image.
+It writes a hash-pinned template, strict manifest, exported editable sources,
+locked reference files, and an import report. Optional binary disassembly emits
+reassemblable source for load-addressed files; input order and filesystem may be
+overridden explicitly. The source image is limited to 34 MiB, the destination
+must not exist, and `target` is resolved through `TargetProfiles` before staging.
 
 ### `ProjectBuilder`
 
@@ -1531,6 +1794,37 @@ Failures primarily use `project.*`; compilation and lower-level disk/graphics
 errors can propagate with their own codes. Source diagnostics are attached for
 BASIC checking, assembly, memory overlap, and external compiler failures.
 
+### `ProjectBuildCache`
+
+```csharp
+public static class ProjectBuildCache
+{
+    public static ProjectBuildResult Build(
+        string manifestPath,
+        string cacheDirectory,
+        string? outputPath = null,
+        bool overwrite = false,
+        CancellationToken cancellationToken = default);
+}
+```
+
+This opt-in library API stores complete validated images by content. A cache hit
+requires matching hashes for every recorded input and the current library
+version, then revalidates the cached image hash, filesystem, and structure before
+transactionally restoring it to the requested output. It rechecks inputs during
+the restore and sets `ProjectBuildResult.CacheHit` to `true`; a normal build or
+cache miss reports `false`.
+
+The output must be outside the cache directory. Cache metadata and images are
+bounded to 1,024 entries per normalized manifest path, 8 MiB per metadata entry,
+34 MiB per image, and 8,192 inputs of at most 64 MiB each and 512 MiB combined.
+A build remains successful and uncached when new metadata
+would cross a limit or another writer owns the manifest cache lock; over-limit
+caches are refused rather than silently pruned. Cache files are implementation
+data and should not be edited or treated as build artifacts. The
+CLI exposes the same opt-in behavior through `a2 build --cache DIRECTORY` for
+normal builds; builds without that option do not read or populate the cache.
+
 ### `ProjectWorkflow`
 
 ```csharp
@@ -1543,6 +1837,9 @@ public static class ProjectWorkflow
 {
     public static ProjectWorkflowResult Run(string manifestPath, string artifactDirectory,
         string? outputPath = null, bool overwrite = false, CancellationToken cancellationToken = default);
+    public static ProjectWorkflowResult Run(string manifestPath, string artifactDirectory,
+        string? outputPath, bool overwrite, ExecutionSuiteRunOptions suiteOptions,
+        CancellationToken cancellationToken = default);
     public static bool HasAssertions(ExecutionSpec spec);
 }
 ```
@@ -1550,18 +1847,23 @@ public static class ProjectWorkflow
 `Run` requires manifest execution settings. It preflights, validates suite inputs
 and symbols, builds with input/image hash guards before commit, and runs each
 case with the selected mount pinned to the build. Other disks are also pinned.
-The artifact directory must be new. Invalid manifest/suite fields, missing input
-files, and input/hash conflicts are rejected before output replacement. Runtime
-setup failures (such as a wrong emulator version or invalid ROMs), behavioral
-failures, and later artifact I/O failures retain a successfully committed image.
-`HasAssertions` expects validated fields and counts symbolic assertions and explicit
-disk verification. See [project testing](projects.md#build-and-test-together) for
+The artifact directory must be new unless `suiteOptions.CreateRunSubdirectory`
+creates a unique child beneath the supplied parent. Invalid manifest/suite fields,
+missing input files, and input/hash conflicts are rejected before output
+replacement. Runtime setup failures (such as a wrong emulator version or invalid
+ROMs), behavioral failures, and later artifact I/O failures retain a successfully
+committed image.
+`HasAssertions` expects validated fields and counts assertions, bounded debug/
+routine/cycle conditions, symbolic assertions, and explicit disk verification.
+See [project testing](projects.md#build-and-test-together) for
 target matching, reports, cancellation, and source-map limits.
 
-## MAME execution
+## Execution engines
 
-Sources: [Execution](../src/A2Utils.Core/Execution). The adapter is pinned to
-MAME 0.289; no emulator or ROM is bundled. See [automated execution](execution.md).
+Sources: [Execution](../src/A2Utils.Core/Execution). MAME is the compatible default
+and its adapter is pinned to 0.289; no emulator or ROM is bundled. The `cpu` engine
+runs bounded 6502/Apple-compatible 65C02 routines in-process. See
+[automated execution](execution.md).
 
 ### Execution specifications
 
@@ -1570,10 +1872,15 @@ public sealed record ExecutionSpec
 {
     public int SchemaVersion { get; init; } = 1;
     public string Name { get; init; } = "run";
+    public string Engine { get; init; } = "mame";
     public string EmulatorPath { get; init; } = "";
     public string ExpectedVersion { get; init; } = MameAdapter.ApiVersion;
     public string Machine { get; init; } = "";
     public string RomDirectory { get; init; } = "";
+    public string? Environment { get; init; }
+    public string? ToolchainLock { get; init; }
+    public string StorageProfile { get; init; } = "floppy";
+    public string GamePort { get; init; } = "none";
     public string DiskImage { get; init; } = "";
     public string DiskDevice { get; init; } = "flop1";
     public IReadOnlyList<ExecutionDisk> Disks { get; init; } = [];
@@ -1583,7 +1890,11 @@ public sealed record ExecutionSpec
     public double EmulatedSeconds { get; init; } = 15;
     public double HostTimeoutSeconds { get; init; } = 60;
     public IReadOnlyList<ExecutionKeys> Keys { get; init; } = [];
+    public IReadOnlyList<ExecutionStep> Steps { get; init; } = [];
+    public IReadOnlyList<string> TextNotContains { get; init; } = [];
+    public bool CheckBasicRuntime { get; init; }
     public IReadOnlyList<MemoryAssertion> Memory { get; init; } = [];
+    public IReadOnlyList<GraphicsMemoryAssertion> GraphicsMemory { get; init; } = [];
     public IReadOnlyList<MemoryCapture> ObserveMemory { get; init; } = [];
     public IReadOnlyList<RegisterAssertion> Registers { get; init; } = [];
     public IReadOnlyList<string> TextContains { get; init; } = [];
@@ -1591,8 +1902,12 @@ public sealed record ExecutionSpec
     public int TextPage { get; init; } = 1;
     public int TextColumns { get; init; } = 40;
     public bool DecodeIIeText { get; init; }
+    public ExecutionRoutine? Routine { get; init; }
+    public ExecutionCycleMeasurement? Cycles { get; init; }
     public ExecutionDebug? Debug { get; init; }
     public bool Screenshot { get; init; }
+    public ScreenshotAssertion? ScreenshotAssertion { get; init; }
+    public ExecutionAudioOptions? Audio { get; init; }
     public bool Trace { get; init; }
 
     public static JsonSerializerOptions JsonOptions { get; }
@@ -1609,15 +1924,32 @@ public sealed record CompletionCondition(
     int Address,
     int Value,
     double AfterSeconds = 0, string Bank = "cpu");
+public sealed record GraphicsMemoryAssertion(
+    string ExpectedImage, string Mode, int Page = 1, string Bank = "cpu");
+public sealed record ExecutionGraphicsMemoryResult(
+    string Mode, int Page, string Bank, string ExpectedImage,
+    string ExpectedSha256, bool Passed, int MismatchedBytes,
+    string? FirstMismatch, VisualComparisonResult? Pixels,
+    string ExpectedPreview, string? ActualPreview, string? DifferenceImage)
+{
+    public int? StepIndex { get; init; }
+    public string? StepName { get; init; }
+}
 ```
 
 `Load` strictly decodes JSON with camel-case names, required `schemaVersion`, no
 unknown/duplicate properties, and maximum depth 32. It resolves emulator, ROM,
-and disk paths relative to the specification file. JSON failures become
+environment/lock, disk, routine-source, screenshot, and graphics-expectation
+paths relative to the specification file. JSON failures become
 `execution.invalid_spec`; host read failures propagate. `ResolvePaths` performs
-the same path resolutions, including explicit disk mounts, for a record constructed
-in code. `GetDisks` normalizes legacy single-image fields into one mount; validate
-untrusted specifications before using it.
+the same path resolutions, including explicit disk mounts and step graphics, for
+a record constructed in code. `GetDisks` normalizes legacy single-image fields
+into one mount; validate untrusted specifications before using it.
+
+`Engine` selects `mame` or `cpu`; omission keeps the MAME behavior. CPU execution
+requires a disk-free routine and a machine name, but no emulator or ROM path.
+`apple2`, `apple2p`, and `apple2e` select the MOS 6502; `apple2ee` and `apple2c`
+select the Apple-compatible 65C02 instruction set.
 
 Times are finite seconds since power-on. Key text is posted through MAME's
 natural keyboard. Memory hex may contain spaces. Register names are uppercase
@@ -1645,6 +1977,9 @@ public static class BuildExecution
     public static ExecutionSpec Bind(ExecutionSpec spec, ProjectBuildResult build, string device = "flop1");
     public static int ResolveAddress(ProjectBuildResult build, string program, string symbol, int offset = 0);
     public static IReadOnlyList<ExecutionSourceLocation> Locate(ProjectBuildResult build, ExecutionResult result);
+    public static IReadOnlyList<ExecutionSourceLocation> Locate(ProjectBuildResult build, ExecutionResult result,
+        ExecutionSpec? source);
+    public static string? WriteSourceTrace(ProjectBuildResult build, ExecutionResult result);
     public static ExecutionResult Annotate(ExecutionSpec source, ProjectBuildResult build, ExecutionResult result);
 }
 ```
@@ -1652,8 +1987,12 @@ public static class BuildExecution
 `Bind` requires a full build/preflight hash, replaces the selected mount, resolves
 symbols, clears symbolic fields, and validates the resulting specification.
 `ResolveAddress` resolves one exported symbol plus offset into a 16-bit address.
-`Locate` uses in-memory native assembly maps and final/unique sampled PCs;
-serialized opaque `SourceMap` objects are not automatically rehydrated.
+`Locate` uses native assembly and cc65 source maps with final/unique MAME
+sampled PCs; the overload with a source specification also retains unique CPU
+instruction PCs and the routine source columns already recorded in its trace.
+`ProjectBuildCache` rehydrates the supported assembly, BASIC/basic-labels, and
+cc65 source-map representations when restoring cached build results. Arbitrary
+caller-supplied opaque `SourceMap` objects have no general rehydration contract.
 `Annotate` adds symbol names and available source locations to symbolic memory
 failures. Disk mount and assertion limits are in
 [execution disk assertions](execution.md#multiple-disks-and-saved-file-assertions).
@@ -1699,6 +2038,7 @@ public static class AppleIIeMemory
 }
 public static class AppleIIeTextDecoder
 {
+    public static string CreateLuaDecoder();
     public static AppleIIeTextScreen Decode(ReadOnlySpan<byte> mainPage,
         ReadOnlySpan<byte> auxiliaryPage, int columns, bool alternateCharacterSet,
         bool mouseTextSupported = true);
@@ -1709,11 +2049,13 @@ public sealed record AppleIIeTextCell(int Row, int Column, string Bank, int Offs
     byte Value, string Text, string DisplayMode, int? MouseTextIndex);
 ```
 
-`Decode` requires one complete 1024-byte main page and, for 80 columns, one
-auxiliary page. It preserves inverse/flashing attributes and enhanced-machine
-MouseText indices. Unenhanced IIe callers pass `mouseTextSupported: false`.
+`CreateLuaDecoder` returns the equivalent bounded byte-decoder used by generated
+execution scripts. `Decode` requires one complete 1024-byte main page and, for
+80 columns, one auxiliary page. It preserves inverse/flashing attributes and
+enhanced-machine MouseText indices. Unenhanced IIe callers pass
+`mouseTextSupported: false`.
 
-### `ExecutionSuite`
+### `ExecutionSuite` and `ExecutionSuiteRunner`
 
 ```csharp
 public sealed record ExecutionSuite
@@ -1723,13 +2065,61 @@ public sealed record ExecutionSuite
 
     public static ExecutionSuite Load(string path);
 }
+
+public sealed record ExecutionSuiteRunOptions
+{
+    public IReadOnlyList<string> Filters { get; init; } = [];
+    public int Jobs { get; init; } = 1;
+    public string? RerunFailedPath { get; init; }
+    public bool WriteProgress { get; init; }
+    public bool CreateRunSubdirectory { get; init; }
+}
+public sealed record ExecutionSuiteCaseInfo(
+    int Index, string Id, string Path, string Name, bool Selected);
+public sealed record ExecutionSuitePlan(
+    int SchemaVersion, string SuitePath, int Discovered, int Planned,
+    IReadOnlyList<ExecutionSuiteCaseInfo> Cases);
+public sealed record ExecutionSuiteCounts(
+    int Planned, int Completed, int Passed, int Failed,
+    int Cancelled, int NotRun);
+public sealed record ExecutionSuiteCaseResult(
+    int Index, string Id, string Path, string Name, bool Selected,
+    string Status, string? ArtifactDirectory);
+public sealed record ExecutionSuiteEvent(
+    int SchemaVersion, long Sequence, string Event, ExecutionSuiteCounts Counts)
+{
+    public int? Index { get; init; }
+    public string? Id { get; init; }
+    public string? Path { get; init; }
+    public string? Name { get; init; }
+    public string? Status { get; init; }
+    public string? ArtifactDirectory { get; init; }
+}
+public static class ExecutionSuiteRunner
+{
+    public static ExecutionSuitePlan Plan(
+        string suitePath, ExecutionSuiteRunOptions? options = null);
+    public static ExecutionSuiteResult Run(
+        string suitePath, string artifactDirectory,
+        ExecutionSuiteRunOptions? options = null,
+        CancellationToken cancellationToken = default);
+    public static Task<ExecutionSuiteResult> RunAsync(
+        string suitePath, string artifactDirectory,
+        ExecutionSuiteRunOptions? options = null,
+        CancellationToken cancellationToken = default);
+}
 ```
 
 `Load` accepts schema version 1 with 1..128 nonblank test paths and resolves
 them relative to the suite file. Invalid JSON or suite shape uses
-`execution.invalid_suite`. Core exposes no aggregate suite runner; callers can
-load each `ExecutionSpec` and invoke `ExecutionRunner`, while the CLI implements
-the documented sequential suite orchestration.
+`execution.invalid_suite`. `Plan` loads and intrinsically validates every case,
+applies up to 32 case-insensitive name/path filters of at most 256 characters,
+and can select failures from an earlier `suite-result.json` without creating
+artifacts. `Run` and `RunAsync` use stable suite indexes for case identities and
+artifact directory names, run sequentially by default, and accept `Jobs` from
+1 through 16 for bounded parallel execution. They can flush ordered progress
+events and create a unique child beneath an artifact parent. Cancellation stops
+new work and records selected cases that did not start.
 
 ### `MameAdapter`
 
@@ -1757,8 +2147,9 @@ public static partial class MameAdapter
 ```
 
 `Validate` enforces schema/version, machine (`apple2`, `apple2p`, `apple2e`,
-`apple2ee`, or `apple2c`), explicit paths, `flop1`/`flop2`, time bounds, count
-limits, unique register names/memory start addresses, and assertion ranges.
+`apple2ee`, or `apple2c`), explicit paths, compatible `flop1`/`flop2` or CFFA2
+`hard1`/`hard2` mounts, time bounds, count limits, unique register names/memory
+start addresses, and assertion ranges.
 Memory and completion reads must stay within `$0000-$BFFF` or `$D000-$FFFF` so
 I/O soft-switch reads are excluded. Total observed memory is at most 65,536
 bytes. Errors use `execution.invalid_spec`.
@@ -1788,7 +2179,16 @@ public sealed record ExecutionObservation(
     double EmulatedSeconds,
     IReadOnlyDictionary<string, long> Registers,
     IReadOnlyDictionary<int, string> Memory,
-    string ScreenText);
+    string ScreenText)
+{
+    public IReadOnlyList<ExecutionMemory> BankMemory { get; init; } = [];
+    public ExecutionCycleResult? Cycles { get; init; }
+    public ExecutionDebugResult? Debug { get; init; }
+    public IReadOnlyDictionary<string, string> TextPages { get; init; } = new Dictionary<string, string>();
+    public IReadOnlyDictionary<string, int> Video { get; init; } = new Dictionary<string, int>();
+    public AppleIIeTextScreen? TextScreen { get; init; }
+    public IReadOnlyList<ExecutionStepResult> Steps { get; init; } = [];
+}
 
 public sealed record ExecutionResult(
     int SchemaVersion,
@@ -1803,12 +2203,37 @@ public sealed record ExecutionResult(
     string? InputSha256,
     string ArtifactDirectory,
     IReadOnlyList<string> Artifacts,
-    IReadOnlyList<ProgramDiagnostic> Diagnostics);
+    IReadOnlyList<ProgramDiagnostic> Diagnostics)
+{
+    public IReadOnlyList<ExecutionDiskResult> Disks { get; init; } = [];
+    public IReadOnlyList<ExecutionMemory> BankMemory { get; init; } = [];
+    public IReadOnlyList<ExecutionStepResult> Steps { get; init; } = [];
+    public IReadOnlyList<ExecutionCheckpoint> Checkpoints { get; init; } = [];
+    public ExecutionAudioResult? Audio { get; init; }
+    public ExecutionEnvironmentEvidence? Environment { get; init; }
+    public ExecutionCycleResult? Cycles { get; init; }
+    public ExecutionDebugResult? Debug { get; init; }
+    public AppleIIeTextScreen? TextScreen { get; init; }
+    public ExecutionScreenshotResult? ScreenshotComparison { get; init; }
+    public IReadOnlyList<ExecutionGraphicsMemoryResult> GraphicsMemory { get; init; } = [];
+    public IReadOnlyDictionary<string, int> Video { get; init; } = new Dictionary<string, int>();
+}
+
+public sealed record ExecutionDiskResult(
+    string Device, string InputPath, string ArtifactPath,
+    string InputSha256, string? OutputSha256);
 
 public sealed record ExecutionSuiteResult(
     int SchemaVersion,
     bool Passed,
-    IReadOnlyList<ExecutionResult> Tests);
+    IReadOnlyList<ExecutionResult> Tests)
+{
+    public string SuitePath { get; init; } = "";
+    public string ArtifactDirectory { get; init; } = "";
+    public ExecutionSuiteCounts Counts { get; init; } = new(0, 0, 0, 0, 0, 0);
+    public IReadOnlyList<ExecutionSuiteCaseResult> Cases { get; init; } = [];
+    public bool Cancelled { get; init; }
+}
 ```
 
 An observation is the parsed adapter output before assertions are applied.
@@ -1819,10 +2244,10 @@ diagnostic. Optional values can be null when execution fails before capture.
 `result.json`. `ExecutionSuiteResult` is the aggregate data contract used by
 suite orchestration; constructing it performs no validation.
 
-`ExecutionResult` also has `IReadOnlyList<ExecutionDiskResult> Disks { get; init; }`
-(default empty), where `ExecutionDiskResult` contains `Device`, `InputPath`,
-`ArtifactPath`, `InputSha256`, and nullable `OutputSha256` strings. The legacy
-`InputSha256` is the first mount's input hash.
+The legacy `ExecutionResult.InputSha256` is the first mount's input hash.
+Graphics-memory comparisons include byte/pixel differences and reviewable
+preview paths. Suite counts and case records preserve planned selection and
+stable original indexes even when cases execute in parallel.
 
 `ExecutionRunner.EvaluateDisks(ExecutionSpec spec,
 IReadOnlyDictionary<string, string> copiedDisks,
@@ -1836,6 +2261,8 @@ inspection failures as diagnostics, and does not modify original images.
 ```csharp
 public static partial class ExecutionRunner
 {
+    public static void Validate(ExecutionSpec spec);
+
     public static ExecutionResult Run(
         ExecutionSpec spec,
         string artifactDirectory,
@@ -1850,37 +2277,67 @@ public static partial class ExecutionRunner
         ExecutionSpec spec,
         ExecutionObservation observation);
 
+    public static IReadOnlyList<ProgramDiagnostic> EvaluateDisks(
+        ExecutionSpec spec,
+        IReadOnlyDictionary<string, string> copiedDisks,
+        CancellationToken cancellationToken = default);
+
+    public static bool ConditionMatches(
+        ExecutionCondition condition,
+        ExecutionObservation observation);
+
     public static ExecutionObservation ParseObservation(
         string text,
         string screenText);
 }
 ```
 
-`Run` synchronously waits for `RunAsync`. A run requires a new artifact directory,
-a regular disk image no larger than 64 MiB, an existing ROM directory, and an
-executable whose version is exactly `MameAdapter.ApiVersion`. It copies the disk,
-writes resolved spec/command/Lua evidence, version-probes MAME, launches it with
-an independent host watchdog, drains bounded logs, parses observations, evaluates
-assertions, enumerates artifacts, and writes `result.json`. MAME receives only the
-disposable disk copy.
+`Validate` dispatches strict validation to the selected engine. `Run` synchronously
+waits for `RunAsync`. Every run requires a new artifact directory. MAME additionally
+requires bounded disk images, an existing ROM directory, and an executable whose
+version is exactly `MameAdapter.ApiVersion`; it receives only disposable disk copies.
+The CPU engine assembles or reads one routine, executes it in flat memory, evaluates
+final assertions, and writes the same result envelope and routine evidence without
+launching an external process.
 
 Spec/path validation errors before the run starts throw. Once execution is under
 way, timeout, cancellation, missing emulator, ROM/version mismatch, emulator
 exit, malformed/missing adapter output, and assertion failures normally return
 a failed `ExecutionResult` with stable diagnostics instead of throwing.
-`StopReason` can be `completion_condition`, `emulated_limit`, `host_timeout`,
+`StopReason` can be `routine_return`, `cycle_limit`, `cpu_fault`,
+`completion_condition`, `emulated_limit`, `host_timeout`,
 `cancelled`, `version_mismatch`, `rom_mismatch`, `emulator_unavailable`,
-`emulator_error`, `adapter_error`, or `missing_observations`. The newly created
+`emulator_error`, `adapter_error`, `missing_observations`, `disk_hash_mismatch`,
+or `disk_copy_mismatch`. The newly created
 artifact directory is retained on both pass and failure.
 
-`Evaluate` validates the spec, compares completion, memory, register, and text
+`Evaluate` validates the selected engine's spec, compares completion, memory, register, and text
 assertions against an already parsed observation, and returns only failure
-diagnostics. It does not run MAME.
+diagnostics. It does not start either engine.
 
 `ParseObservation` parses the strict tab-separated `A2EXEC1`/`END` adapter format,
 accepting one stop reason/time and unique register/memory records. It attaches
 the separately supplied screen text verbatim. Invalid, missing, or duplicate
 fields throw `InvalidDataException`.
+
+### `CpuExecutionEngine`
+
+```csharp
+public static class CpuExecutionEngine
+{
+    public const string Version = "cpu-1";
+    public static void Validate(ExecutionSpec spec);
+}
+```
+
+The CPU backend supports the documented instruction set exposed by the assembler
+for MOS 6502 and Apple-compatible 65C02 targets. It initializes A/X/Y to zero,
+P to `$24`, SP to `$01FD`, applies declared register/memory inputs, and stops after
+the routine returns through the harness sentinel or crosses `MaxCycles`. Optional
+`trace.tsv` rows include instruction bytes, PC, before/after registers, cycle range,
+logical memory accesses, and source file/line/text when the assembled routine has
+a mapping. The UTF-8 artifact is capped at 16 MiB. Machine I/O and ROM services
+are not emulated.
 
 ## Extended AI programming APIs
 
@@ -1888,13 +2345,47 @@ The additive APIs below are described in their focused guides. They follow the
 same versioned project/execution JSON options and bounded input rules as the
 original workflow.
 
+Their remaining public data contracts are:
+
+```csharp
+public sealed record EnvironmentCheck(string Code, bool Passed, string Message);
+public sealed record EnvironmentCheckResult(
+    int SchemaVersion, bool Ready, IReadOnlyList<EnvironmentCheck> Checks);
+public sealed record EnvironmentFingerprint(
+    string Role, string Path, long Length, string Sha256);
+public sealed record DevelopmentEnvironmentLock(
+    int SchemaVersion, string ProfilePath, string ProfileSha256,
+    IReadOnlyList<EnvironmentFingerprint> Files);
+public sealed record ProjectStarterResult(
+    string Directory, string Language, bool NeedsEnvironmentConfiguration,
+    IReadOnlyList<string> Files);
+
+public sealed record PreparedRoutine(
+    int Origin, int EntryPoint, byte[] Bytes,
+    IReadOnlyDictionary<string, string> InputHashes,
+    IReadOnlyDictionary<string, int> Symbols,
+    IReadOnlyList<AssemblySourceMapEntry> SourceMap);
+public sealed record ExecutionVisualInput(
+    string SourcePath, string ExpectedSha256, RasterImage Expected,
+    VisualComparisonOptions Options);
+
+public sealed record ImageCrop(int X, int Y, int Width, int Height);
+public sealed record VisualComparisonOptions(
+    int ChannelTolerance = 0, double MaxDifferentFraction = 0,
+    ImageCrop? Crop = null);
+
+public sealed record ProjectAssetCompilation(
+    byte[] Payload, IReadOnlyDictionary<string, byte[]> Outputs,
+    IReadOnlyDictionary<string, int> Constants, object Metadata);
+```
+
 | Namespace / entry point | Purpose |
 | --- | --- |
 | `Setup.DevelopmentEnvironmentProfile.Load` | Resolve a local emulator/ROM/template/compiler profile |
 | `Setup.DevelopmentEnvironment.CheckAsync`, `CreateLock`, `ValidateLock` | Check tool readiness and pin/verify file identities and directory membership |
 | `Setup.DevelopmentEnvironment.Apply` | Fill project or execution defaults from a profile |
 | `Setup.DevelopmentEnvironment.ValidateExecutionLock`, `ValidateProjectLock` | Validate both lock content and the effective inputs used by a run/build |
-| `Setup.ProjectStarter.Create` | Stage a BASIC/assembly/C starter into a new directory |
+| `Setup.ProjectStarter.Create` | Stage a BASIC/assembly/C starter or an assembly bare-metal boot project into a new directory |
 | `Execution.ExecutionStep`, `ExecutionCondition`, `GameInput` | Describe ordered waits, assertions, keyboard/game input, delays, and checkpoints |
 | `Execution.ExecutionRunner.ConditionMatches` | Compare captured memory/register/text evidence with a condition |
 | `Execution.RoutineHarness.Assemble`, `Prepare`, `ValidateInputs` | Read/assemble a routine, retain payload/source evidence, and revalidate dependencies |
@@ -1903,7 +2394,7 @@ original workflow.
 | `Execution.ExecutionVisual.Validate`, `Prepare`, `Compare` | Pin expected PNG input and retain screenshot comparison/difference evidence |
 | `Graphics.VisualComparison.Validate`, `Compare` | Compare RGB pixels with a crop, per-channel tolerance, and differing-pixel fraction |
 | `Projects.ProjectAssets.Compile` | Convert a declared asset into immutable virtual binary/include/header/metadata outputs |
-| `Projects.Cc65Feedback.ParseLabels`, `ParseSegments`, `ParseDiagnostics` | Normalize compiler/linker feedback for callers |
+| `Projects.Cc65Feedback.ParseLabels`, `ParseSegments`, `ParseDiagnostics`, `ParseDebugMap` | Normalize compiler/linker feedback and ld65 source mappings for callers |
 | `Projects.Cc65LinkerConfiguration.Validate` | Validate the supported single-output linker configuration subset |
 | `Basic.ApplesoftTools.RuntimeDiagnostics` | Recognize captured Applesoft errors, optionally mapping through a build's line maps |
 

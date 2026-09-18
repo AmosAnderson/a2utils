@@ -100,8 +100,32 @@ if (args.Contains("-t"))
         labelText += "al 009600 .__HIMEM__\nal 000800 .__STACKSIZE__\n";
         Console.Error.WriteLine(main + "(3): Warning: controlled source warning");
     }
+    if (source.Contains("A2_FAKE_OVERSIZE_CACHE_METADATA"))
+    {
+        // Each feedback file remains within the compiler adapter's 4 MiB input bound,
+        // while their combined cache representation necessarily exceeds 8 MiB.
+        mapText = new string(' ', 4 * 1024 * 1024);
+        labelText = new string(' ', 4 * 1024 * 1024);
+    }
     File.WriteAllText(args[Array.IndexOf(args, "-m") + 1], mapText);
     File.WriteAllText(args[Array.IndexOf(args, "-Ln") + 1], labelText);
+    int linkerArgument = Array.IndexOf(args, "-Wl");
+    if (linkerArgument < 0 || linkerArgument + 1 >= args.Length ||
+        !args[linkerArgument + 1].StartsWith("--dbgfile,", StringComparison.Ordinal))
+    {
+        Console.Error.WriteLine("contract host requires ld65 --dbgfile forwarding");
+        return 12;
+    }
+    string debugPath = args[linkerArgument + 1]["--dbgfile,".Length..];
+    if (!Path.IsPathRooted(debugPath)) debugPath = Path.GetFullPath(debugPath, Environment.CurrentDirectory);
+    File.WriteAllText(debugPath, $"""
+        version	major=2,minor=0
+        info	csym=0,file=1,lib=0,line=1,mod=1,scope=0,seg=1,span=1,sym=0,type=0
+        file	id=0,name="{main}",size={new FileInfo(main).Length},mtime=0x00000000,mod=0
+        line	id=0,file=0,line=1,span=0
+        seg	id=0,name="CODE",start=0x000803,size=0x0002,addrsize=absolute,type=ro
+        span	id=0,seg=0,start=0,size=1
+        """);
     return 0;
 }
 string? firstDisk = Directory.GetFiles(Environment.CurrentDirectory, "disk*").Order(StringComparer.Ordinal).FirstOrDefault();

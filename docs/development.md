@@ -65,6 +65,8 @@ sources. Assembly and BASIC codecs operate independently of the disk engine.
 | `src/A2Utils.Cli/CliApplication.Graphics.cs` | Lo-res and hi-res screen conversion commands |
 | `src/A2Utils.Cli/CliApplication.GraphicsAssets.cs` | Atlas, shape-table, and double-hires commands |
 | `src/A2Utils.Cli/CliApplication.Execution.cs` | Single-run and execution-suite command orchestration |
+| `src/A2Utils.Cli/CliApplication.Mcp.cs` | `a2 mcp serve` command registration |
+| `src/A2Utils.Cli/A2McpServer.cs` | Bounded stdio MCP tools over the stable JSON CLI contract |
 | `src/A2Utils.Core/DiskModels.cs` | Public disk records, diagnostics, and `DiskException` |
 | `src/A2Utils.Core/Backends/` | Image detection, filesystem access, metadata, and write eligibility |
 | `src/A2Utils.Core/Operations/` | Host transactions, manifests, imports/exports, text conversion, and image conversion |
@@ -72,7 +74,7 @@ sources. Assembly and BASIC codecs operate independently of the disk engine.
 | `src/A2Utils.Core/Basic/` | Applesoft codecs, source checks, renumbering, and symbolic label preparation |
 | `src/A2Utils.Core/Programs/` | DOS/AppleSingle program metadata, bounded input reads, and source diagnostics |
 | `src/A2Utils.Core/Projects/` | Strict manifests, source-to-disk builds, memory checks, and optional cc65 adapter |
-| `src/A2Utils.Core/Execution/` | Pinned MAME adapter, isolated runs, assertions, and artifact capture |
+| `src/A2Utils.Core/Execution/` | Deterministic CPU routines, pinned MAME adapter, isolated runs, assertions, and artifact capture |
 | `src/A2Utils.Core/Graphics/` | PNG/screens, sprites, tiles, bitmap fonts, shape tables, and double-hires codecs |
 | `examples/` | Original assembly and Applesoft sample sources |
 | `tests/` | Core/CLI tests, an external-process contract test host, and independent disk fixtures |
@@ -94,6 +96,23 @@ new boundaries. Start with [project builds](projects.md) to combine source
 compilation and disk creation, then use [execution tests](execution.md) for
 behavioral checks. External cc65 and MAME installations are optional; no
 emulator, compiler, Apple ROM, or operating-system disk is bundled.
+
+### Local MCP surface
+
+`a2 mcp serve` uses the official ModelContextProtocol .NET SDK to expose
+`a2_cli`, `a2_capabilities`, and `a2_schema` over stdio. The server delegates
+commands through `CliApplication.Run`, forces JSON mode, and returns the process
+exit code plus the parsed result/error envelope as structured tool content. Tool
+paths use the server process working directory. Keep protocol stdout free of
+diagnostic logging. Invocation accepts 1..4,096 arguments, at most 32 KiB of
+UTF-8 each and 1 MiB combined, with no NUL characters; response-file expansion
+is disabled. One complete response is bounded to 16 MiB. Ordinary CLI side
+effects and explicit destination rules still apply.
+
+When extending the command surface, keep `capabilities` and bundled schemas
+authoritative so MCP clients discover the same types, defaults, path roles,
+constraints, and side effects as direct CLI users. Do not add a second command
+implementation inside the server.
 
 ## Using Core from C#
 
@@ -340,6 +359,12 @@ then verify a locked restore and the relevant tests. Runtime-specific publishing
 uses separate lockfiles under each project's `obj/<RID>/`; those generated files
 must not replace the tracked normal-restore locks.
 
+The CLI runtime dependencies include System.CommandLine 2.0.11 and
+ModelContextProtocol 2.2.0. The latter supplies the stdio server/protocol types;
+its direct and transitive versions are pinned in the tracked CLI/test lockfiles.
+Review protocol compatibility and packaged third-party notices whenever it is
+updated.
+
 DiskArc/CommonUtil are pinned together at revision
 `7a055a200e31f752f3a92bb9fe6ae6f67cd55534`. Their 208 upstream files are recorded in
 [SOURCE_MANIFEST.json](../third_party/CiderPress2/SOURCE_MANIFEST.json).
@@ -371,7 +396,7 @@ dotnet run --project third_party/evaluation/DiskEngineProbe.csproj -c Release
 
 ## Packaging and local installation
 
-The shared version is currently `0.5.0-dev.1` in
+The shared version is currently `0.6.0-dev` in
 [Directory.Build.props](../Directory.Build.props). When changing it, also update
 versioned local installation examples. Release builds take their version from
 the Git tag instead. The CLI package ID is `A2Utils.Tool`; its command is `a2`.
@@ -381,7 +406,7 @@ From the repository root:
 ```sh
 pwsh -File eng/Package.ps1
 pwsh -File eng/Package.ps1 -Runtime win-x64 -SkipTests
-pwsh -File eng/Package.ps1 -Runtime win-x64 -Version 0.5.0-dev.1 -SkipTests
+pwsh -File eng/Package.ps1 -Runtime win-x64 -Version 0.6.0-dev -SkipTests
 ```
 
 The default runtime is the host's runtime identifier. Accepted explicit values
@@ -392,7 +417,7 @@ execution on that platform. Unix archives also require `tar` on the build host.
 
 | Artifact | Location and requirements |
 | --- | --- |
-| .NET tool package | `artifacts/packages/A2Utils.Tool.0.5.0-dev.1.nupkg`; running the installed tool requires the .NET 10 runtime |
+| .NET tool package | `artifacts/packages/A2Utils.Tool.0.6.0-dev.nupkg`; running the installed tool requires the .NET 10 runtime |
 | Self-contained files | `artifacts/publish/<RID>/`; includes the runtime and uses `a2.exe` on Windows or `a2` on Unix |
 | Windows archive | `artifacts/a2utils-<RID>.zip` |
 | Linux/macOS archive | `artifacts/a2utils-<RID>.tar.gz` |
@@ -411,7 +436,7 @@ version. Omitting this option preserves the local artifact names above.
 Install the tool into this checkout:
 
 ```sh
-dotnet tool install A2Utils.Tool --version 0.5.0-dev.1 --add-source artifacts/packages --tool-path artifacts/tools --configfile NuGet.Config
+dotnet tool install A2Utils.Tool --version 0.6.0-dev --add-source artifacts/packages --tool-path artifacts/tools --configfile NuGet.Config
 ```
 
 Use `dotnet tool update` with the same arguments when upgrading an existing

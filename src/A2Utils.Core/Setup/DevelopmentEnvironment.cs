@@ -30,12 +30,21 @@ public sealed record DevelopmentEnvironmentProfile
 
     public static DevelopmentEnvironmentProfile Load(string path)
     {
-        DevelopmentEnvironmentProfile profile = DevelopmentEnvironment.ReadJson<DevelopmentEnvironmentProfile>(path, out string inputHash);
+        string fullPath = Path.GetFullPath(path);
+        byte[] bytes = ProgramFiles.ReadBytes(fullPath, 4 * 1024 * 1024);
+        return Load(fullPath, bytes);
+    }
+
+    internal static DevelopmentEnvironmentProfile Load(string path, byte[] bytes)
+    {
+        string fullPath = Path.GetFullPath(path);
+        DevelopmentEnvironmentProfile profile = DevelopmentEnvironment.ReadJson<DevelopmentEnvironmentProfile>(
+            fullPath, bytes, out string inputHash);
         if (profile.SchemaVersion != 1 || profile.Machine is not ("apple2" or "apple2p" or "apple2e" or "apple2ee" or "apple2c")
             || profile.TemplateFileSystem is not ("dos33" or "prodos") || !double.IsFinite(profile.BootSeconds)
             || profile.BootSeconds is < 1 or > 120 || profile.MamePath is null || profile.RomDirectory is null)
             throw new DiskException("setup.invalid_profile", "The environment needs schemaVersion 1, a supported machine/filesystem, and bootSeconds 1..120.", 2);
-        string root = Path.GetDirectoryName(Path.GetFullPath(path))!;
+        string root = Path.GetDirectoryName(fullPath)!;
         string Resolve(string value) => string.IsNullOrWhiteSpace(value) ? value : Path.GetFullPath(value, root);
         return profile with
         {
@@ -75,9 +84,14 @@ public static class DevelopmentEnvironment
 
     internal static T ReadJson<T>(string path, out string hash)
     {
+        byte[] bytes = ProgramFiles.ReadBytes(path, 4 * 1024 * 1024);
+        return ReadJson<T>(path, bytes, out hash);
+    }
+
+    internal static T ReadJson<T>(string path, byte[] bytes, out string hash)
+    {
         try
         {
-            byte[] bytes = ProgramFiles.ReadBytes(path, 4 * 1024 * 1024);
             hash = ProgramFiles.Hash(bytes);
             using JsonDocument json = JsonDocument.Parse(bytes);
             if (json.RootElement.ValueKind != JsonValueKind.Object || !json.RootElement.TryGetProperty("schemaVersion", out _))
@@ -88,8 +102,10 @@ public static class DevelopmentEnvironment
     }
 
     public static ExecutionSpec Apply(ExecutionSpec spec, string profilePath)
+        => Apply(spec, DevelopmentEnvironmentProfile.Load(profilePath));
+
+    internal static ExecutionSpec Apply(ExecutionSpec spec, DevelopmentEnvironmentProfile profile)
     {
-        DevelopmentEnvironmentProfile profile = DevelopmentEnvironmentProfile.Load(profilePath);
         ExecutionSpec resolved = spec with
         {
             EmulatorPath = string.IsNullOrWhiteSpace(spec.EmulatorPath) ? profile.MamePath : spec.EmulatorPath,
@@ -103,15 +119,18 @@ public static class DevelopmentEnvironment
     }
 
     public static ProjectManifest Apply(ProjectManifest manifest, string profilePath)
+        => Apply(manifest, DevelopmentEnvironmentProfile.Load(profilePath));
+
+    internal static ProjectManifest Apply(ProjectManifest manifest,
+        DevelopmentEnvironmentProfile profile)
     {
-        DevelopmentEnvironmentProfile profile = DevelopmentEnvironmentProfile.Load(profilePath);
         if (manifest.Disk is null) throw new DiskException("setup.invalid_project", "Project disk settings cannot be null.", 2);
         Cc65Options? compiler = manifest.Cc65;
         if (compiler is null && profile.Cc65Path is not null)
             compiler = new() { Compiler = profile.Cc65Path, Target = manifest.Target == "apple2enh" ? "apple2enh" : "apple2", ExpectedVersion = profile.ExpectedCc65Version };
         if (compiler is not null && compiler.ToolchainRoot is null && profile.Cc65Root is not null)
             compiler = compiler with { ToolchainRoot = profile.Cc65Root };
-        string? template = manifest.Disk.Template ?? profile.TemplateImage;
+        string? template = manifest.Boot is null ? manifest.Disk.Template ?? profile.TemplateImage : manifest.Disk.Template;
         if (manifest.ToolchainLock is not null && (template is not null && (profile.TemplateImage is null || !PathsEqual(template, profile.TemplateImage))
             || compiler is not null && (profile.Cc65Path is null || !PathsEqual(compiler.Compiler, profile.Cc65Path)
                 || compiler.ToolchainRoot is not null && (profile.Cc65Root is null || !PathsEqual(compiler.ToolchainRoot, profile.Cc65Root)))))
@@ -191,28 +210,61 @@ public static class DevelopmentEnvironment
         if (spec.ToolchainLock is null) return;
         if (spec.Environment is null) throw new DiskException("setup.invalid_lock", "A toolchain lock requires an environment profile.", 2);
         DevelopmentEnvironmentProfile profile = ValidateLockedProfile(spec.Environment, spec.ToolchainLock, cancellationToken);
+        ValidateExecutionScope(spec, profile);
+    }
+
+    internal static void ValidateExecutionLock(ExecutionSpec spec, DevelopmentEnvironmentProfile profile,
+        DevelopmentEnvironmentLock toolchainLock, CancellationToken cancellationToken = default)
+    {
+        if (spec.ToolchainLock is null) return;
+        if (spec.Environment is null) throw new DiskException("setup.invalid_lock", "A toolchain lock requires an environment profile.", 2);
+        _ = ValidateLockedProfile(spec.Environment, spec.ToolchainLock, cancellationToken, profile, toolchainLock);
+        ValidateExecutionScope(spec, profile);
+    }
+
+    private static void ValidateExecutionScope(ExecutionSpec spec, DevelopmentEnvironmentProfile profile)
+    {
         if (!PathsEqual(spec.EmulatorPath, profile.MamePath) || !PathsEqual(spec.RomDirectory, profile.RomDirectory))
             throw new DiskException("setup.lock_scope", "The execution's MAME executable or ROM directory differs from its locked profile.", 2);
     }
 
     public static void ValidateProjectLock(ProjectManifest manifest, CancellationToken cancellationToken = default)
+        => ValidateProjectLock(manifest, null, cancellationToken);
+
+    internal static void ValidateProjectLock(ProjectManifest manifest,
+        DevelopmentEnvironmentProfile? loadedProfile, CancellationToken cancellationToken = default)
+        => ValidateProjectLockCore(manifest, loadedProfile, null, cancellationToken);
+
+    internal static void ValidateProjectLock(ProjectManifest manifest,
+        DevelopmentEnvironmentProfile loadedProfile, DevelopmentEnvironmentLock loadedLock,
+        CancellationToken cancellationToken = default)
+        => ValidateProjectLockCore(manifest, loadedProfile, loadedLock, cancellationToken);
+
+    private static void ValidateProjectLockCore(ProjectManifest manifest,
+        DevelopmentEnvironmentProfile? loadedProfile, DevelopmentEnvironmentLock? loadedLock,
+        CancellationToken cancellationToken)
     {
         if (manifest.ToolchainLock is null) return;
         if (manifest.Environment is null) throw new DiskException("setup.invalid_lock", "A toolchain lock requires an environment profile.", 2);
-        DevelopmentEnvironmentProfile profile = ValidateLockedProfile(manifest.Environment, manifest.ToolchainLock, cancellationToken);
+        DevelopmentEnvironmentProfile profile = ValidateLockedProfile(manifest.Environment,
+            manifest.ToolchainLock, cancellationToken, loadedProfile, loadedLock);
         if (manifest.Disk.Template is { } template && (profile.TemplateImage is null || !PathsEqual(template, profile.TemplateImage))
             || manifest.Cc65 is { } compiler && (profile.Cc65Path is null || !PathsEqual(compiler.Compiler, profile.Cc65Path)
                 || compiler.ToolchainRoot is null || profile.Cc65Root is null || !PathsEqual(compiler.ToolchainRoot, profile.Cc65Root)))
             throw new DiskException("setup.lock_scope", "The project's template or compiler distribution differs from its locked profile.", 2);
     }
 
-    private static DevelopmentEnvironmentProfile ValidateLockedProfile(string profilePath, string lockPath, CancellationToken cancellationToken)
+    private static DevelopmentEnvironmentProfile ValidateLockedProfile(string profilePath,
+        string lockPath, CancellationToken cancellationToken,
+        DevelopmentEnvironmentProfile? loadedProfile = null,
+        DevelopmentEnvironmentLock? loadedLock = null)
     {
-        DevelopmentEnvironmentLock expected = ReadJson<DevelopmentEnvironmentLock>(lockPath);
+        DevelopmentEnvironmentLock expected = loadedLock ?? ReadJson<DevelopmentEnvironmentLock>(lockPath);
         if (expected.SchemaVersion != 1 || string.IsNullOrWhiteSpace(expected.ProfilePath) || expected.Files is null || expected.Files.Count > MaximumFiles
             || !PathsEqual(expected.ProfilePath, Path.GetFullPath(profilePath)))
             throw new DiskException("setup.invalid_lock", "The lockfile does not identify this environment profile.", 2);
-        DevelopmentEnvironmentProfile profile = DevelopmentEnvironmentProfile.Load(profilePath);
+        DevelopmentEnvironmentProfile profile = loadedProfile
+            ?? DevelopmentEnvironmentProfile.Load(profilePath);
         if (profile.InputSha256 != expected.ProfileSha256)
             throw new DiskException("setup.lock_changed", "The environment profile changed after it was locked.", 6);
         DevelopmentEnvironmentLock actual = Snapshot(Path.GetFullPath(profilePath), profile, cancellationToken);
@@ -224,7 +276,8 @@ public static class DevelopmentEnvironment
     private static DevelopmentEnvironmentLock Snapshot(string profilePath, DevelopmentEnvironmentProfile profile, CancellationToken cancellationToken)
     {
         List<EnvironmentFingerprint> files = [];
-        HashSet<string> seen = new(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
+        HashSet<string> seen = new(OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
+            ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
         long bytes = 0;
         Add("mame", profile.MamePath);
         AddDirectory("rom", profile.RomDirectory);
@@ -324,7 +377,9 @@ public static class DevelopmentEnvironment
 
     private static bool PathsEqual(string first, string second)
         => !string.IsNullOrWhiteSpace(first) && !string.IsNullOrWhiteSpace(second)
-            && string.Equals(Path.GetFullPath(first), Path.GetFullPath(second), OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
+            && string.Equals(Path.GetFullPath(first), Path.GetFullPath(second),
+                OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
+                    ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
 
     private static bool IsWithin(string path, string root)
     {

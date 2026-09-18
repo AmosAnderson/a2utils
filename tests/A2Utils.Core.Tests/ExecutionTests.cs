@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using System.Text.Json;
 using A2Utils.Core.Execution;
+using A2Utils.Core.Programs;
+using A2Utils.Core.Setup;
 
 namespace A2Utils.Core.Tests;
 
@@ -162,6 +164,38 @@ public sealed class ExecutionTests : IDisposable
         Assert.Equal(At("disk.dsk"), spec.DiskImage);
         Assert.Equal(At("roms"), spec.RomDirectory);
         Assert.Equal(At("mame.exe"), spec.EmulatorPath);
+    }
+
+    [Fact]
+    public void Load_EnvironmentChangesAfterRead_AppliesAndReportsTheSameBytes()
+    {
+        string environment = At("environment.json");
+        File.WriteAllText(environment, JsonSerializer.Serialize(new DevelopmentEnvironmentProfile
+        {
+            Machine = "apple2ee",
+            MamePath = "old-mame",
+            RomDirectory = "old-roms"
+        }, DevelopmentEnvironment.JsonOptions));
+        File.WriteAllText(At("spec.json"),
+            """{"schemaVersion":1,"environment":"environment.json","diskImage":"disk.dsk"}""");
+        string? appliedHash = null;
+
+        ExecutionSpec spec = ExecutionSpec.Load(At("spec.json"), (path, hash) =>
+        {
+            if (path != environment) return;
+            appliedHash = hash;
+            File.WriteAllText(environment, JsonSerializer.Serialize(new DevelopmentEnvironmentProfile
+            {
+                Machine = "apple2p",
+                MamePath = "new-mame",
+                RomDirectory = "new-roms"
+            }, DevelopmentEnvironment.JsonOptions));
+        });
+
+        Assert.Equal("apple2ee", spec.Machine);
+        Assert.Equal(At("old-mame"), spec.EmulatorPath);
+        Assert.NotNull(appliedHash);
+        Assert.NotEqual(appliedHash, ProgramFiles.Hash(File.ReadAllBytes(environment)));
     }
 
     [Fact]

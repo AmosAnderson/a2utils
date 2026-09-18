@@ -25,8 +25,8 @@ This fragment belongs in an ordinary [execution specification](execution.md)
 with emulator, ROM, machine, disk, and deadline settings. Addresses are decimal
 JSON integers. `observeMemory` captures bytes without asserting their contents.
 Project executions can replace a numeric address with `program`, `symbol`, and
-an optional `offset`; `build --test` resolves the native assembler symbol and
-uses its source map when reporting debug locations.
+an optional `offset`; `build --test` resolves native assembler or cc65-exported
+symbols and uses their source maps when reporting debug locations.
 
 A specification allows 1–64 debug points in total. Breakpoints match a CPU
 instruction address before execution. Watchpoints observe CPU bus reads, writes,
@@ -67,6 +67,15 @@ artifact.
 The normal `result.json` includes `debug.trigger`, `debug.steppedInstructions`,
 and `debug.history`. Stop reasons are `breakpoint`, `watchpoint`, or
 `debug_steps`. Input disks retain the existing isolated-copy protections.
+
+Project runs write matching final, history, and sampled PCs to
+`source-locations.json`. When a MAME `trace.tsv` contains a mapped sampled PC,
+`trace-source.tsv` preserves the raw sample columns and adds program, memory bank,
+source file, line, and source text. Both inputs and derived evidence are capped at
+16 MiB; absent mappings leave the raw trace usable and create no derived trace.
+CPU project runs instead copy unique traced instruction PCs and the CPU trace's
+exact routine source columns into `source-locations.json`; those rows use the
+routine source path as `program` and `cpu` as the memory bank.
 
 ## Adapter implementation and verification
 

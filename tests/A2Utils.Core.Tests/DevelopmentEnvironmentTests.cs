@@ -146,6 +146,29 @@ public sealed class DevelopmentEnvironmentTests : IDisposable
     }
 
     [Fact]
+    public void Init_BareMetalStarter_BuildsWithoutTemplateAndPinsBootSector()
+    {
+        string profile = WriteProfile();
+        ProjectStarterResult result = ProjectStarter.Create(At("bare-project"), "asm", profile, bareMetal: true);
+
+        ProjectBuildResult build = ProjectBuilder.Build(At("bare-project/project.a2.json"), At("bare.do"));
+        Assert.False(result.NeedsEnvironmentConfiguration);
+        Assert.Equal("self-booting-unverified", build.Bootability);
+        Assert.NotNull(build.Boot);
+        Assert.Empty(build.Files);
+        using DiskSession disk = DiskSession.Open(At("bare.do"), inputFs: "dos33");
+        Assert.Equal(1, disk.ReadBootSectors(1)[0]);
+    }
+
+    [Fact]
+    public void Init_BareMetalBasic_RejectsBeforeCreatingDirectory()
+    {
+        Assert.Equal("setup.bare_metal_language", Assert.Throws<DiskException>(() =>
+            ProjectStarter.Create(At("bare-basic"), "basic", bareMetal: true)).Code);
+        Assert.False(Directory.Exists(At("bare-basic")));
+    }
+
+    [Fact]
     public void Build_ChangedLockedEnvironment_FailsBeforeReplacingOutput()
     {
         string profile = WriteProfile();

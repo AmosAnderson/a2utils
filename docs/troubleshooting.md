@@ -15,7 +15,7 @@ stdout and stderr separate when collecting evidence. The
 | Compatible SDK cannot be found | Run `dotnet --list-sdks` from the repository root; the pin is 10.0.400 with patch roll-forward, not unrestricted .NET 10 roll-forward |
 | Restore fails in locked mode | Check access to the source in `NuGet.Config`; if dependencies were intentionally changed, follow the lockfile workflow in the development guide |
 | `a2` is not recognized | Invoke `./artifacts/tools/a2.exe` on Windows or `./artifacts/tools/a2` on Unix, or define the session function in getting started |
-| An old executable lacks `asm` or `basic` | Check `a2 --version`, rebuild the local package, and update the repository-local tool to 0.5.0-dev.1 |
+| An old executable lacks current commands | Check `a2 --version`, rebuild the local package, and update the repository-local tool to 0.6.0-dev |
 | `Package.ps1` fails on unsupported PowerShell features | Run it with PowerShell 7 (`pwsh`) |
 | Missing `/usr/bin/stat` | Restore that system utility for Linux/macOS host-file checks; program input and directory import require it |
 | Published executable cannot start on another computer | Use the complete self-contained package for that computer's OS/architecture, including runtime files |
@@ -164,7 +164,7 @@ project contains a `cc65` source.
 | Diagnostic or symptom | Cause and next step |
 | --- | --- |
 | `project.schema` | The manifest is malformed JSON, omits `schemaVersion: 1`, has a duplicate/unknown property, or uses the wrong JSON type. Compare it with `a2 schema project --json`; property names are case-sensitive. |
-| `schema.unknown` | `a2 schema` accepts only `project`, `diagnostic`, `execution`, and `execution-suite`. |
+| `schema.unknown` | `a2 schema` accepts `project`, `project-resolution`, `diagnostic`, `execution`, `execution-suite`, `environment`, `disk-change-set`, `result`, `error`, or `envelope`. Use `a2 capabilities --json` to discover the current set. |
 | `project.target` / `project.cpu` / `project.cpu_target` | The target or CPU is unknown or incompatible. Select a profile reported by `a2 targets --json`; stock project profiles do not accept WDC-only `w65c02` code. |
 | `project.filesystem` / `project.geometry` / `project.disk_format` | Use `dos33` or `prodos`, a `raw` or `2mg` container, a `dos` or `prodos` order, and 280 blocks for DOS or 280–65,535 for ProDOS. A template's detected filesystem/order must agree with the manifest. |
 | `project.timestamp` | Use an offset-free or UTC date/time from 1980 through 2039 at whole-minute precision. |
@@ -240,23 +240,30 @@ padding, and analog NTSC effects may not round-trip. Use the raw source bytes wh
 those details matter. See [screen conversion](graphics.md) and
 [graphics assets](graphics-assets.md) for exact dimensions, packing, and bank order.
 
-## MAME execution and test suites
+## Execution engines and test suites
 
 Once execution creates an artifact directory, `run` and `test` intentionally
 retain it after a failed run. Inspect `result.json`, the `version.*.txt` and
 `emulator.*.txt` logs that were reached, `screen.txt`, and any requested
-`screen.png`/`trace.tsv` before retrying. A single run can reject invalid JSON or
-specification data, an existing artifact path, a missing disk, or a missing ROM
-directory before creating its artifact directory. A suite parses every case before
+`screen.png`/`trace.tsv` before retrying. CPU-engine runs instead retain
+`engine.json`, routine evidence, observations, and an optional instruction trace.
+A single run can reject invalid JSON or
+specification data or an existing artifact path before creating its artifact
+directory. MAME runs can also reject a missing disk or ROM directory at this stage.
+A suite parses every case before
 creating its root, but checks external disk/ROM paths per case, so its root and
 earlier case evidence can exist when a later case is rejected. Because an existing
-artifact directory is never reused, choose a new `--artifacts` path for the next run.
+artifact directory is never reused, choose a new `--artifacts` path for the next run,
+or pass `--run-subdirectory` with an existing parent to create a unique child.
 
 | Diagnostic or result | Cause and next step |
 | --- | --- |
-| `execution.invalid_spec` | The JSON is malformed, has an unknown/duplicate property, omits a required path/machine, or violates an assertion/time/range limit. Compare it with `a2 schema execution --json`; paths resolve relative to the specification file. |
-| `execution.invalid_suite` | The suite is not version 1 with 1–128 specification paths, or a case has neither an assertion nor an `until` condition. Use `a2 schema execution-suite --json`; all cases are parsed before any starts. |
+| `execution.invalid_spec` | The JSON is malformed, has an unknown/duplicate property, omits fields required by its engine, or violates an assertion/time/range limit. Compare it with `a2 schema execution --json`; paths resolve relative to the specification file. |
+| `execution.invalid_suite` | The suite is not version 1 with 1–128 specification paths, or a case lacks an assertion, bounded completion/debug/routine/cycle condition, or mounted-disk verification. Use `a2 schema execution-suite --json`; all cases are parsed before any starts. |
 | `execution.artifacts_exist` | `--artifacts` must name a new file-system entry. Pick a new directory; A2Utils does not merge with or erase prior evidence. |
+| `execution.filter_empty` | No suite case matched the supplied `--filter` values or their intersection with `--rerun-failed`. Use `--list` to inspect stable names and paths, then adjust the case-insensitive glob. |
+| `execution.jobs` | `--jobs` must be an integer from 1 through 16. Lower it if emulator or host resources are constrained. |
+| `execution.rerun_failed` | The prior path is missing, is not a readable suite result, or does not identify failures in the current suite. Point to an artifact directory or its `suite-result.json`; use the original suite when possible. |
 | `execution.disk_missing` / `execution.rom_directory_missing` | Correct `diskImage` or `romDirectory` relative to the spec. A2Utils bundles neither a boot disk nor ROMs. |
 | `execution.emulator_unavailable` | `emulatorPath` did not launch. Use a full path or a path relative to the spec, not only a command name expected to resolve through `PATH`; check execute permission and architecture. |
 | `execution.version_mismatch` | The `-version` probe did not report the pinned MAME `0.289` API. Point to the tested executable and keep `expectedVersion` at `0.289`. |
@@ -267,6 +274,7 @@ artifact directory is never reused, choose a new `--artifacts` path for the next
 | `execution.host_timeout` | The host watchdog expired and terminated the emulator process tree. Fix startup/ROM problems or raise `hostTimeoutSeconds` within the 3,600-second limit. |
 | `execution.cancelled` | The caller cancelled the run; the process tree was terminated and the CLI exits 6. Start a new artifact directory if the case should run again. |
 | `execution.completion_timeout` | The `until` byte did not reach its value before `emulatedSeconds`. Check the boot path, key schedule, address/value, and ensure `afterSeconds` is earlier than the emulated deadline. |
+| `execution.cpu_fault` | The CPU routine reached an opcode outside the selected documented 6502/65C02 set or execution evidence could not be completed. Inspect the diagnostic PC/opcode and `trace.tsv`; verify that `machine` selects the intended processor and that ROM/I/O calls are not required. |
 | `execution.memory_assertion` / `execution.register_assertion` / `execution.text_assertion` | The machine completed but observed state differed. Compare `expected`/`actual` in JSON with `screen.txt`, mapped-memory assumptions, the selected `textPage`, and input timing. Text matching is case-sensitive and covers 40-column text memory, not OCR. |
 
 Execution/assertion failures normally return a structured result on stdout and

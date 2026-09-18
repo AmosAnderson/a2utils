@@ -225,7 +225,7 @@
         ]
       },
       "maxItems": 1024,
-      "minItems": 1
+      "minItems": 0
     },
     "reserve": {
       "type": "array",
@@ -302,6 +302,36 @@
       },
       "required": [
         "program"
+      ]
+    },
+    "boot": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "enum": [
+            "asm",
+            "binary"
+          ]
+        },
+        "origin": {
+          "const": 2048
+        },
+        "sectors": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 16
+        }
+      },
+      "required": [
+        "source"
       ]
     },
     "execution": {
@@ -542,6 +572,69 @@
       "maxItems": 128
     }
   },
+  "allOf": [
+    {
+      "if": {
+        "required": [
+          "boot"
+        ],
+        "properties": {
+          "boot": {
+            "type": "object"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "disk"
+        ],
+        "properties": {
+          "disk": {
+            "required": [
+              "fileSystem"
+            ],
+            "properties": {
+              "fileSystem": {
+                "const": "dos33"
+              },
+              "blocks": {
+                "const": 280
+              },
+              "order": {
+                "enum": [
+                  "dos",
+                  null
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "files": { "maxItems": 0 } },
+        "required": ["files"]
+      },
+      "then": {
+        "anyOf": [
+          {
+            "properties": {
+              "disk": {
+                "required": ["template"],
+                "properties": { "template": { "type": "string", "minLength": 1 } }
+              }
+            },
+            "required": ["disk"]
+          },
+          {
+            "properties": { "boot": { "type": "object" } },
+            "required": ["boot"]
+          }
+        ]
+      }
+    }
+  ],
   "required": [
     "schemaVersion",
     "files"

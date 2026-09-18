@@ -25,19 +25,21 @@ public static class ExecutionVisual
 
     public static ExecutionVisualInput? Prepare(ExecutionSpec spec, string artifacts, CancellationToken cancellationToken = default)
     {
-        Validate(spec);
-        if (spec.ScreenshotAssertion is not { } assertion) return null;
-        string source = Path.GetFullPath(assertion.ExpectedImage);
+        LoadedVisualInput? loaded = LoadExpected(spec, cancellationToken);
+        if (loaded is null) return null;
         string snapshot = Path.Combine(artifacts, "expected-screen.png");
-        ImageTransactions.EnsureDistinctPaths(source, snapshot);
-        byte[] bytes = ProgramFiles.ReadBytes(source, 32 * 1024 * 1024, cancellationToken);
-        RasterImage expected = PngCodec.Decode(bytes);
-        VisualComparisonOptions options = new(assertion.ChannelTolerance, assertion.MaxDifferentFraction, assertion.Crop);
-        // This also verifies that a crop fits the expected image before starting the emulator.
-        _ = VisualComparison.Compare(expected, expected, options);
+        ImageTransactions.EnsureDistinctPaths(loaded.SourcePath, snapshot);
         cancellationToken.ThrowIfCancellationRequested();
-        using (FileStream output = new(snapshot, FileMode.CreateNew, FileAccess.Write, FileShare.None)) output.Write(bytes);
-        return new(source, ProgramFiles.Hash(bytes), expected, options);
+        using (FileStream output = new(snapshot, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            output.Write(loaded.Bytes);
+        return new(loaded.SourcePath, loaded.Sha256, loaded.Expected, loaded.Options);
+    }
+
+    internal static (string Path, string Sha256)? ValidateExpected(ExecutionSpec spec,
+        CancellationToken cancellationToken = default)
+    {
+        LoadedVisualInput? loaded = LoadExpected(spec, cancellationToken);
+        return loaded is null ? null : (loaded.SourcePath, loaded.Sha256);
     }
 
     public static ExecutionScreenshotResult Compare(ExecutionVisualInput input, string artifacts,
@@ -57,4 +59,22 @@ public static class ExecutionVisual
             throw new DiskException("execution.screenshot_changed", "The expected screenshot changed during execution; comparison evidence was retained.", 6);
         return new(input.ExpectedSha256, ProgramFiles.Hash(actual), result, difference);
     }
+
+    private static LoadedVisualInput? LoadExpected(ExecutionSpec spec,
+        CancellationToken cancellationToken)
+    {
+        Validate(spec);
+        if (spec.ScreenshotAssertion is not { } assertion) return null;
+        string source = Path.GetFullPath(assertion.ExpectedImage);
+        byte[] bytes = ProgramFiles.ReadBytes(source, 32 * 1024 * 1024, cancellationToken);
+        RasterImage expected = PngCodec.Decode(bytes);
+        VisualComparisonOptions options = new(assertion.ChannelTolerance,
+            assertion.MaxDifferentFraction, assertion.Crop);
+        // This also verifies that a crop fits the expected image before starting the emulator.
+        _ = VisualComparison.Compare(expected, expected, options);
+        return new(source, bytes, ProgramFiles.Hash(bytes), expected, options);
+    }
+
+    private sealed record LoadedVisualInput(string SourcePath, byte[] Bytes, string Sha256,
+        RasterImage Expected, VisualComparisonOptions Options);
 }

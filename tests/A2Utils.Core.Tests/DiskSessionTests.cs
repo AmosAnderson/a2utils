@@ -3,6 +3,9 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using A2Utils.Core.Backends;
 using A2Utils.Core.Operations;
+using CommonUtil;
+using DiskArc;
+using DiskArc.Disk;
 
 namespace A2Utils.Core.Tests;
 
@@ -10,6 +13,30 @@ public sealed class DiskSessionTests
 {
     private static readonly byte[] BinaryPayload = [0x00, 0x7f, 0x80, 0xff, 0x0d];
     private static readonly byte[] TextPayload = [0xc1, 0xb2, 0xd5, 0xd4, 0xc9, 0xcc, 0xd3, 0x8d];
+
+    [Fact]
+    public void BootSectors_LargerSectorAddressableImage_RejectsReadAndWrite()
+    {
+        using FixtureWorkspace workspace = new();
+        string path = workspace.NewPath("forty-track.po");
+        AppHook hook = new(new SimpleMessageLog());
+        using (FileStream stream = new(path, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None))
+        using (IDiskImage image = UnadornedSector.CreateSectorImage(stream, 40, 16,
+            Defs.SectorOrder.ProDOS_Block, hook))
+        {
+            image.FormatDisk(Defs.FileSystemType.ProDOS, "BOOTTEST", 254, false, hook);
+            image.Flush();
+            stream.Flush(true);
+        }
+
+        using DiskSession disk = DiskSession.Open(path, "prodos", "prodos", writable: true);
+
+        Assert.Equal(40 * 16 * 256, disk.Info.SizeBytes);
+        DiskException read = Assert.Throws<DiskException>(() => disk.ReadBootSectors(1));
+        DiskException write = Assert.Throws<DiskException>(() => disk.WriteBootSectors(new byte[256]));
+        Assert.Equal("boot.geometry", read.Code);
+        Assert.Equal("boot.geometry", write.Code);
+    }
 
     [Theory]
     [InlineData("do", "51AF1DA57DFE814CE1323390F4AD3B3E6B247F81869FC8B83D47D4F2A78EF58C")]

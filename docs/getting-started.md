@@ -73,13 +73,13 @@ Build and install the preview package into this checkout:
 
 ```sh
 dotnet pack src/A2Utils.Cli -c Release --no-restore -o artifacts/packages
-dotnet tool install A2Utils.Tool --version 0.5.0-dev.1 --add-source artifacts/packages --tool-path artifacts/tools --configfile NuGet.Config
+dotnet tool install A2Utils.Tool --version 0.6.0-dev --add-source artifacts/packages --tool-path artifacts/tools --configfile NuGet.Config
 ```
 
 For an already installed preview, substitute `update` for `install`:
 
 ```sh
-dotnet tool update A2Utils.Tool --version 0.5.0-dev.1 --add-source artifacts/packages --tool-path artifacts/tools --configfile NuGet.Config --no-cache
+dotnet tool update A2Utils.Tool --version 0.6.0-dev --add-source artifacts/packages --tool-path artifacts/tools --configfile NuGet.Config --no-cache
 ```
 
 The package ID is `A2Utils.Tool`; its executable is `a2`. Installation is local

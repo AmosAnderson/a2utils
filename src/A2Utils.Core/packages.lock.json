@@ -8,7 +8,7 @@
       "diskarc": {
         "type": "Project",
         "dependencies": {
-          "CommonUtil": "[0.1.0-dev, )"
+          "CommonUtil": "[0.6.0-dev, )"
         }
       }
     }

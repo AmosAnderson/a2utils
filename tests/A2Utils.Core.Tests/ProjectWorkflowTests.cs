@@ -29,11 +29,110 @@ public sealed class ProjectWorkflowTests : IDisposable
         Assert.Equal(result.Build.Sha256, bound.Disks.Single(disk => disk.Device == "flop2").ExpectedSha256);
         Assert.All(bound.Disks, disk => Assert.Equal(64, disk.ExpectedSha256!.Length));
         Assert.Contains(Path.Combine(run.ArtifactDirectory, "source-locations.json"), run.Artifacts);
+        Assert.Equal(new ExecutionSuiteCounts(1, 1, 1, 0, 0, 0), result.Tests.Counts);
+        Assert.Equal("passed", Assert.Single(result.Tests.Cases).Status);
         using JsonDocument locations = JsonDocument.Parse(File.ReadAllText(Path.Combine(run.ArtifactDirectory, "source-locations.json")));
         Assert.Contains(locations.RootElement.EnumerateArray(), location => location.GetProperty("line").GetInt32() == 3
             && location.GetProperty("program").GetString() == "MAIN");
         Assert.True(File.Exists(At("evidence/build.json")));
         Assert.True(File.Exists(At("evidence/project-result.json")));
+    }
+
+    [Fact]
+    public void Run_CpuProjectCase_BindsBuildSymbolsWithoutMountingImageOrRequiringMame()
+    {
+        File.WriteAllText(At("main.asm"), ".org $2000\nmailbox = $300\nentry: rts\n");
+        File.WriteAllText(At("routine.asm"), "lda #$2a\nsta $0300\nrts\n");
+        Write(At("project.json"), new ProjectManifest
+        {
+            Target = "apple2enh",
+            Output = "build.po",
+            Files = [new() { Source = "main.asm", Path = "MAIN", Kind = "asm" }],
+            Execution = new("suite.json", "flop2")
+        });
+        Write(At("suite.json"), new ExecutionSuite { Tests = ["case.json"] });
+        Write(At("case.json"), new ExecutionSpec
+        {
+            Engine = "cpu",
+            Machine = "apple2ee",
+            Routine = new() { Source = "routine.asm" },
+            SymbolicMemory = [new("MAIN", "mailbox", "2A")],
+            Trace = true
+        });
+
+        ProjectWorkflowResult result = ProjectWorkflow.Run(At("project.json"), At("cpu-evidence"));
+
+        Assert.True(result.Passed,
+            string.Join('\n', result.Tests.Tests.SelectMany(run => run.Diagnostics).Select(diagnostic => diagnostic.Message)));
+        Assert.True(File.Exists(At("build.po")));
+        ExecutionResult run = Assert.Single(result.Tests.Tests);
+        Assert.Equal(CpuExecutionEngine.Version, run.EmulatorVersion);
+        Assert.Null(run.InputSha256);
+        Assert.Empty(run.Disks);
+        ExecutionSpec bound = ExecutionSpec.Load(Path.Combine(run.ArtifactDirectory, "spec.json"));
+        Assert.Empty(bound.Disks);
+        Assert.Empty(bound.SymbolicMemory);
+        Assert.Equal(new MemoryAssertion(0x0300, "2A"), Assert.Single(bound.Memory));
+        using JsonDocument locations = JsonDocument.Parse(File.ReadAllText(
+            Path.Combine(run.ArtifactDirectory, "source-locations.json")));
+        JsonElement first = locations.RootElement.EnumerateArray().First();
+        Assert.Equal(At("routine.asm"), first.GetProperty("program").GetString());
+        Assert.Equal(At("routine.asm"), first.GetProperty("file").GetString());
+        Assert.Equal(1, first.GetProperty("line").GetInt32());
+        Assert.Equal(0x6000, first.GetProperty("address").GetInt32());
+        Assert.Equal("executed instruction", first.GetProperty("observation").GetString());
+        Assert.Equal("cpu", first.GetProperty("memoryBank").GetString());
+        Assert.DoesNotContain(locations.RootElement.EnumerateArray(), location =>
+            location.GetProperty("program").GetString() == "MAIN");
+    }
+
+    [Fact]
+    public void Run_SelectedCaseWithProgress_PreservesBuildBindingAndStableCaseNumber()
+    {
+        Setup();
+        ExecutionSpec first = ExecutionSpec.Load(At("case.json")) with { Name = "first" };
+        ExecutionSpec second = first with { Name = "second" };
+        Write(At("case.json"), first);
+        Write(At("case-two.json"), second);
+        Write(At("suite.json"), new ExecutionSuite { Tests = ["case.json", "case-two.json"] });
+
+        ProjectWorkflowResult result = ProjectWorkflow.Run(At("project.json"), At("evidence"), null, false,
+            new ExecutionSuiteRunOptions { Filters = ["name:second"], Jobs = 2, WriteProgress = true });
+
+        Assert.True(result.Passed);
+        Assert.Equal(new ExecutionSuiteCounts(1, 1, 1, 0, 0, 0), result.Tests.Counts);
+        Assert.Equal("excluded", result.Tests.Cases[0].Status);
+        Assert.Equal("passed", result.Tests.Cases[1].Status);
+        ExecutionResult run = Assert.Single(result.Tests.Tests);
+        Assert.EndsWith("case-002", run.ArtifactDirectory);
+        Assert.False(Directory.Exists(At("evidence/case-001")));
+        Assert.True(File.Exists(At("evidence/events.jsonl")));
+        Assert.Equal(result.Build.Sha256, run.Disks.Single(disk => disk.Device == "flop2").InputSha256);
+        Assert.Equal("pass", File.ReadAllText(At("os.dsk")));
+    }
+
+    [Fact]
+    public void Run_FilterExcludesInvalidCase_StillRefusesBeforeReplacingOutput()
+    {
+        Setup();
+        ExecutionSpec first = ExecutionSpec.Load(At("case.json")) with
+        {
+            Name = "invalid",
+            Machine = "apple2p"
+        };
+        ExecutionSpec second = ExecutionSpec.Load(At("case.json")) with { Name = "selected" };
+        Write(At("case.json"), first);
+        Write(At("case-two.json"), second);
+        Write(At("suite.json"), new ExecutionSuite { Tests = ["case.json", "case-two.json"] });
+        File.WriteAllBytes(At("build.po"), [1, 2, 3]);
+
+        DiskException error = Assert.Throws<DiskException>(() => ProjectWorkflow.Run(
+            At("project.json"), At("filtered-evidence"), null, true,
+            new ExecutionSuiteRunOptions { Filters = ["name:selected"] }));
+
+        Assert.Equal("execution.machine", error.Code);
+        Assert.Equal(new byte[] { 1, 2, 3 }, File.ReadAllBytes(At("build.po")));
+        Assert.False(Directory.Exists(At("filtered-evidence")));
     }
 
     [Fact]
@@ -108,6 +207,46 @@ public sealed class ProjectWorkflowTests : IDisposable
     }
 
     [Fact]
+    public void Run_InvalidGraphicsExpectation_RefusesBeforeReplacingOutput()
+    {
+        Setup();
+        File.WriteAllBytes(At("invalid.png"), [1, 2, 3]);
+        Write(At("case.json"), ExecutionSpec.Load(At("case.json")) with
+        {
+            SymbolicMemory = [],
+            DiskAssertions = [],
+            GraphicsMemory = [new(At("invalid.png"), "hires")]
+        });
+        File.WriteAllBytes(At("build.po"), [4, 5, 6]);
+
+        Assert.Throws<DiskException>(() => ProjectWorkflow.Run(At("project.json"), At("evidence"),
+            overwrite: true));
+
+        Assert.Equal(new byte[] { 4, 5, 6 }, File.ReadAllBytes(At("build.po")));
+        Assert.False(Directory.Exists(At("evidence")));
+    }
+
+    [Fact]
+    public void Run_InvalidScreenshotExpectation_RefusesBeforeReplacingOutput()
+    {
+        Setup();
+        File.WriteAllBytes(At("invalid.png"), [1, 2, 3]);
+        Write(At("case.json"), ExecutionSpec.Load(At("case.json")) with
+        {
+            SymbolicMemory = [],
+            DiskAssertions = [],
+            ScreenshotAssertion = new(At("invalid.png"))
+        });
+        File.WriteAllBytes(At("build.po"), [4, 5, 6]);
+
+        Assert.Throws<DiskException>(() => ProjectWorkflow.Run(At("project.json"), At("evidence"),
+            overwrite: true));
+
+        Assert.Equal(new byte[] { 4, 5, 6 }, File.ReadAllBytes(At("build.po")));
+        Assert.False(Directory.Exists(At("evidence")));
+    }
+
+    [Fact]
     public void Run_ExplicitDiskVerificationOnly_VerifiesBuiltImage()
     {
         Setup();
@@ -165,6 +304,7 @@ public sealed class ProjectWorkflowTests : IDisposable
     [InlineData("output-is-suite")]
     [InlineData("output-is-os")]
     [InlineData("artifact-parent-file")]
+    [InlineData("existing-artifacts")]
     public void Run_InvalidSetup_ProtectsPreviousOutputAndInputs(string mode)
     {
         Setup();
@@ -182,10 +322,16 @@ public sealed class ProjectWorkflowTests : IDisposable
             File.WriteAllText(At("parent"), "keep");
             artifacts = At("parent/evidence");
         }
+        if (mode == "existing-artifacts")
+        {
+            Directory.CreateDirectory(artifacts);
+            File.WriteAllText(Path.Combine(artifacts, "keep.txt"), "keep");
+        }
         Assert.ThrowsAny<Exception>(() => ProjectWorkflow.Run(At("project.json"), artifacts, output, overwrite: true));
         Assert.Equal(before, File.ReadAllBytes(output));
         Assert.Equal("pass", File.ReadAllText(At("os.dsk")));
-        Assert.False(Directory.Exists(artifacts));
+        if (mode == "existing-artifacts") Assert.Equal("keep", File.ReadAllText(Path.Combine(artifacts, "keep.txt")));
+        else Assert.False(Directory.Exists(artifacts));
     }
 
     [Theory]
@@ -261,6 +407,86 @@ public sealed class ProjectWorkflowTests : IDisposable
         Assert.Equal(2, locations.Count);
         Assert.All(locations, location => Assert.Equal("sampled PC", location.Observation));
         Assert.Equal(new[] { 3, 4 }, locations.Select(location => location.Line));
+        string sourceTrace = Assert.IsType<string>(BuildExecution.WriteSourceTrace(build, result));
+        string annotated = File.ReadAllText(sourceTrace);
+        Assert.Contains("program\tmemoryBank\tsourceFile\tsourceLine\tsource", annotated);
+        Assert.Contains("MAIN\tmain\t" + At("main.asm") + "\t3\tentry: nop", annotated);
+    }
+
+    [Fact]
+    public void Locate_CpuTrace_ParsesHexPcAndUsesEmbeddedRoutineSource()
+    {
+        Setup();
+        ProjectBuildResult build = ProjectBuilder.Build(At("project.json"), preflight: true);
+        Directory.CreateDirectory(At("cpu-trace"));
+        File.WriteAllText(At("cpu-trace/trace.tsv"),
+            "cycleStart\tcycleEnd\tpc\topcode\tmnemonic\taBefore\txBefore\tyBefore\tpBefore\tspBefore\t" +
+            "aAfter\txAfter\tyAfter\tpAfter\tspAfter\taccesses\tsourceFile\tsourceLine\tsource\n" +
+            "0\t2\t2000\tA92A\tLDA\t00\t00\t00\t24\tFD\t2A\t00\t00\t24\tFD\t\t" +
+            At("routine.inc") + "\t7\tlda #$2a\n");
+        ExecutionResult result = new(1, "cpu", true, "routine_return", CpuExecutionEngine.Version, null,
+            new Dictionary<string, long> { ["PC"] = 0x2000 }, new Dictionary<int, string>(), null, null,
+            At("cpu-trace"), [], []);
+        ExecutionSpec source = new()
+        {
+            Engine = "cpu",
+            Machine = "apple2ee",
+            Routine = new() { Source = At("routine.asm") }
+        };
+
+        ExecutionSourceLocation location = Assert.Single(BuildExecution.Locate(build, result, source));
+
+        Assert.Equal(At("routine.asm"), location.Program);
+        Assert.Equal(0x2000, location.Address);
+        Assert.Equal(At("routine.inc"), location.File);
+        Assert.Equal(7, location.Line);
+        Assert.Equal("lda #$2a", location.Source);
+        Assert.Equal("executed instruction", location.Observation);
+        Assert.Equal("cpu", location.MemoryBank);
+    }
+
+    [Fact]
+    public void WriteSourceTrace_UnmappedSamples_LeavesRawTraceWithoutDerivedArtifact()
+    {
+        Setup();
+        ProjectBuildResult build = ProjectBuilder.Build(At("project.json"), preflight: true);
+        Directory.CreateDirectory(At("unmapped-trace"));
+        File.WriteAllText(At("unmapped-trace/trace.tsv"), "seconds\tPC\n0.1\t65535\n");
+        ExecutionResult result = new(1, "sample", true, "emulated_limit", "0.289", 1,
+            new Dictionary<string, long>(), new Dictionary<int, string>(), "", build.Sha256, At("unmapped-trace"), [], []);
+
+        Assert.Null(BuildExecution.WriteSourceTrace(build, result));
+        Assert.False(File.Exists(At("unmapped-trace/trace-source.tsv")));
+        Assert.True(File.Exists(At("unmapped-trace/trace.tsv")));
+    }
+
+    [Fact]
+    public void WriteSourceTrace_LargeSourceAnnotations_StopsAtEvidenceLimit()
+    {
+        Setup();
+        ProjectBuildResult build = ProjectBuilder.Build(At("project.json"), preflight: true);
+        BuiltFile file = build.Files[0] with
+        {
+            SourceMap = new[]
+            {
+                new A2Utils.Core.Assembly.AssemblySourceMapEntry(At("main.asm"), 3, 0x2000, 1)
+                {
+                    Source = new string('x', 4096)
+                }
+            }
+        };
+        build = build with { Files = [file] };
+        Directory.CreateDirectory(At("bounded-trace"));
+        System.Text.StringBuilder trace = new("seconds\tPC\n");
+        for (int index = 0; index < 5000; index++) trace.Append(index).Append("\t8192\n");
+        File.WriteAllText(At("bounded-trace/trace.tsv"), trace.ToString());
+        ExecutionResult result = new(1, "sample", true, "emulated_limit", "0.289", 1,
+            new Dictionary<string, long>(), new Dictionary<int, string>(), "", build.Sha256, At("bounded-trace"), [], []);
+
+        string output = Assert.IsType<string>(BuildExecution.WriteSourceTrace(build, result));
+
+        Assert.True(new FileInfo(output).Length <= 16 * 1024 * 1024);
+        Assert.Contains("trace-source truncated", File.ReadAllText(output));
     }
 
     [Fact]
@@ -291,6 +517,7 @@ public sealed class ProjectWorkflowTests : IDisposable
         Assert.True(result.Cancelled);
         Assert.False(result.Passed);
         Assert.Equal("cancelled", Assert.Single(result.Tests.Tests).StopReason);
+        Assert.Equal(new ExecutionSuiteCounts(2, 1, 0, 0, 1, 1), result.Tests.Counts);
         Assert.False(Directory.Exists(At("evidence/case-002")));
         Assert.True(File.Exists(At("evidence/project-result.json")));
         Assert.Equal("cancel", File.ReadAllText(At("os.dsk")));

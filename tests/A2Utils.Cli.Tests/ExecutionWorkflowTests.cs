@@ -1,3 +1,4 @@
+using System.Text.Json;
 using A2Utils.Core.Execution;
 
 namespace A2Utils.Cli.Tests;
@@ -18,6 +19,12 @@ public sealed class ExecutionWorkflowTests : IDisposable
         output.GetStringBuilder().Clear();
         Assert.Equal(0, CliApplication.Run(["test", "--help"], output));
         Assert.Contains("SUITE", output.ToString());
+        Assert.Contains("--list", output.ToString());
+        Assert.Contains("--filter", output.ToString());
+        Assert.Contains("--jobs", output.ToString());
+        Assert.Contains("--rerun-failed", output.ToString());
+        Assert.Contains("--progress", output.ToString());
+        Assert.Contains("--run-subdirectory", output.ToString());
     }
 
     [Fact]
@@ -55,6 +62,71 @@ public sealed class ExecutionWorkflowTests : IDisposable
         Assert.Contains("execution.invalid_suite", error.ToString());
         Assert.False(Directory.Exists(At("result")));
     }
+
+    [Fact]
+    public void Test_ListWithFilter_ReportsStableSelectionWithoutArtifacts()
+    {
+        PrepareSuite();
+        StringWriter output = new(), error = new();
+
+        int code = CliApplication.Run(["test", At("suite.json"), "--list", "--filter", "name:beta", "--json"],
+            output, error);
+
+        Assert.Equal(0, code);
+        Assert.Equal("", error.ToString());
+        using JsonDocument json = JsonDocument.Parse(output.ToString());
+        JsonElement data = json.RootElement.GetProperty("data");
+        Assert.Equal(2, data.GetProperty("discovered").GetInt32());
+        Assert.Equal(1, data.GetProperty("planned").GetInt32());
+        Assert.Equal("case-002", data.GetProperty("cases").EnumerateArray().Single(item =>
+            item.GetProperty("selected").GetBoolean()).GetProperty("id").GetString());
+        Assert.False(Directory.Exists(At("result")));
+    }
+
+    [Fact]
+    public void Test_ParallelProgressAndAutomaticRunDirectory_ReportCounts()
+    {
+        PrepareSuite();
+        StringWriter output = new(), error = new();
+
+        int code = CliApplication.Run(["test", At("suite.json"), "--artifacts", At("runs"),
+            "--run-subdirectory", "--jobs", "2", "--progress", "--json"], output, error);
+
+        Assert.Equal(1, code);
+        Assert.Equal("", error.ToString());
+        using JsonDocument json = JsonDocument.Parse(output.ToString());
+        JsonElement data = json.RootElement.GetProperty("data");
+        Assert.Equal(2, data.GetProperty("counts").GetProperty("completed").GetInt32());
+        Assert.Equal(1, data.GetProperty("counts").GetProperty("passed").GetInt32());
+        Assert.Equal(1, data.GetProperty("counts").GetProperty("failed").GetInt32());
+        string artifacts = data.GetProperty("artifactDirectory").GetString()!;
+        Assert.Equal(At("runs"), Path.GetDirectoryName(artifacts));
+        Assert.True(File.Exists(Path.Combine(artifacts, "events.jsonl")));
+        Assert.True(File.Exists(Path.Combine(artifacts, "suite-result.json")));
+    }
+
+    private void PrepareSuite()
+    {
+        File.WriteAllText(At("disk.dsk"), "pass");
+        Write(At("alpha.json"), Spec("alpha", "HELLO APPLE II"));
+        Write(At("beta.json"), Spec("beta", "MISSING"));
+        Write(At("suite.json"), new ExecutionSuite { Tests = ["alpha.json", "beta.json"] });
+    }
+
+    private ExecutionSpec Spec(string name, string expectedText) => new()
+    {
+        Name = name,
+        EmulatorPath = TestPaths.ExecutionHost(),
+        RomDirectory = _directory,
+        Machine = "apple2ee",
+        DiskImage = At("disk.dsk"),
+        TextContains = [expectedText],
+        EmulatedSeconds = 3,
+        HostTimeoutSeconds = 30
+    };
+
+    private static void Write<T>(string path, T value)
+        => File.WriteAllText(path, JsonSerializer.Serialize(value, ExecutionSpec.JsonOptions));
 
     private string At(string path) => Path.GetFullPath(path, _directory);
     public void Dispose() => Directory.Delete(_directory, recursive: true);

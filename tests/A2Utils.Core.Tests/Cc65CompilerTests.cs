@@ -196,7 +196,7 @@ public sealed class Cc65CompilerTests : IDisposable
             return;
         }
 
-        string resolved = Cc65Compiler.ResolvePhysicalDirectory(Path.Combine(alias, "nested"));
+        string resolved = HostFiles.ResolvePhysicalDirectory(Path.Combine(alias, "nested"));
 
         Assert.Equal(nested, resolved);
         ImageTransactions.ValidatePath(resolved);

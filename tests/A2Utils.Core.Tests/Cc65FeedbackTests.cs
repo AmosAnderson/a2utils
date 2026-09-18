@@ -70,6 +70,46 @@ public sealed class Cc65FeedbackTests
     }
 
     [Fact]
+    public void ParseDebugMap_VersionTwoFilesLinesSegmentsAndSpans_ProducesStableOriginalRanges()
+    {
+        using FixtureWorkspace workspace = new();
+        string source = workspace.NewPath("source,one.c");
+        string stage = workspace.NewPath("stage");
+        string staged = Path.Combine(stage, "source,one.c");
+        Directory.CreateDirectory(stage);
+        File.WriteAllText(source, "first line\nreturn 42;\n");
+        File.WriteAllText(staged, "first line\nreturn 42;\n");
+        string debug = $"""
+            version	major=2,minor=0
+            file	id=0,name="{staged}",size=22,mtime=0x00000000,mod=0
+            line	id=0,file=0,line=2,type=1,span=0+1
+            seg	id=0,name="CODE",start=0x006000,size=0x0010,addrsize=absolute,type=ro
+            span	id=0,seg=0,start=0,size=2
+            span	id=1,seg=0,start=2,size=1
+            """;
+
+        var map = Cc65Feedback.ParseDebugMap(debug, stage, workspace.DirectoryPath);
+
+        Assert.Equal(2, map.Count);
+        Assert.Equal((source, 2, 0x6000, 2, "return 42;"),
+            (map[0].File, map[0].Line, map[0].Address, map[0].Length, map[0].Source));
+        Assert.Equal(0x6002, map[1].Address);
+    }
+
+    [Fact]
+    public void ParseDebugMap_UnsupportedOrOversizedFeedback_RefusesBoundedly()
+    {
+        Assert.Empty(Cc65Feedback.ParseDebugMap(
+            "version\tmajor=2,minor=0\ninfo\tcsym=0,file=0,line=0,seg=0,span=0\n", ".", "."));
+        Assert.Equal("cc65.debug", Assert.Throws<DiskException>(() =>
+            Cc65Feedback.ParseDebugMap("version\tmajor=3,minor=0\n", ".", ".")).Code);
+        Assert.Equal("cc65.debug", Assert.Throws<DiskException>(() => Cc65Feedback.ParseDebugMap(
+            "version\tmajor=2,minor=0\nline\tid=0,file=9,line=1,span=9\n", ".", ".")).Code);
+        Assert.Equal("cc65.feedback_limit", Assert.Throws<DiskException>(() =>
+            Cc65Feedback.ParseDebugMap(new string('x', 4 * 1024 * 1024 + 1), ".", ".")).Code);
+    }
+
+    [Fact]
     public void ValidateConfig_SingleOutputAndTypedSegments_ReportsCustomRuntimeKinds()
     {
         var kinds = Cc65LinkerConfiguration.Validate("""

@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:a2utils:schema:result:2",
+  "title": "A2Utils CLI result envelope v2",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "const": 1,
+      "description": "Compatibility version for the original CLI envelope."
+    },
+    "command": {
+      "type": "string",
+      "minLength": 1
+    },
+    "data": true,
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "$ref": "urn:a2utils:schema:diagnostic:1"
+      }
+    },
+    "contractVersion": {
+      "const": 2
+    },
+    "envelopeType": {
+      "const": "result"
+    },
+    "schemaId": {
+      "const": "urn:a2utils:schema:result:2"
+    },
+    "resultSchemaId": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "command",
+    "data",
+    "diagnostics",
+    "contractVersion",
+    "envelopeType",
+    "schemaId",
+    "resultSchemaId"
+  ]
+}

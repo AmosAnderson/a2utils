@@ -3,9 +3,37 @@ using System.Globalization;
 
 namespace A2Utils.Core.Operations;
 
-/// <summary>Shared checks for host files before potentially blocking reads.</summary>
+/// <summary>Shared host-filesystem checks and physical-path resolution.</summary>
 public static class HostFiles
 {
+    /// <summary>Resolves directory links so generated temporary files pass the write link policy.</summary>
+    internal static string ResolvePhysicalDirectory(string path)
+        => ResolvePhysicalDirectory(path, new(OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
+            ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal));
+
+    private static string ResolvePhysicalDirectory(string path, HashSet<string> visited)
+    {
+        string fullPath = Path.GetFullPath(path);
+        if (!visited.Add(fullPath))
+            throw new IOException("A directory-link cycle was found while resolving the path.");
+        if (!Directory.Exists(fullPath))
+            throw new DirectoryNotFoundException("The directory does not exist: " + fullPath);
+
+        string root = Path.GetPathRoot(fullPath)!;
+        string resolved = root;
+        foreach (string segment in fullPath[root.Length..].Split(
+            [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar],
+            StringSplitOptions.RemoveEmptyEntries))
+        {
+            DirectoryInfo directory = new(Path.Combine(resolved, segment));
+            FileSystemInfo? target = directory.ResolveLinkTarget(returnFinalTarget: true);
+            resolved = target is null ? directory.FullName
+                : ResolvePhysicalDirectory(target.FullName, visited);
+        }
+
+        return Path.TrimEndingDirectorySeparator(resolved);
+    }
+
     /// <summary>
     /// Rejects Unix pipes, sockets, devices, and other nonregular entries before opening them.
     /// Windows callers use their existing file-attribute and stream checks.

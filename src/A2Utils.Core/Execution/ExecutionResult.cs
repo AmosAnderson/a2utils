@@ -19,10 +19,18 @@ public sealed record ExecutionResult(
     public ExecutionDebugResult? Debug { get; init; }
     public AppleIIeTextScreen? TextScreen { get; init; }
     public ExecutionScreenshotResult? ScreenshotComparison { get; init; }
+    public IReadOnlyList<ExecutionGraphicsMemoryResult> GraphicsMemory { get; init; } = [];
     public IReadOnlyDictionary<string, int> Video { get; init; } = new Dictionary<string, int>();
 }
 
 public sealed record ExecutionDiskResult(string Device, string InputPath, string ArtifactPath,
     string InputSha256, string? OutputSha256);
 
-public sealed record ExecutionSuiteResult(int SchemaVersion, bool Passed, IReadOnlyList<ExecutionResult> Tests);
+public sealed record ExecutionSuiteResult(int SchemaVersion, bool Passed, IReadOnlyList<ExecutionResult> Tests)
+{
+    public string SuitePath { get; init; } = "";
+    public string ArtifactDirectory { get; init; } = "";
+    public ExecutionSuiteCounts Counts { get; init; } = new(0, 0, 0, 0, 0, 0);
+    public IReadOnlyList<ExecutionSuiteCaseResult> Cases { get; init; } = [];
+    public bool Cancelled { get; init; }
+}

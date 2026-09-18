@@ -6,6 +6,6 @@
     <Deterministic>true</Deterministic>
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
     <NuGetLockFilePath Condition="'$(RuntimeIdentifier)' != ''">$(MSBuildProjectDirectory)/obj/$(RuntimeIdentifier)/packages.lock.json</NuGetLockFilePath>
-    <Version>0.5.0-dev.1</Version>
+    <Version>0.6.0-dev</Version>
   </PropertyGroup>
 </Project>

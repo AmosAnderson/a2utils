@@ -42,6 +42,23 @@ public sealed class SetupWorkflowTests : IDisposable
         Assert.False(Directory.Exists(project));
     }
 
+    [Fact]
+    public void Init_BareMetal_WritesBootManifestWithoutTemplateRequirement()
+    {
+        string project = Path.Combine(_directory, "bare");
+        var result = Run("init", project, "--bare-metal", "--json");
+
+        Assert.Equal(0, result.Code);
+        using JsonDocument manifest = JsonDocument.Parse(File.ReadAllText(Path.Combine(project, "project.a2.json")));
+        Assert.Equal("main.asm", manifest.RootElement.GetProperty("boot").GetProperty("source").GetString());
+        Assert.Equal("dos33", manifest.RootElement.GetProperty("disk").GetProperty("fileSystem").GetString());
+        Assert.Empty(manifest.RootElement.GetProperty("files").EnumerateArray());
+        using JsonDocument environment = JsonDocument.Parse(File.ReadAllText(
+            Path.Combine(project, "environment.json")));
+        Assert.Equal(JsonValueKind.Null,
+            environment.RootElement.GetProperty("templateImage").ValueKind);
+    }
+
     private static (int Code, string Output, string Error) Run(params string[] arguments)
     {
         using StringWriter output = new();

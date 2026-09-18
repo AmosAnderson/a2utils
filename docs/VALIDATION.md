@@ -1,5 +1,35 @@
 # Development preview validation
 
+## Agentic Apple II development milestone — September 18, 2026
+
+Validated locally on Windows x64 with .NET SDK 10.0.401:
+
+| Check | Result |
+| --- | --- |
+| Locked restore; Release build with warnings as errors | Passed with the pinned dependency graph; zero build warnings/errors. An initial audit request reported `NU1900` while the NuGet vulnerability endpoint was unavailable; the final locked restore and package run completed cleanly. |
+| Full Core and CLI suites | 1,277 passed (1,112 Core, 165 CLI); 15 optional external-MAME cases skipped |
+| Formatting, schemas, and repository integrity | `dotnet format`, `git diff --check`, and parsing all ten JSON Schemas passed |
+| Version and licensing | `0.6.0-dev`; original A2Utils code and NuGet metadata use `GPL-2.0-only`, with the complete license and all dependency notices in packaged output |
+| Structured automation | Typed success/error envelopes, stable error codes, capability discovery, schema lookup, bounded MCP stdio requests, and JSON behavior across all command families covered |
+| Disk workflows | Logical/physical diffs, deterministic hash-bound plans, strict apply preconditions, preservation/failure paths, bounded payloads, DOS case collisions, and exact 140 KiB boot-sector geometry covered |
+| Project workflows | Resolve/inspect, image import, source-change refusal, bare-metal boot projects, exact manifest/environment/toolchain snapshots, and bounded content-addressed caching covered |
+| CPU and execution suites | In-process 6502/Apple-compatible 65C02 routines, instruction/cycle limits, source-aware traces, selective/parallel/rerun suites, progress events, and exact rerun identity covered |
+| Visual evidence | Apple II graphics-memory decoding, expected-image snapshots, tolerance/diff evidence, and source-change detection covered |
+| External-tool evidence | cc65 and MAME diagnostics retain source mappings, invocations, environment fingerprints, and final-input integrity checks |
+| Packaging and release automation | Warning-free tool pack and self-contained `win-x64` publish passed; all project/dependency notices are present in both deliverables; 49 offline release checks passed |
+
+The package workflow produced ignored local artifacts
+`artifacts/packages/A2Utils.Tool.0.6.0-dev.nupkg` (SHA-256
+`2e7fd2229e1079f21a84a50528dbfdd438e8cea7e8990f510131aa35fbcae282`)
+and `artifacts/a2utils-win-x64.zip` (SHA-256
+`d75ed4072d5fec2d85d3f56788bc772631a7e716b2dcdd69fe491bec0c034d63`).
+No package or release was published.
+
+Actual MAME, Apple ROM/OS images, and cc65 were not configured in this environment.
+The 15 real-machine cases were skipped, and the ordinary cc65 process contracts use
+the explicitly named execution test host. Those checks do not establish real emulator,
+ROM, operating-system, or compiler interoperability.
+
 ## Windows path assertion release retry — September 16, 2026
 
 The [`v0.5.0-dev` run](https://github.com/AmosAnderson/a2utils/actions/runs/35117475546)
@@ -268,9 +298,11 @@ contain no boot code. The emulator catalog/load smoke check has not been run.
 
 Before a stable/public release, run the configured hosted CI matrix, validate
 generated data disks in independent DOS and ProDOS emulator environments, and
-select a license for original A2Utils code. Initial implementation and validation
-were performed locally. A private [GitHub repository](https://github.com/AmosAnderson/a2utils)
-has since been created; no public package has been published.
+resolve the Apache-2.0/GPL-2.0-only dependency incompatibility for combined
+binaries. Original A2Utils code is licensed under GPL-2.0-only. Initial
+implementation and validation were performed locally. A private
+[GitHub repository](https://github.com/AmosAnderson/a2utils) has since been
+created; no public package has been published.
 
 ## Documentation verification
 

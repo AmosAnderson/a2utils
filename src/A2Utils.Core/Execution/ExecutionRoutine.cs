@@ -34,7 +34,7 @@ public static class RoutineHarness
     /// <summary>Validates and assembles a routine without creating execution artifacts.</summary>
     public static PreparedRoutine Assemble(ExecutionSpec spec, CancellationToken cancellationToken = default)
     {
-        MameAdapter.Validate(spec);
+        ExecutionRunner.Validate(spec);
         ExecutionRoutine routine = spec.Routine ?? throw new ArgumentException("A routine is required.", nameof(spec));
         AssemblyResult assembled;
         if (routine.Kind == "asm")

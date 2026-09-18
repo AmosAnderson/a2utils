@@ -77,6 +77,11 @@ program writes the exact mailbox bytes `2A A5 5A` at `$0300–$0302`; its test
 asserts all three bytes. `AI.MAIN` must be absent from the template. The template
 is copied by the build and never edited in place.
 
+`a2 init DIRECTORY --language asm --bare-metal` creates an original DOS-order
+140 KiB boot-sector project instead. It uses no operating-system template;
+`--bare-metal` accepts only the assembly starter. Its generated full-machine test
+still needs a separately configured MAME executable and ROM directory.
+
 Without `--environment`, initialization creates an editable `environment.json`.
 Configure its local paths before building or testing; generated configuration
 is not evidence of a successful emulator run. With a configured profile:

@@ -34,12 +34,15 @@ public sealed partial class CliApplication
         Argument<string> directory = new("DIRECTORY");
         Option<string> language = new("--language") { DefaultValueFactory = _ => "asm", Description = "asm, basic, or c." };
         Option<string?> profile = new("--environment") { Description = "Existing local environment profile; otherwise create an editable profile." };
+        Option<bool> bareMetal = new("--bare-metal") { Description = "Create an original assembly boot disk that does not require an OS template." };
         init.Arguments.Add(directory);
         init.Options.Add(language);
         init.Options.Add(profile);
+        init.Options.Add(bareMetal);
         init.SetAction(parse =>
         {
-            ProjectStarterResult result = ProjectStarter.Create(parse.GetValue(directory)!, parse.GetValue(language)!, parse.GetValue(profile), _cancellationToken);
+            ProjectStarterResult result = ProjectStarter.Create(parse.GetValue(directory)!, parse.GetValue(language)!, parse.GetValue(profile),
+                _cancellationToken, parse.GetValue(bareMetal));
             return Result("init", result, $"Created {result.Language} project at {result.Directory}"
                 + (result.NeedsEnvironmentConfiguration ? "\nCheck and configure the environment profile before building or running its test." : ""));
         });

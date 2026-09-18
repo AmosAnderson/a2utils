@@ -3,17 +3,20 @@
 A2Utils is a C#/.NET 10 command-line toolkit for Apple II and Apple IIe disk
 images and programs. Use it to inspect and edit DOS 3.3/ProDOS disks, assemble
 6502/65C02 source, and convert Applesoft BASIC between listings and tokenized
-programs. Build projects into disk images, prepare graphics assets, and test
-programs through an optional MAME installation. The reusable core library is
-independent of console output.
+programs. Build projects into disk images, prepare graphics assets, test pure
+6502/65C02 routines in-process, and test full machines through an optional MAME
+installation. The reusable core library is independent of console output.
 
-The current version is **0.5.0-dev.1**, a development preview. The
+The current version is **0.6.0-dev**, a development preview. The
 [GitHub repository](https://github.com/AmosAnderson/a2utils) is private.
 
 The AI programming workflow now includes [setup profiles and starters](docs/setup.md),
 [runtime memory checks](docs/runtime-memory.md), [project graphics assets and visual tests](docs/project-assets.md),
 [ordered interactions and routine/cycle tests](docs/interactive-testing.md),
 [audio assertions](docs/audio-execution.md), [CFFA2 block devices](docs/block-storage-execution.md), and [reusable Apple II routines](examples/runtime/README.md).
+Agents can also discover typed command contracts, inspect or import projects,
+preflight declarative disk changes, and invoke the CLI through its local MCP
+stdio server.
 
 ## Download and run
 
@@ -151,11 +154,15 @@ a2 disk create work.do --fs dos33
 a2 disk add work.do hello.bin --name HELLO --type B --load-address 0x2000 --in-place
 a2 disk add work.do hello.basbin --name DEMO --type A --in-place
 a2 disk verify work.do
+a2 disk diff original.do work.do --json
+a2 project resolve project.a2.json --json
+a2 build project.a2.json --cache artifacts/build-cache --json
 ```
 
-These commands create new host files or directories; rerunning them requires new
-destinations or the appropriate explicit replacement option. Newly created disk
-images are formatted data volumes without an operating system or boot code. The
+Commands that write host outputs require new destinations or the appropriate
+explicit replacement option; verification, diff, and project resolution are
+read-only with respect to requested outputs. An image made by `disk create` is
+a formatted data volume without an operating system or boot code. The
 assembly example targets address `0x2000`; any `.org` in `hello.asm` must agree.
 Follow the [first-project walkthrough](docs/getting-started.md#build-a-disk-with-two-programs)
 for this sequence and the equivalent ProDOS metadata step by step.
@@ -166,13 +173,13 @@ for this sequence and the equivalent ProDOS metadata step by step.
 | --- | --- |
 | Disk images | Raw `.do`, `.po`, `.dsk`, single-volume `.hdv`, and sector-data `.2mg`/`.2img` |
 | Filesystems | Standard 140 KiB DOS 3.3; ProDOS volumes of 280–65,535 blocks |
-| Disk operations | Inspect, verify, extract/restore, export/import, create, add/replace/delete, copy/move/rename, directories, attributes, and container/order conversion |
+| Disk operations | Inspect, verify, diff, declarative plan/apply, extract/restore, export/import, create, add/replace/delete, copy/move/rename, directories, attributes, and container/order conversion |
 | Text | Explicit Apple text ↔ UTF-8 conversion for printable ASCII, tabs, and line endings |
 | Assembly | Documented NMOS 6502, Apple-compatible 65C02, and WDC65C02 instructions; labels, expressions, and data directives |
 | Applesoft | Full token vocabulary, numbered source, linked program validation, checks, renumbering, symbolic labels, and readable listings |
-| Automation | Versioned JSON, stable diagnostic codes, cancellation, and explicit write destinations |
-| Projects | Reproducible builds, source maps/symbols, target profiles, capability discovery, and JSON Schemas |
-| Execution | Optional MAME 0.289 adapter with isolated floppy mounts, bank-aware assertions, 40/80-column text, MouseText, breakpoints/watchpoints, instruction steps/history, and screenshots |
+| Automation | Typed versioned JSON, JSON Schemas, stable diagnostics, capability discovery, cancellation, and a local MCP stdio interface |
+| Projects | Reproducible builds, opt-in content-addressed caching, non-writing resolution, image-to-project import, source maps/symbols, target profiles, and original bare-metal DOS boot sectors |
+| Execution | Deterministic in-process 6502/65C02 routines plus optional MAME 0.289, selective/parallel suites, graphics-memory assertions, isolated mounts, debugging, text, and screenshots |
 | C and ca65 | Optional isolated cc65 integration producing AppleSingle programs |
 | Graphics | PNG screens, sprites, fonts, tiles, Applesoft shapes, and double-hires assets |
 
@@ -194,9 +201,16 @@ symbolic addresses to the exact built image. See the
 Disk operations, the native assembler, Applesoft tools, project builder, and
 graphics conversion are built in. `a2 cc` and project manifests containing cc65
 sources additionally require a separate cc65 installation containing `cl65`.
-The `run` and `test` commands require MAME 0.289, matching ROMs, and a supplied
-disk; none of those emulator files are bundled. On Linux and macOS, host program
+The `run` and `test` commands default to MAME 0.289, matching ROMs, and supplied
+media; none of those emulator files are bundled. A routine specification with
+`engine: "cpu"` needs none of them. On Linux and macOS, host program
 input and directory import also expect the standard `/usr/bin/stat` utility.
+
+Coding agents can start `a2 mcp serve` as a local stdio MCP server. It exposes
+`a2_cli`, `a2_capabilities`, and `a2_schema`; relative paths use the server
+process working directory. Keep standard input/output attached to the MCP client.
+One tool response is limited to 16 MiB. See the [command reference](docs/cli-reference.md#mcp-server)
+and use `a2 capabilities --json` before generating invocations.
 
 ## Documentation
 
@@ -208,7 +222,7 @@ input and directory import also expect the standard `/usr/bin/stat` utility.
 | [Assembly and Applesoft BASIC](docs/programs.md) | Compiler syntax, CPU modes, source examples, program headers, and disk integration |
 | [Project builds](docs/projects.md) | Reproducible manifests, inferred load metadata, templates, target profiles, and memory checks |
 | [BASIC development](docs/basic-development.md) | Source checking, renumbering, symbolic labels, and source mappings |
-| [Automated execution](docs/execution.md) | MAME run/test specifications, assertions, timeouts, and execution evidence |
+| [Automated execution](docs/execution.md) | CPU and MAME run/test specifications, assertions, timeouts, and execution evidence |
 | [Runtime debugging](docs/runtime-debugging.md) | Breakpoints, watchpoints, bounded steps, and instruction history |
 | [IIe memory](docs/iie-memory.md) and [observations](docs/iie-execution.md) | Banked projects, explicit loaders, physical memory, 80-column text, and MouseText |
 | [C and ca65](docs/cc65.md) | Optional isolated cc65 compilation and AppleSingle programs |
@@ -248,7 +262,15 @@ external tools along with the remaining limits. The standard local suites and
 remaining external-machine checks are recorded there; real MAME and OS
 interoperability checks require local emulator resources.
 
-Third-party notices are included in each archive and summarized in
-[THIRD_PARTY.md](THIRD_PARTY.md). A license for original A2Utils code remains to
-be selected before public distribution; the development packages are for local
-evaluation.
+Original A2Utils code is licensed under the GNU General Public License, version
+2 only (`GPL-2.0-only`); see [LICENSE](LICENSE). Third-party code and dependencies
+retain their own licenses, which are included in each archive and summarized in
+[THIRD_PARTY.md](THIRD_PARTY.md).
+
+CiderPress2 and the Model Context Protocol SDK are licensed under Apache-2.0,
+which the [Apache Software Foundation](https://www.apache.org/licenses/GPL-compatibility)
+and [GNU Project](https://www.gnu.org/licenses/license-compatibility.en.html)
+identify as incompatible with GPL-2.0-only for a publicly distributed combined
+program. The repository and development releases remain private while those
+dependencies are replaced, separately licensed, or the project license is
+revisited before public binary distribution.

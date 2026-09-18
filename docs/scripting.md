@@ -19,9 +19,15 @@ The examples use a locally installed executable as described in
 | `--to` / `--output` | Programs, exported payloads, and images go to files, not standard output |
 
 Keep the channels separate. Do not use `2>&1` before parsing stdout as JSON.
-In preview 0.4, `--json` collects diagnostics in the result/error envelope and
-keeps stderr free of unstructured warning/verbose lines. Help and
-version output are informational text rather than result envelopes.
+JSON mode collects diagnostics in the result/error envelope and keeps stderr
+free of unstructured warning/verbose lines. Help and version output are
+informational text rather than result envelopes.
+
+Current envelopes retain those version-1 fields and add `contractVersion: 2`,
+`envelopeType`, and a resolvable `schemaId`. Result envelopes also identify the
+payload contract through `resultSchemaId`; most commands use the generic result
+schema, while typed results such as `project.resolve` name their specific schema.
+Use `a2 schema result|error|envelope --json` to retrieve the bundled contracts.
 
 Success has this shape:
 
@@ -33,7 +39,11 @@ Success has this shape:
     "valid": true,
     "diagnostics": []
   },
-  "diagnostics": []
+  "diagnostics": [],
+  "contractVersion": 2,
+  "envelopeType": "result",
+  "schemaId": "urn:a2utils:schema:result:2",
+  "resultSchemaId": "urn:a2utils:schema:result:2"
 }
 ```
 
@@ -48,20 +58,31 @@ normal stdout result:
     "message": "Raw machine code requires --origin because its load address is not stored in the file.",
     "exitCode": 2,
     "diagnostics": []
-  }
+  },
+  "contractVersion": 2,
+  "envelopeType": "error",
+  "schemaId": "urn:a2utils:schema:error:2",
+  "exitCode": 2
 }
 ```
 
-Preview 0.4 adds an envelope `diagnostics` array on success and
+The current envelope includes a `diagnostics` array on success and
 `error.diagnostics` on failure. Source diagnostics can include `file`, `line`,
-`column`, `basicLine`, `symbol`, `expected`, and `actual`. Existing code/message/
-exitCode fields remain available. Assembly errors keep their broad classification
-while the diagnostic entries provide more specific causes.
+`column`, `endLine`, `endColumn`, `jsonPointer`, `basicLine`, `symbol`, `expected`,
+`actual`, `phase`, `tool`, `helpUri`, related locations, and machine-applicable
+fixes. Existing code/message/exitCode fields remain available. Assembly errors
+keep their broad classification while the diagnostic entries provide more
+specific causes.
 
 `basic check`, `run`, and `test` can also return stdout result envelopes on
 nonzero exits: source-check failures and behavioral assertion failures have
 useful results. Inspect the process exit and result diagnostics together.
-Use `capabilities --json` and `schema NAME --json` for discovery. New command
+Use `capabilities --json` and `schema NAME --json` for discovery. Capability
+records include value types, defaults, choices, option relationships, path roles,
+side effects, result/error schema identifiers, execution engines, selective-suite
+features, CPU processors/tracing, graphics-memory assertions, bare-metal project
+support, and the MCP stdio interface. MAME is required only for execution specs
+or suite cases whose `engine` is `mame`. New command
 results include build hashes/files/memory maps, assembly symbols/source maps,
 renumber mappings, graphics artifact metadata, and execution state/artifact paths.
 
@@ -90,9 +111,12 @@ an operation refusal. Selected codes and remedies are in
 
 ## Result fields
 
-Disk command names are unqualified (`info`, `ls`, `add`, `verify`). Root command
-names are also unqualified: `build`, `targets`, `capabilities`, `schema`, `run`,
-and `test`. Namespaced canonical names are `asm.compile`, `asm.decompile`,
+Most disk command names are unqualified (`info`, `ls`, `add`, `verify`, `diff`);
+declarative mutation reports use `disk.plan` and `disk.apply`. Root command names
+are also unqualified: `build`, `targets`, `capabilities`, `schema`, `run`, and
+`test`. Their specialized modes report `build.test` and `test.list`. Namespaced
+canonical names include `project.resolve`, `project.import`, `asm.compile`,
+`asm.decompile`,
 `asm.listing`, `asm.map`, `basic.compile`, `basic.decompile`, `basic.check`,
 `basic.renumber`, `basic.prepare`, `cc.compile`, `graphics.encode`,
 `graphics.decode`, `graphics.assets.pack`, `graphics.assets.unpack`,
@@ -106,16 +130,21 @@ and `test`. Namespaced canonical names are `asm.compile`, `asm.decompile`,
 | Read-only `disk attr` | One entry object |
 | `disk verify` | `valid` plus `diagnostics` |
 | `disk extract` | `destination` and the complete `manifest` |
+| `disk diff` | Whole-image hashes/info, logical entry changes, bounded physical byte ranges, different-byte count, and truncation flag |
+| `disk.plan` | Input/change-set/candidate/plan hashes, payload input hashes, free space before/after, and logical entry changes; no requested output is committed |
+| `disk.apply` | Transactional write result, the exact preflight `plan`, and committed output hash |
 | Image writes, `disk convert`, `disk export` | `outputPath` and nullable `backupPath` |
 | `asm` / `basic` conversions | `outputPath`, `origin`, `payloadLength`, `outputLength`, nullable `cpu`, and `format` |
 | `asm listing`, `asm map` | `outputPath`, `origin`, and `payloadLength`; the requested report is written to `outputPath` |
 | `basic check` | `valid` and structured `diagnostics` |
 | `basic renumber` | `outputPath`, old/new/source-line `mapping`, and advisory `diagnostics` |
 | `basic prepare` | `outputPath`, source/generated-line/label `mapping`, and `diagnostics` |
-| `build` | Output path/hash, target, CPU, filesystem, bootability, tool version, timestamp, hashed inputs, built files, resident memory, diagnostics, mode flags, and optional execution settings. Full builds/preflight include `plan` with changes/directories and free space before/after. With `--check`, `plan` is null and `sha256` is `""`. |
+| `build` | Output path/hash, target, CPU, filesystem, bootability, tool version, timestamp, hashed inputs, built files, resident memory, diagnostics, mode flags, optional execution settings, and `cacheHit`. Full builds/preflight include `plan` with changes/directories and free space before/after. With `--check`, `plan` is null and `sha256` is `""`. `cacheHit` is true only when `--cache DIRECTORY` restores a verified cached image. |
 | `build.test` | `schemaVersion`, `passed`, `cancelled`, complete `build`, `tests` suite result, and `artifactDirectory`. Behavioral failure still returns the result on stdout with exit 1; cancellation uses exit 6. |
+| `project.resolve` | Effective target/runtime/disk settings, nullable resolved boot metadata, absolute source paths, hashed build and execution-suite dependencies, required tools, compiled memory ranges, and a noncommitting disk/file/boot-sector plan. |
+| `project.import` | New project directory, manifest/template paths, input hash, imported files, editability, and conversion diagnostics. |
 | `targets` | `profiles`, `symbols`, and DOS/ProDOS `runtimeReservations` |
-| `capabilities` | Declared command metadata, separate `globalOptions`, supported values, schema names, external tools, and limitations. Nested command-local option arrays omit inherited globals; direct root children may include root options, including root-only `--version`. Consult `--help` for effective syntax. |
+| `capabilities` | Typed command/option metadata, separate `globalOptions`, constraints, path roles, side effects, result schemas, supported values, structured external tools, and limitations. Each command record includes its effective inherited globals once. Consult `--help` for effective syntax. |
 | `schema` | The requested JSON Schema object itself |
 | `cc compile` | Output path, AppleSingle format/hash, compiler version/target, decoded type/auxiliary metadata, payload length, linker map, labels, and hashed inputs |
 | `graphics encode`, `graphics decode` | Output path/hash/length, mode, dimensions, and rendering description |
@@ -123,7 +152,8 @@ and `test`. Namespaced canonical names are `asm.compile`, `asm.decompile`,
 | `graphics shapes encode` | Output path/hash/payload length and per-shape metadata |
 | `graphics dhires encode`, `decode` | Output path/hash, mode, bank order/offsets/lengths, dimensions, and rendering description |
 | `run` | Name/pass state/stop reason, emulator version/time, registers, observed memory, screen text, legacy first input hash, `disks` with input/output hashes and paths, artifact directory/list, and diagnostics |
-| `test` | Suite schema version/pass state and the complete ordered `tests` result array |
+| `test` | Suite schema version/pass/cancel state, suite and artifact paths, explicit planned/completed/passed/failed/cancelled/not-run `counts`, stable ordered case identities/statuses, and the complete ordered `tests` result array |
+| `test.list` | Read-only suite plan with matching stable case identities, names, paths, and original suite indexes; no artifact directory is created |
 
 Execution results also expose `bankMemory` (`bank`, `address`, `hex`), optional
 `debug` trigger/step/history evidence, optional `textScreen` cells, and captured
@@ -131,6 +161,12 @@ Execution results also expose `bankMemory` (`bank`, `address`, `hex`), optional
 observations. See [debugging](runtime-debugging.md) and [IIe observations](iie-execution.md).
 Source-location records include `memoryBank`; CPU addresses may match more than
 one resident bank and all matches are retained.
+
+With `test --progress`, `events.jsonl` contains one JSON object per line and is
+flushed as suite and case events occur. Use each event's monotonic `sequence` for
+ordering. Parallel completion order can differ from the stable case order in the
+final result. Treat `suite-result.json` as the final summary; an interrupted process
+can leave only the progress prefix and available per-case evidence.
 
 Numbers are numeric JSON values, including addresses and file types. For
 example, `$2000` is `8192`. Dates are strings or `null`, and byte arrays such

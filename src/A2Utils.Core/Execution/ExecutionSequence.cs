@@ -16,6 +16,7 @@ public sealed record ExecutionCondition
 {
     public IReadOnlyList<MemoryAssertion> Memory { get; init; } = [];
     public IReadOnlyList<MemoryAssertion> MemoryNotEqual { get; init; } = [];
+    public IReadOnlyList<GraphicsMemoryAssertion> GraphicsMemory { get; init; } = [];
     public IReadOnlyList<SymbolicMemoryAssertion> SymbolicMemory { get; init; } = [];
     public IReadOnlyList<RegisterAssertion> Registers { get; init; } = [];
     public IReadOnlyList<string> TextContains { get; init; } = [];

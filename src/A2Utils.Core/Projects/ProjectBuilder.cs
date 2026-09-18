@@ -12,10 +12,20 @@ namespace A2Utils.Core.Projects;
 /// <summary>Compiles a manifest into one staged disk image; source metadata follows each payload.</summary>
 public static partial class ProjectBuilder
 {
+    private const int MaximumBuildInputBytes = 64 * 1024 * 1024;
+
     public static ProjectBuildResult Build(string manifestPath, string? outputPath = null,
         bool overwrite = false, bool checkOnly = false, CancellationToken cancellationToken = default,
         bool preflight = false)
         => BuildCore(manifestPath, outputPath, overwrite, checkOnly, cancellationToken, preflight);
+
+    internal static ProjectBuildResult BuildResolved(ResolvedProjectManifest resolved,
+        bool overwrite = false, bool checkOnly = false,
+        CancellationToken cancellationToken = default, bool preflight = false)
+    {
+        ArgumentNullException.ThrowIfNull(resolved);
+        return BuildCore(resolved, overwrite, checkOnly, cancellationToken, preflight);
+    }
 
     internal static ProjectBuildResult BuildVerified(string manifestPath, string? outputPath,
         bool overwrite, ProjectBuildResult expected, CancellationToken cancellationToken,
@@ -28,82 +38,84 @@ public static partial class ProjectBuilder
             expected, validateExternalInputs);
     }
 
+    internal static ProjectBuildResult BuildVerified(ResolvedProjectManifest resolved,
+        bool overwrite, ProjectBuildResult expected, CancellationToken cancellationToken,
+        Action? validateExternalInputs = null)
+    {
+        ArgumentNullException.ThrowIfNull(resolved);
+        ArgumentNullException.ThrowIfNull(expected);
+        if (expected.CheckOnly || expected.Sha256.Length != 64)
+            throw Error("build_changed", "A complete preflight image hash is required before committing a verified build.", 6);
+        return BuildCore(resolved, overwrite, false, cancellationToken, false,
+            expected, validateExternalInputs);
+    }
+
     private static ProjectBuildResult BuildCore(string manifestPath, string? outputPath,
         bool overwrite, bool checkOnly, CancellationToken cancellationToken, bool preflight,
         ProjectBuildResult? expectedBuild = null, Action? validateExternalInputs = null)
     {
+        if (checkOnly && preflight)
+            throw Error("check_mode", "Choose either source checks or complete build preflight.");
+        ResolvedProjectManifest resolved = ProjectResolver.Load(manifestPath, outputPath,
+            cancellationToken);
+        return BuildCore(resolved, overwrite, checkOnly, cancellationToken, preflight,
+            expectedBuild, validateExternalInputs);
+    }
+
+    private static ProjectBuildResult BuildCore(ResolvedProjectManifest resolved,
+        bool overwrite, bool checkOnly, CancellationToken cancellationToken, bool preflight,
+        ProjectBuildResult? expectedBuild = null, Action? validateExternalInputs = null)
+    {
         if (checkOnly && preflight) throw Error("check_mode", "Choose either source checks or complete build preflight.");
-        string manifestFile = Path.GetFullPath(manifestPath);
-        byte[] manifestBytes = ProgramFiles.ReadBytes(manifestFile, 1024 * 1024, cancellationToken);
-        ProjectManifest manifest;
-        try
-        {
-            using JsonDocument json = JsonDocument.Parse(manifestBytes);
-            if (json.RootElement.ValueKind != JsonValueKind.Object ||
-                !json.RootElement.TryGetProperty("schemaVersion", out JsonElement version) ||
-                version.ValueKind != JsonValueKind.Number || !version.TryGetInt32(out int schemaVersion) || schemaVersion != 1)
-                throw Error("schema", "Project schemaVersion must be 1.");
-            RejectDuplicateProperties(json.RootElement);
-            manifest = JsonSerializer.Deserialize<ProjectManifest>(manifestBytes, ProjectJson.Options)
-                ?? throw Error("schema", "Project must be an object.");
-        }
-        catch (JsonException exception) { throw Error("schema", exception.Message); }
-        string root = Path.GetDirectoryName(manifestFile)!;
-        if (manifest.ToolchainLock is not null && manifest.Environment is null)
-            throw Error("environment", "toolchainLock requires an environment profile.");
-        if (manifest.Environment is { } environment)
-        {
-            string environmentFile = Path.GetFullPath(environment, root);
-            manifest = manifest with
-            {
-                Environment = environmentFile,
-                ToolchainLock = manifest.ToolchainLock is null ? null : Path.GetFullPath(manifest.ToolchainLock, root),
-                Disk = manifest.Disk is null ? null! : manifest.Disk with
-                {
-                    Template = manifest.Disk.Template is null ? null : Path.GetFullPath(manifest.Disk.Template, root)
-                },
-                Cc65 = manifest.Cc65 is not { } compilerOptions ? null : compilerOptions with
-                {
-                    Compiler = compilerOptions.Compiler is { } compilerName && compilerName.IndexOfAny(['/', '\\']) >= 0
-                        ? Path.GetFullPath(compilerName, root) : compilerOptions.Compiler,
-                    ToolchainRoot = compilerOptions.ToolchainRoot is null ? null : Path.GetFullPath(compilerOptions.ToolchainRoot, root)
-                }
-            };
-            manifest = DevelopmentEnvironment.Apply(manifest, environmentFile);
-            DevelopmentEnvironment.ValidateProjectLock(manifest, cancellationToken);
-        }
-        ValidateManifest(manifest);
-        ProjectExecutionSettings? executionSettings = manifest.Execution is { } execution
-            ? execution with { Suite = Path.GetFullPath(execution.Suite, root) } : null;
-        string output = Path.GetFullPath(outputPath ?? manifest.Output, root);
+        string manifestFile = resolved.ManifestPath;
+        byte[] manifestBytes = resolved.ManifestBytes;
+        ProjectManifest manifest = resolved.Manifest;
+        string root = resolved.ProjectRoot;
+        ProjectExecutionSettings? executionSettings = resolved.Execution;
+        string output = resolved.OutputPath;
         ImageTransactions.EnsureDistinctPaths(manifestFile, output);
-        TargetProfile profile = TargetProfiles.Get(manifest.Target);
-        string cpu = manifest.Cpu ?? profile.Cpu;
+        TargetProfile profile = resolved.Profile;
+        string cpu = resolved.Cpu;
         CpuKind cpuKind = TargetProfiles.ParseCpu(cpu);
-        if (cpu == "w65c02" || cpu == "65c02" && profile.Cpu == "6502")
-            throw Error("cpu_target", $"CPU '{cpu}' is incompatible with target '{profile.Name}'.");
-        string fs = manifest.Disk.FileSystem;
-        string order = manifest.Disk.Order ?? (fs == "dos33" ? "dos" : "prodos");
-        string? template = manifest.Disk.Template is null ? null : Path.GetFullPath(manifest.Disk.Template, root);
-        Dictionary<string, string> inputHashes = new(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal)
+        string fs = resolved.FileSystem;
+        string order = resolved.Order;
+        string? template = resolved.TemplatePath;
+        using TemporaryProjectInput? templateSnapshot = resolved.TemplateInput is null ? null
+            : new(resolved.TemplateInput, "build-template");
+        Dictionary<string, string> inputHashes = new(OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
+            ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal)
         {
             [manifestFile] = ProgramFiles.Hash(manifestBytes)
         };
         if (manifest.Environment is { } profileInput)
-            inputHashes[profileInput] = ProgramFiles.Hash(ProgramFiles.ReadBytes(profileInput, 1024 * 1024, cancellationToken));
+        {
+            ProjectInputSnapshot environmentInput = resolved.EnvironmentInput
+                ?? throw Error("environment_snapshot", "The resolved environment snapshot is unavailable.", 6);
+            ImageTransactions.EnsureDistinctPaths(profileInput, output);
+            inputHashes[profileInput] = environmentInput.Sha256;
+        }
         if (manifest.ToolchainLock is { } lockInput)
-            inputHashes[lockInput] = ProgramFiles.Hash(ProgramFiles.ReadBytes(lockInput, 4 * 1024 * 1024, cancellationToken));
+        {
+            ProjectInputSnapshot toolchainLockInput = resolved.ToolchainLockInput
+                ?? throw Error("lock_snapshot", "The resolved toolchain lock snapshot is unavailable.", 6);
+            inputHashes[lockInput] = toolchainLockInput.Sha256;
+        }
         if (template is not null)
         {
-            byte[] image = ReadInput(template, 34 * 1024 * 1024);
-            if (manifest.Disk.TemplateSha256 is { } expected && !ProgramFiles.Hash(image).Equals(expected, StringComparison.OrdinalIgnoreCase))
+            ProjectInputSnapshot templateInput = resolved.TemplateInput
+                ?? throw Error("template_snapshot", "The resolved template snapshot is unavailable.", 6);
+            ImageTransactions.EnsureDistinctPaths(template, output);
+            inputHashes[template] = templateInput.Sha256;
+            if (manifest.Disk.TemplateSha256 is { } expected && !templateInput.Sha256.Equals(expected, StringComparison.OrdinalIgnoreCase))
                 throw Error("template_hash", "Template SHA-256 does not match the pinned value.");
-            using DiskSession source = DiskSession.Open(template, manifest.Disk.Order, fs);
+            using DiskSession source = DiskSession.Open(templateSnapshot!.Path,
+                manifest.Disk.Order, fs);
             order = source.Info.Order;
             ValidateStructure(source);
         }
 
         GeneratedAssetSet generatedAssets = PrepareAssets(manifest, root, output, ReadInput, cancellationToken);
+        PreparedBoot? boot = PrepareBoot();
         List<PreparedFile> files = [];
         List<ProgramDiagnostic> diagnostics = [];
         long totalPayloadBytes = 0;
@@ -206,14 +218,8 @@ public static partial class ProjectBuilder
                             throw Error("source_changed", $"Compiler input changed: {input.Path}", 6);
                         inputHashes[dependencyPath] = input.Sha256;
                     }
-                    sourceMap = new
-                    {
-                        compilerVersion = compiled.Version,
-                        compilerPath = compiled.CompilerPath,
-                        map = compiled.Map,
-                        labels = compiled.Labels,
-                        segments = compiled.Segments
-                    };
+                    sourceMap = new Cc65SourceMap(compiled.Version, compiled.CompilerPath, compiled.Map,
+                        compiled.Labels, compiled.Segments, compiled.SourceMap);
                     break;
                 case "lores":
                 case "hires":
@@ -310,7 +316,7 @@ public static partial class ProjectBuilder
                 ValidatePreflightDestination(output, overwrite);
                 // Resolve the trusted temporary root so the macOS /var alias does not
                 // conflict with the normal transaction policy for linked paths.
-                string temporaryRoot = Cc65Compiler.ResolvePhysicalDirectory(Path.GetTempPath());
+                string temporaryRoot = HostFiles.ResolvePhysicalDirectory(Path.GetTempPath());
                 string temporaryDirectory = Path.Combine(temporaryRoot, $"a2-build-{Guid.NewGuid():N}");
                 ImageTransactions.ValidatePath(temporaryDirectory);
                 Directory.CreateDirectory(temporaryDirectory);
@@ -329,7 +335,8 @@ public static partial class ProjectBuilder
                 BuildImage(output, overwrite);
             }
         }
-        return new(output, imageHash, profile.Name, cpu, fs, template is null ? "data-volume" : "template-preserved-unverified",
+        return new(output, imageHash, profile.Name, cpu, fs, boot is not null ? "self-booting-unverified"
+            : template is null ? "data-volume" : "template-preserved-unverified",
             typeof(ProjectBuilder).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "unknown",
             manifest.Timestamp, inputHashes.OrderBy(pair => pair.Key, StringComparer.Ordinal).Select(pair => new BuildInput(pair.Key, pair.Value)).ToArray(),
             files.Select(file => file.Info).ToArray(), memory, diagnostics)
@@ -338,7 +345,8 @@ public static partial class ProjectBuilder
             Preflight = preflight,
             Plan = plan,
             Execution = executionSettings,
-            Assets = generatedAssets.Reports
+            Assets = generatedAssets.Reports,
+            Boot = boot?.Report
         };
 
         void BuildImage(string destination, bool replaceOutput)
@@ -351,7 +359,8 @@ public static partial class ProjectBuilder
                     Populate(temporary);
                 }, Validate, cancellationToken);
             else
-                ImageTransactions.Write(template, destination, false, replaceOutput, Populate, Validate, cancellationToken);
+                ImageTransactions.Write(templateSnapshot!.Path, destination, false,
+                    replaceOutput, Populate, Validate, cancellationToken);
         }
 
         byte[] ReadInput(string path, int limit)
@@ -367,7 +376,12 @@ public static partial class ProjectBuilder
 
         void CheckInputs()
         {
-            DevelopmentEnvironment.ValidateProjectLock(manifest, cancellationToken);
+            if (resolved.ToolchainLock is { } toolchainLock)
+                DevelopmentEnvironment.ValidateProjectLock(manifest,
+                    resolved.EnvironmentProfile!, toolchainLock, cancellationToken);
+            else
+                DevelopmentEnvironment.ValidateProjectLock(manifest,
+                    resolved.EnvironmentProfile, cancellationToken);
             foreach (string generatedPath in generatedAssets.Outputs.Keys)
                 if (File.Exists(generatedPath) || Directory.Exists(generatedPath))
                     throw Error("asset_collision", "A generated asset path appeared while building: " + generatedPath, 6);
@@ -375,7 +389,8 @@ public static partial class ProjectBuilder
                 !inputHashes.TryGetValue(input.Path, out string? hash) || hash != input.Sha256)))
                 throw Error("build_changed", "Project inputs changed after preflight; the output was not committed.", 6);
             foreach (var input in inputHashes)
-                if (ProgramFiles.Hash(ProgramFiles.ReadBytes(input.Key, 34 * 1024 * 1024, cancellationToken)) != input.Value)
+                if (ProgramFiles.Hash(ProgramFiles.ReadBytes(input.Key, MaximumBuildInputBytes,
+                    cancellationToken)) != input.Value)
                     throw Error("source_changed", $"Input changed while building: {input.Key}", 6);
         }
 
@@ -428,6 +443,7 @@ public static partial class ProjectBuilder
             foreach (string directory in createdDirectories)
                 session.SetTimestamps(directory, manifest.Timestamp, manifest.Timestamp);
             if (template is null) session.SetTimestamps("", manifest.Timestamp, manifest.Timestamp);
+            if (boot is not null) session.WriteBootSectors(boot.Sectors);
             session.Flush();
             plan = new(initial.SizeBytes, initial.FreeBytes!.Value, session.Info.FreeBytes!.Value,
                 changes.ToArray(), createdDirectories.ToArray());
@@ -447,11 +463,52 @@ public static partial class ProjectBuilder
                 if (fs == "dos33" && TypesEqual(file.Info.Type, "BIN") && entry.AuxType != file.Info.AuxType)
                     throw Error("validation", $"Stored DOS load address differs for '{file.Info.Path}'.", 4);
             }
+            if (boot is not null && !session.ReadBootSectors(boot.Report.Sectors).AsSpan().SequenceEqual(boot.Sectors))
+                throw Error("boot_validation", "Stored boot sectors differ from the assembled input.", 4);
             CheckInputs();
             imageHash = ProgramFiles.Hash(ProgramFiles.ReadBytes(temporary, 34 * 1024 * 1024, cancellationToken));
             if (expectedBuild is not null && imageHash != expectedBuild.Sha256)
                 throw Error("build_changed", "The staged image differs from preflight; the output was not committed.", 6);
             validateExternalInputs?.Invoke();
+        }
+
+        PreparedBoot? PrepareBoot()
+        {
+            if (manifest.Boot is not { } configured) return null;
+            if (fs != "dos33" || manifest.Disk.Blocks != 280 || order != "dos")
+                throw Error("boot_geometry", "Project boot sectors require a 140 KiB DOS-order DOS 3.3 image.");
+            if (configured.Kind is not ("asm" or "binary") || string.IsNullOrWhiteSpace(configured.Source)
+                || configured.Origin != 0x0800 || configured.Sectors is < 1 or > 16)
+                throw Error("boot", "boot requires asm or binary source at origin $0800 and 1..16 sectors.");
+            string source = Path.GetFullPath(configured.Source, root);
+            byte[] bytes;
+            if (configured.Kind == "asm")
+            {
+                AssemblyResult assembled = Assembler.AssembleFile(source, generatedAssets.Outputs,
+                    configured.Origin, cpuKind, cancellationToken);
+                if (assembled.Origin != configured.Origin)
+                    throw Error("boot_origin", "Boot assembly must begin at $0800.");
+                bytes = assembled.Bytes;
+                foreach (var dependency in assembled.DependencyHashes)
+                {
+                    if (generatedAssets.Outputs.ContainsKey(dependency.Key)) continue;
+                    ImageTransactions.EnsureDistinctPaths(dependency.Key, output);
+                    if (inputHashes.TryGetValue(dependency.Key, out string? previous) && previous != dependency.Value)
+                        throw Error("source_changed", $"Input changed: {dependency.Key}", 6);
+                    inputHashes[dependency.Key] = dependency.Value;
+                }
+            }
+            else
+            {
+                bytes = ReadInput(source, 4096);
+            }
+            int capacity = configured.Sectors * 256;
+            if (bytes.Length > capacity)
+                throw Error("boot_size", $"Boot payload exceeds its declared {configured.Sectors}-sector capacity.");
+            byte[] sectors = new byte[capacity];
+            bytes.CopyTo(sectors, 0);
+            return new(sectors, new(source, configured.Kind, configured.Origin, configured.Sectors,
+                bytes.Length, ProgramFiles.Hash(bytes)));
         }
     }
 
@@ -474,13 +531,14 @@ public static partial class ProjectBuilder
     private static void ValidateMemoryRegion(TargetProfile profile, MemoryRegion region)
         => ProjectRuntimeMemory.Validate(profile, region);
 
-    private static void ValidateManifest(ProjectManifest manifest)
+    internal static void ValidateManifest(ProjectManifest manifest)
     {
         if (manifest.SchemaVersion != 1 || string.IsNullOrWhiteSpace(manifest.Target) || string.IsNullOrWhiteSpace(manifest.Output) ||
             manifest.Disk is null || manifest.Files is null || manifest.Reserve is null ||
-            manifest.Files.Count is < 1 or > 1024 || manifest.Files.Any(file => file is null || string.IsNullOrWhiteSpace(file.Source) ||
+            manifest.Files.Count > 1024 || manifest.Files.Count == 0 && string.IsNullOrWhiteSpace(manifest.Disk.Template) && manifest.Boot is null ||
+            manifest.Files.Any(file => file is null || string.IsNullOrWhiteSpace(file.Source) ||
                 string.IsNullOrWhiteSpace(file.Path) || file.Path.StartsWith('/') || file.Path.Contains('\\') || file.Path.Split('/').Any(part => part is "" or "." or "..")))
-            throw Error("schema", "Project requires 1..1024 source files with relative image paths.");
+            throw Error("schema", "Project requires 1..1024 source files, an explicit template, or boot sectors.");
         if (manifest.Disk.FileSystem is not ("dos33" or "prodos")) throw Error("filesystem", "Filesystem must be dos33 or prodos.");
         if (manifest.Disk.Blocks is < 280 or > 65535 || manifest.Disk.FileSystem == "dos33" && manifest.Disk.Blocks != 280)
             throw Error("geometry", "DOS requires 280 blocks; ProDOS permits 280..65535 blocks.");
@@ -509,11 +567,14 @@ public static partial class ProjectBuilder
         if (manifest.Startup is { } startup && (string.IsNullOrWhiteSpace(startup.Program) || string.IsNullOrWhiteSpace(startup.Path) ||
             startup.Path.StartsWith('/') || startup.Path.Contains('\\') || startup.Path.Split('/').Any(part => part is "" or "." or "..")))
             throw Error("startup", "Startup requires a program path and a relative launcher path.");
+        if (manifest.Boot is { } boot && (string.IsNullOrWhiteSpace(boot.Source) || boot.Kind is not ("asm" or "binary")
+            || boot.Origin != 0x0800 || boot.Sectors is < 1 or > 16))
+            throw Error("boot", "boot requires asm or binary source at origin $0800 and 1..16 sectors.");
         if (manifest.Execution is { } execution && (string.IsNullOrWhiteSpace(execution.Suite) || execution.DiskDevice is not ("flop1" or "flop2" or "hard1" or "hard2")))
             throw Error("execution", "Execution requires a suite path and a diskDevice of flop1, flop2, hard1, or hard2.");
     }
 
-    private static void RejectDuplicateProperties(JsonElement value)
+    internal static void RejectDuplicateProperties(JsonElement value)
     {
         if (value.ValueKind == JsonValueKind.Object)
         {
@@ -562,4 +623,5 @@ public static partial class ProjectBuilder
 
     private static DiskException Error(string code, string message, int exitCode = 2) => new("project." + code, message, exitCode);
     private sealed record PreparedFile(ProjectFile Item, byte[] Bytes, BuiltFile Info);
+    private sealed record PreparedBoot(byte[] Sectors, BuiltBoot Report);
 }

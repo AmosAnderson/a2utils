@@ -12,50 +12,62 @@ public sealed record ProjectWorkflowResult(int SchemaVersion, bool Passed, Proje
     public bool Cancelled { get; init; }
 }
 
-/// <summary>Preflights, builds, and runs a project's suite against the exact resulting image.</summary>
+/// <summary>Preflights and builds a project, then runs its build-bound execution suite.</summary>
 public static class ProjectWorkflow
 {
     public static ProjectWorkflowResult Run(string manifestPath, string artifactDirectory,
         string? outputPath = null, bool overwrite = false, CancellationToken cancellationToken = default)
+        => Run(manifestPath, artifactDirectory, outputPath, overwrite, new(), cancellationToken);
+
+    public static ProjectWorkflowResult Run(string manifestPath, string artifactDirectory,
+        string? outputPath, bool overwrite, ExecutionSuiteRunOptions suiteOptions,
+        CancellationToken cancellationToken = default)
     {
-        string artifacts = Path.GetFullPath(artifactDirectory);
-        ImageTransactions.ValidatePath(artifacts);
-        if (Directory.Exists(artifacts) || File.Exists(artifacts))
-            throw new DiskException("execution.artifacts_exist", "Use a new artifact directory for each project test.", 2);
-        for (string? parent = Path.GetDirectoryName(artifacts); parent is not null; parent = Path.GetDirectoryName(parent))
-            if (File.Exists(parent))
-                throw new DiskException("execution.artifacts_parent", "The artifact directory has a parent that is a file.", 2);
-        ProjectBuildResult preview = ProjectBuilder.Build(manifestPath, outputPath, overwrite,
+        ArgumentNullException.ThrowIfNull(suiteOptions);
+        string artifacts = ExecutionSuiteRunner.ResolveArtifactDirectory(artifactDirectory,
+            suiteOptions.CreateRunSubdirectory);
+        ExecutionSuiteRunner.ValidateNewArtifactDirectory(artifacts);
+        ResolvedProjectManifest resolved = ProjectResolver.Load(manifestPath, outputPath,
+            cancellationToken);
+        ProjectBuildResult preview = ProjectBuilder.BuildResolved(resolved, overwrite,
             cancellationToken: cancellationToken, preflight: true);
         ProjectExecutionSettings settings = preview.Execution
             ?? throw new DiskException("project.execution_required", "Project testing requires execution.suite in the manifest.", 2);
         EnsureOutsideArtifacts(preview.OutputPath);
         foreach (BuildInput input in preview.Inputs) EnsureOutsideArtifacts(input.Path);
         Dictionary<string, CapturedInput> executionInputs = new(PathComparer);
-        Capture(settings.Suite);
-        ExecutionSuite suite = ExecutionSuite.Load(settings.Suite);
-        ExecutionSpec[] sources = suite.Tests.Select(path =>
+        ExecutionSuiteRunner.ExecutionSuiteSelection selection = ExecutionSuiteRunner.LoadSelection(
+            settings.Suite, suiteOptions,
+            (path, hash) => CaptureKnown(path, hash, 4 * 1024 * 1024), source =>
+            {
+                if (!HasAssertions(source))
+                    throw new DiskException("execution.invalid_suite", "Every test case needs an assertion, completion condition, or disk verification.", 2);
+                _ = BuildExecution.Bind(source, preview, settings.DiskDevice);
+            });
+        foreach (ExecutionSuiteRunner.ExecutionSuiteCase item in selection.Selected)
         {
-            Capture(path);
-            return ExecutionSpec.Load(path);
-        }).ToArray();
-        ExecutionSpec[] cases = sources.Select(spec => BuildExecution.Bind(spec, preview, settings.DiskDevice)).ToArray();
-        for (int index = 0; index < cases.Length; index++)
-        {
-            ExecutionSpec spec = cases[index];
-            if (!HasAssertions(sources[index]))
-                throw new DiskException("execution.invalid_suite", "Every test case needs an assertion, completion condition, or disk verification.", 2);
-            if (!Directory.Exists(spec.RomDirectory))
-                throw new DiskException("execution.rom_directory_missing", "The specified ROM directory does not exist.", 2);
-            EnsureOutsideArtifacts(spec.RomDirectory);
+            ExecutionSpec spec = BuildExecution.Bind(item.Spec, preview, settings.DiskDevice);
+            if (spec.Engine == "mame")
+            {
+                if (!Directory.Exists(spec.RomDirectory))
+                    throw new DiskException("execution.rom_directory_missing", "The specified ROM directory does not exist.", 2);
+                EnsureOutsideArtifacts(spec.RomDirectory);
+                Capture(spec.EmulatorPath, maximum: null);
+            }
             if (spec.Environment is not null) Capture(spec.Environment);
             if (spec.ToolchainLock is not null)
             {
                 Capture(spec.ToolchainLock);
                 Setup.DevelopmentEnvironment.ValidateLock(spec.Environment!, spec.ToolchainLock, cancellationToken);
+                Capture(spec.Environment!);
+                Capture(spec.ToolchainLock);
             }
-            Capture(spec.EmulatorPath, maximum: null);
-            if (spec.ScreenshotAssertion is { } screenshot) Capture(screenshot.ExpectedImage, 64 * 1024 * 1024);
+            if (ExecutionVisual.ValidateExpected(spec, cancellationToken) is { } screenshot)
+                CaptureKnown(screenshot.Path, screenshot.Sha256, 32 * 1024 * 1024);
+            PreparedGraphicsExecution graphics = ExecutionGraphicsMemory.Prepare(spec,
+                cancellationToken);
+            foreach (PreparedGraphicsAssertion assertion in graphics.Assertions)
+                CaptureKnown(assertion.SourcePath, assertion.SourceSha256, 32 * 1024 * 1024);
             if (spec.Routine is not null)
             {
                 PreparedRoutine routine = RoutineHarness.Assemble(spec, cancellationToken);
@@ -71,49 +83,49 @@ public static class ProjectWorkflow
             }
         }
         CheckExecutionInputs();
-        ProjectBuildResult build = ProjectBuilder.BuildVerified(manifestPath, outputPath, overwrite, preview,
+        ProjectBuildResult build = ProjectBuilder.BuildVerified(resolved, overwrite, preview,
             cancellationToken, CheckExecutionInputs);
         if (build.Sha256 != preview.Sha256 || !build.Inputs.SequenceEqual(preview.Inputs))
             throw new DiskException("project.build_changed", "The build changed after preflight; execution was refused. The validated build output is retained.", 6);
         CheckExecutionInputs();
-        Directory.CreateDirectory(artifacts);
-        WriteJson(Path.Combine(artifacts, "build.json"), build);
-        WriteJson(Path.Combine(artifacts, "execution-inputs.json"), executionInputs.Select(pair => new BuildInput(pair.Key, pair.Value.Sha256)).ToArray());
-        List<ExecutionResult> results = [];
-        for (int index = 0; index < cases.Length; index++)
+
+        async Task<ExecutionResult> Execute(ExecutionSuiteRunner.ExecutionSuiteCase item,
+            string caseArtifacts, CancellationToken token)
         {
-            if (cancellationToken.IsCancellationRequested) break;
-            ExecutionResult run;
-            try
+            CheckExecutionInputs();
+            ExecutionSpec spec = BuildExecution.Bind(item.Spec, build, settings.DiskDevice);
+            // Pin every auxiliary OS image as well as the newly built image.
+            spec = spec with
             {
-                CheckExecutionInputs();
-                ExecutionSpec spec = BuildExecution.Bind(sources[index], build, settings.DiskDevice);
-                // Pin every auxiliary OS image as well as the newly built image.
-                spec = spec with
-                {
-                    Disks = spec.GetDisks().Select(disk => disk.Device == settings.DiskDevice ? disk
-                        : disk with { ExpectedSha256 = executionInputs[Path.GetFullPath(disk.Image)].Sha256 }).ToArray()
-                };
-                run = ExecutionRunner.Run(spec, Path.Combine(artifacts, $"case-{index + 1:D3}"), cancellationToken);
-                if (!cancellationToken.IsCancellationRequested && run.StopReason != "cancelled")
-                    CheckExecutionInputs();
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { break; }
-            run = BuildExecution.Annotate(sources[index], build, run);
+                Disks = spec.GetDisks().Select(disk => disk.Device == settings.DiskDevice ? disk
+                    : disk with { ExpectedSha256 = executionInputs[Path.GetFullPath(disk.Image)].Sha256 }).ToArray()
+            };
+            ExecutionResult run = await ExecutionRunner.RunAsync(spec, caseArtifacts, token);
+            if (!token.IsCancellationRequested && run.StopReason != "cancelled") CheckExecutionInputs();
+            run = BuildExecution.Annotate(item.Spec, build, run);
+            string? sourceTrace = BuildExecution.WriteSourceTrace(build, run);
             string locations = Path.Combine(run.ArtifactDirectory, "source-locations.json");
-            WriteJson(locations, BuildExecution.Locate(build, run));
-            run = run with { Artifacts = run.Artifacts.Append(locations).ToArray() };
+            WriteJson(locations, BuildExecution.Locate(build, run, item.Spec));
+            run = run with
+            {
+                Artifacts = run.Artifacts.Concat(sourceTrace is null ? [locations] : new[] { sourceTrace, locations }).ToArray()
+            };
             WriteJson(Path.Combine(run.ArtifactDirectory, "result.json"), run);
-            results.Add(run);
-            if (run.StopReason == "cancelled") break;
+            return run;
         }
-        bool cancelled = cancellationToken.IsCancellationRequested || results.Any(run => run.StopReason == "cancelled");
-        ExecutionSuiteResult tests = new(1, !cancelled && results.Count == cases.Length && results.All(result => result.Passed), results);
+
+        ExecutionSuiteResult tests = ExecutionSuiteRunner.RunSelectionAsync(selection, artifacts, suiteOptions,
+            Execute, directory =>
+            {
+                WriteJson(Path.Combine(directory, "build.json"), build);
+                WriteJson(Path.Combine(directory, "execution-inputs.json"), executionInputs
+                    .Select(pair => new BuildInput(pair.Key, pair.Value.Sha256)).ToArray());
+            }, cancellationToken).GetAwaiter().GetResult();
+        bool cancelled = tests.Cancelled;
         ProjectWorkflowResult result = new(1, tests.Passed, build, tests, artifacts)
         {
             Cancelled = cancelled
         };
-        WriteJson(Path.Combine(artifacts, "suite-result.json"), tests);
         WriteJson(Path.Combine(artifacts, "project-result.json"), result);
         return result;
 
@@ -132,6 +144,18 @@ public static class ProjectWorkflow
             return hash;
         }
 
+        void CaptureKnown(string path, string hash, int? maximum)
+        {
+            string full = Path.GetFullPath(path);
+            EnsureOutsideArtifacts(full);
+            ImageTransactions.EnsureDistinctPaths(full, preview.OutputPath);
+            if (executionInputs.TryGetValue(full, out CapturedInput? previous) &&
+                previous.Sha256 != hash)
+                throw new DiskException("project.execution_changed",
+                    $"Execution input changed while loading: {full}", 6);
+            executionInputs[full] = new(hash, maximum);
+        }
+
         void CheckExecutionInputs()
         {
             foreach (var input in executionInputs)
@@ -148,7 +172,7 @@ public static class ProjectWorkflow
         }
     }
 
-    public static bool HasAssertions(ExecutionSpec spec) => spec.Until is not null || spec.SymbolicUntil is not null || spec.Debug is not null || spec.Routine is not null || spec.Cycles is not null || spec.ScreenshotAssertion is not null ||
+    public static bool HasAssertions(ExecutionSpec spec) => spec.Until is not null || spec.SymbolicUntil is not null || spec.Debug is not null || spec.Routine is not null || spec.Cycles is not null || spec.ScreenshotAssertion is not null || spec.GraphicsMemory.Count != 0 ||
         spec.Audio is { NonSilent: not null } or { MinRms: not null } or { MaxRms: not null } or { MinPeak: not null } or { MaxPeak: not null } ||
         spec.CheckBasicRuntime || spec.Steps.Any(step => step?.Condition is not null) || spec.TextNotContains.Count != 0 ||
         spec.Memory.Count != 0 || spec.SymbolicMemory.Count != 0 ||
@@ -177,6 +201,8 @@ public static class ProjectWorkflow
     private static void WriteJson<T>(string path, T value)
         => File.WriteAllText(path, JsonSerializer.Serialize(value, ProjectJson.Options));
     private sealed record CapturedInput(string Sha256, int? MaximumBytes);
-    private static StringComparer PathComparer => OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
-    private static StringComparison PathComparison => OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+    private static StringComparer PathComparer => OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
+        ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
+    private static StringComparison PathComparison => OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
+        ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
 }

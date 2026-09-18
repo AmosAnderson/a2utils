@@ -1,4 +1,4 @@
-# ADR 0002: Use an external MAME adapter for machine execution
+# ADR 0002: Use selectable MAME and CPU execution backends
 
 Status: Accepted
 
@@ -10,6 +10,28 @@ Use an external **MAME 0.289** process with a generated Lua observation script.
 The executable, machine and ROM directory are explicit inputs. The dependency is
 optional, version-checked, and not bundled. The implementation adds no runtime
 NuGet package. It keeps emulation outside the disk library's filesystem adapter.
+
+For isolated assembly routines, also provide a self-contained `cpu` engine behind
+the same execution specification/result boundary. MAME remains the default for
+backward compatibility. The CPU engine requires an explicit Apple II machine name
+to select MOS 6502 or Apple-compatible 65C02 semantics, then runs in a zero-filled
+flat 64 KiB address space with initial registers/memory, an RTS sentinel, and a
+hard instruction-cycle budget. It has no ROM, operating system, device, video, or
+disk behavior. This makes edit-build-run-debug-test loops deterministic and removes
+external setup when the behavior under test is a pure routine.
+
+The in-process engine derives its accepted opcodes from the assembler's documented
+instruction tables and implements their addressing, flags, decimal arithmetic,
+branch/page timing, and NMOS/CMOS indirect-jump distinction. Optional instruction
+traces record PC/opcode, register transitions, cycles, logical memory accesses,
+and routine source locations when assembly mappings exist.
+Illegal opcodes fail explicitly instead of acquiring undocumented host behavior.
+
+cc65 builds request ld65 version 2.0 debug output and reduce its bounded
+file/line/segment/span graph to stable 16-bit source ranges. Project MAME traces
+remain raw frame samples; a separate capped artifact adds source columns when a
+resident native or cc65 build range matches. Missing mappings do not change run
+success or remove the raw trace.
 
 The Lua API is not stable across MAME releases, so changing the accepted version
 requires repeating the real machine smoke. Its public interfaces for machine time,
@@ -50,7 +72,8 @@ routine harness supplies stack/return state and retains its exact code/input has
 Environment locks pin emulator/ROM/toolchain content. These features preserve the
 same isolated-image and host/emulated-deadline contract.
 
-Current scope excludes native IIgs execution, arbitrary slot selection,
-full historical instruction traces, and a separate CPU-only simulator. Frame PC samples
-remain separately labelled. New backends should preserve the versioned execution/result
-boundary rather than embed emulator-specific behavior in disk operations.
+Current scope excludes native IIgs execution, arbitrary slot selection, and a
+full-machine historical bus trace. MAME frame PC samples remain separately labelled
+from CPU-engine instruction traces. New backends should preserve the versioned
+execution/result boundary rather than embed emulator-specific behavior in disk
+operations.

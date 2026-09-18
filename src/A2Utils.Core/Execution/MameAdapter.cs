@@ -18,6 +18,7 @@ public static partial class MameAdapter
             if (!condition) throw new DiskException("execution.invalid_spec", message, 2);
         }
         Require(spec.SchemaVersion == 1, "Only execution schemaVersion 1 is supported.");
+        Require(spec.Engine == "mame", "MameAdapter requires engine mame.");
         Require(!string.IsNullOrWhiteSpace(spec.Name) && spec.Name.Length <= 128, "name must contain between 1 and 128 characters.");
         Require(spec.ExpectedVersion == ApiVersion, $"This adapter targets MAME {ApiVersion}; expectedVersion must match.");
         Require(spec.Machine is "apple2" or "apple2p" or "apple2e" or "apple2ee" or "apple2c",

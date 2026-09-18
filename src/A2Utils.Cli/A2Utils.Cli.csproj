@@ -7,19 +7,26 @@
     <PackageId>A2Utils.Tool</PackageId>
     <Description>Apple II disk, assembly, BASIC, graphics, project build, and execution-test utilities.</Description>
     <Authors>A2Utils contributors</Authors>
+    <PackageLicenseExpression>GPL-2.0-only</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../A2Utils.Core/A2Utils.Core.csproj" />
+    <PackageReference Include="ModelContextProtocol" Version="2.2.0" />
     <PackageReference Include="System.CommandLine" Version="2.0.11" />
   </ItemGroup>
   <ItemGroup>
     <None Include="../../README.md" Pack="true" PackagePath="/" />
     <EmbeddedResource Include="../../docs/schemas/*.schema.json" Link="Schemas/%(Filename)%(Extension)" />
-    <Content Include="../../THIRD_PARTY.md" Link="THIRD_PARTY.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
-    <Content Include="../../notices/System.CommandLine/LICENSE.md" Link="notices/System.CommandLine/LICENSE.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
-    <Content Include="../../third_party/CiderPress2/LICENSE" Link="notices/CiderPress2/LICENSE" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
-    <Content Include="../../third_party/CiderPress2/NOTICE" Link="notices/CiderPress2/NOTICE" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
-    <Content Include="../../third_party/CiderPress2/THIRD_PARTY_NOTICES" Link="notices/CiderPress2/THIRD_PARTY_NOTICES" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="../../LICENSE" Link="LICENSE" Pack="false" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="../../THIRD_PARTY.md" Link="THIRD_PARTY.md" Pack="false" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="../../notices/System.CommandLine/LICENSE.md" Link="notices/System.CommandLine/LICENSE.md" Pack="false" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="../../notices/ModelContextProtocol/LICENSE" Link="notices/ModelContextProtocol/LICENSE" Pack="false" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="../../notices/ModelContextProtocol/SOURCE.md" Link="notices/ModelContextProtocol/SOURCE.md" Pack="false" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="../../notices/Microsoft.Extensions/LICENSE.txt" Link="notices/Microsoft.Extensions/LICENSE.txt" Pack="false" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="../../notices/Microsoft.Extensions/SOURCE.md" Link="notices/Microsoft.Extensions/SOURCE.md" Pack="false" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="../../third_party/CiderPress2/LICENSE" Link="notices/CiderPress2/LICENSE" Pack="false" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="../../third_party/CiderPress2/NOTICE" Link="notices/CiderPress2/NOTICE" Pack="false" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="../../third_party/CiderPress2/THIRD_PARTY_NOTICES" Link="notices/CiderPress2/THIRD_PARTY_NOTICES" Pack="false" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

@@ -18,15 +18,32 @@ public sealed record ExecutionSourceLocation(string Program, int Address, string
 public static class BuildExecution
 {
     public static ExecutionSpec Bind(ExecutionSpec spec, ProjectBuildResult build, string device = "flop1")
+        => BindCore(spec, build, device, allowCheckOnly: false, imageSizeBytes: null);
+
+    internal static ExecutionSpec BindForValidation(ExecutionSpec spec,
+        ProjectBuildResult build, long imageSizeBytes, string device = "flop1")
+        => BindCore(spec, build, device, allowCheckOnly: true,
+            imageSizeBytes: imageSizeBytes);
+
+    private static ExecutionSpec BindCore(ExecutionSpec spec, ProjectBuildResult build,
+        string device, bool allowCheckOnly, long? imageSizeBytes)
     {
         ArgumentNullException.ThrowIfNull(spec);
         ArgumentNullException.ThrowIfNull(build);
-        if (!MameAdapter.IsStorageDevice(spec.StorageProfile, device)) throw Error("device", "Build disk device must belong to the selected storage profile.");
-        if (device is "hard1" or "hard2" && build.FileSystem != "prodos")
-            throw Error("storage_format", "CFFA2 build media must contain ProDOS.");
-        if (device is "flop1" or "flop2" && build.Plan is { ImageSizeBytes: > 143360 })
-            throw Error("storage_geometry", "Larger project images require cffa2 and a hard1/hard2 build device.");
-        if (build.CheckOnly || build.Sha256.Length != 64)
+        bool mountsBuild = spec.Engine == "mame";
+        if (!mountsBuild && spec.Engine != "cpu")
+            throw Error("invalid_spec", "engine must be mame or cpu.");
+        if (mountsBuild)
+        {
+            if (!MameAdapter.IsStorageDevice(spec.StorageProfile, device))
+                throw Error("device", "Build disk device must belong to the selected storage profile.");
+            if (device is "hard1" or "hard2" && build.FileSystem != "prodos")
+                throw Error("storage_format", "CFFA2 build media must contain ProDOS.");
+            long? plannedImageSize = imageSizeBytes ?? build.Plan?.ImageSizeBytes;
+            if (device is "flop1" or "flop2" && plannedImageSize > 143360)
+                throw Error("storage_geometry", "Larger project images require cffa2 and a hard1/hard2 build device.");
+        }
+        if (!allowCheckOnly && (build.CheckOnly || build.Sha256.Length != 64))
             throw Error("build_required", "Execution requires a full build or preflight report with an image hash.");
         string machine = build.Target switch
         {
@@ -42,19 +59,27 @@ public static class BuildExecution
             throw Error("symbols", "Symbolic and numeric memory assertions must be bounded arrays.");
         if (spec.SymbolicUntil is not null && spec.Until is not null)
             throw Error("symbols", "Specify either until or symbolicUntil.");
-        if (spec.Disks is null || spec.Disks.Count > 2 || spec.Disks.Any(disk => disk is null) ||
-            spec.Disks.Count > 0 && !string.IsNullOrEmpty(spec.DiskImage) || !MameAdapter.IsStorageDevice(spec.StorageProfile, spec.DiskDevice))
+        if (spec.Disks is null || spec.Disks.Any(disk => disk is null))
+            throw Error("invalid_spec", "Execution disks cannot be null or contain null entries.");
+        if (mountsBuild && (spec.Disks.Count > 2 ||
+            spec.Disks.Count > 0 && !string.IsNullOrEmpty(spec.DiskImage) || !MameAdapter.IsStorageDevice(spec.StorageProfile, spec.DiskDevice)))
             throw Error("invalid_spec", "Use a valid legacy disk device or at most two explicit mounts; do not combine diskImage and disks.");
 
         // Keep user-specified OS mounts while replacing only the explicitly selected build device.
-        IReadOnlyList<ExecutionDisk> mounts = spec.Disks.Count == 0 && string.IsNullOrEmpty(spec.DiskImage)
-            ? [] : spec.GetDisks();
-        if (mounts.Count(disk => disk.Device == device) > 1)
-            throw Error("device", "Execution devices must be unique.");
-        List<ExecutionDisk> disks = mounts.Where(disk => disk.Device != device).ToList();
-        ExecutionDisk? previous = mounts.FirstOrDefault(disk => disk.Device == device);
-        disks.Add(new(device, build.OutputPath, build.Sha256,
-            InputFileSystem: build.FileSystem, Verify: previous?.Verify ?? true));
+        IReadOnlyList<ExecutionDisk> disks = spec.Disks;
+        if (mountsBuild)
+        {
+            IReadOnlyList<ExecutionDisk> mounts = spec.Disks.Count == 0 && string.IsNullOrEmpty(spec.DiskImage)
+                ? [] : spec.GetDisks();
+            if (mounts.Count(disk => disk.Device == device) > 1)
+                throw Error("device", "Execution devices must be unique.");
+            List<ExecutionDisk> buildMounts = mounts.Where(disk => disk.Device != device).ToList();
+            ExecutionDisk? previous = mounts.FirstOrDefault(disk => disk.Device == device);
+            buildMounts.Add(new(device, build.OutputPath,
+                allowCheckOnly ? null : build.Sha256,
+                InputFileSystem: build.FileSystem, Verify: previous?.Verify ?? true));
+            disks = buildMounts;
+        }
         List<MemoryAssertion> memory = spec.Memory.ToList();
         foreach (SymbolicMemoryAssertion item in spec.SymbolicMemory)
         {
@@ -67,7 +92,7 @@ public static class BuildExecution
             : spec.Until;
         ExecutionSpec bound = spec with
         {
-            DiskImage = "",
+            DiskImage = mountsBuild ? "" : spec.DiskImage,
             Disks = disks.OrderBy(disk => disk.Device, StringComparer.Ordinal).ToArray(),
             Memory = memory,
             Until = until,
@@ -77,7 +102,7 @@ public static class BuildExecution
             Cycles = BindCycles(spec.Cycles, build),
             Steps = BindSteps(spec.Steps, build)
         };
-        MameAdapter.Validate(bound);
+        ExecutionRunner.Validate(bound);
         return bound;
     }
 
@@ -167,40 +192,150 @@ public static class BuildExecution
     }
 
     public static IReadOnlyList<ExecutionSourceLocation> Locate(ProjectBuildResult build, ExecutionResult result)
+        => Locate(build, result, null);
+
+    /// <summary>Locates build observations and, for CPU runs, exact routine instruction source evidence.</summary>
+    public static IReadOnlyList<ExecutionSourceLocation> Locate(ProjectBuildResult build, ExecutionResult result,
+        ExecutionSpec? source)
     {
         List<ExecutionSourceLocation> locations = [];
-        if (result.Registers.TryGetValue("PC", out long pc) && pc is >= 0 and <= 65535)
-            Add((int)pc, "final PC");
-        if (result.Debug is { } debug)
+        bool cpu = result.EmulatorVersion == CpuExecutionEngine.Version;
+        if (!cpu && result.Registers.TryGetValue("PC", out long pc) && pc is >= 0 and <= 65535)
+            AddBuild((int)pc, "final PC");
+        if (!cpu && result.Debug is { } debug)
         {
-            Add(debug.Trigger.ProgramCounter, "debug trigger PC");
+            AddBuild(debug.Trigger.ProgramCounter, "debug trigger PC");
             foreach (ExecutionInstruction instruction in debug.History)
-                Add(instruction.Address, "instruction history");
+                AddBuild(instruction.Address, "instruction history");
         }
         string trace = Path.Combine(result.ArtifactDirectory, "trace.tsv");
         if (File.Exists(trace))
         {
             string text = ProgramFiles.DecodeText(ProgramFiles.ReadBytes(trace, 16 * 1024 * 1024));
+            string[] lines = text.Split('\n');
+            string[] header = lines[0].TrimEnd('\r').Split('\t');
+            int pcField = Array.FindIndex(header, field => field.Equals("PC", StringComparison.OrdinalIgnoreCase));
+            bool cpuTrace = cpu || Array.Exists(header, field => field.Equals("cycleStart", StringComparison.OrdinalIgnoreCase));
+            int fileField = Array.FindIndex(header, field => field.Equals("sourceFile", StringComparison.OrdinalIgnoreCase));
+            int lineField = Array.FindIndex(header, field => field.Equals("sourceLine", StringComparison.OrdinalIgnoreCase));
+            int sourceField = Array.FindIndex(header, field => field.Equals("source", StringComparison.OrdinalIgnoreCase));
             HashSet<int> sampled = [];
-            foreach (string line in text.Split('\n').Skip(1))
+            foreach (string line in lines.Skip(1))
             {
                 string[] fields = line.TrimEnd('\r').Split('\t');
-                if (fields.Length == 2 && int.TryParse(fields[1], NumberStyles.Integer,
-                    CultureInfo.InvariantCulture, out int address) && address is >= 0 and <= 65535 && sampled.Add(address))
-                    Add(address, "sampled PC");
+                NumberStyles style = cpuTrace ? NumberStyles.AllowHexSpecifier : NumberStyles.Integer;
+                if (pcField < 0 || fields.Length <= pcField || !int.TryParse(fields[pcField], style,
+                    CultureInfo.InvariantCulture, out int address) || address is < 0 or > 65535 || !sampled.Add(address))
+                    continue;
+                if (!cpuTrace)
+                {
+                    AddBuild(address, "sampled PC");
+                    continue;
+                }
+                if (fileField < 0 || lineField < 0 || sourceField < 0 ||
+                    fields.Length <= Math.Max(fileField, Math.Max(lineField, sourceField)) ||
+                    string.IsNullOrWhiteSpace(fields[fileField]) ||
+                    !int.TryParse(fields[lineField], NumberStyles.Integer, CultureInfo.InvariantCulture, out int sourceLine) ||
+                    sourceLine <= 0)
+                    continue;
+                string program = source?.Routine?.Source ?? fields[fileField];
+                locations.Add(new(program, address, fields[fileField], sourceLine, fields[sourceField],
+                    "executed instruction")
+                { MemoryBank = "cpu" });
             }
         }
         return locations;
 
-        void Add(int address, string observation)
+        void AddBuild(int address, string observation)
         {
             foreach (BuiltFile file in build.Files.Where(file => file.Resident))
             {
-                if (file.SourceMap is not IEnumerable<AssemblySourceMapEntry> map) continue;
-                foreach (AssemblySourceMapEntry entry in map.Where(entry => entry.Length > 0 &&
+                foreach (AssemblySourceMapEntry entry in SourceEntries(file.SourceMap).Where(entry => entry.Length > 0 &&
                     address >= entry.Address && address < (long)entry.Address + entry.Length))
                     locations.Add(new(file.Path, address, entry.File, entry.Line, entry.Source, observation) { MemoryBank = file.MemoryBank });
             }
+        }
+    }
+
+    /// <summary>Writes a bounded MAME PC trace with stable project source columns when mappings exist.</summary>
+    public static string? WriteSourceTrace(ProjectBuildResult build, ExecutionResult result)
+    {
+        ArgumentNullException.ThrowIfNull(build);
+        ArgumentNullException.ThrowIfNull(result);
+        if (result.EmulatorVersion == CpuExecutionEngine.Version) return null;
+        const int maximumBytes = 16 * 1024 * 1024;
+        string inputPath = Path.Combine(result.ArtifactDirectory, "trace.tsv");
+        if (!File.Exists(inputPath)) return null;
+        string input = ProgramFiles.DecodeText(ProgramFiles.ReadBytes(inputPath, maximumBytes));
+        string[] lines = input.Split('\n');
+        if (lines.Length == 0) return null;
+        string header = lines[0].TrimEnd('\r');
+        string[] headerFields = header.Split('\t');
+        int pcField = Array.FindIndex(headerFields, field => field.Equals("PC", StringComparison.OrdinalIgnoreCase));
+        if (pcField < 0) return null;
+
+        TraceSource?[] addresses = new TraceSource?[65536];
+        foreach (BuiltFile file in build.Files.Where(file => file.Resident))
+            foreach (AssemblySourceMapEntry entry in SourceEntries(file.SourceMap)
+                .Where(entry => entry.Length > 0 && entry.Address is >= 0 and <= 65535)
+                .OrderBy(entry => entry.Address).ThenBy(entry => entry.Length).ThenBy(entry => entry.File, PathComparer)
+                .ThenBy(entry => entry.Line))
+            {
+                int end = (int)Math.Min(65536L, (long)entry.Address + entry.Length);
+                for (int address = entry.Address; address < end; address++)
+                    addresses[address] ??= new(file.Path, file.MemoryBank, entry.File, entry.Line, entry.Source);
+            }
+        if (!addresses.Any(source => source is not null)) return null;
+
+        string outputPath = Path.Combine(result.ArtifactDirectory, "trace-source.tsv");
+        const string truncated = "# trace-source truncated at the 16 MiB evidence limit\n";
+        int truncatedBytes = System.Text.Encoding.UTF8.GetByteCount(truncated);
+        bool mapped = false;
+        int bytes = 0;
+        using (FileStream output = new(outputPath, FileMode.CreateNew, FileAccess.Write, FileShare.Read))
+        using (StreamWriter writer = new(output, new System.Text.UTF8Encoding(false)))
+        {
+            if (!Append(header + "\tprogram\tmemoryBank\tsourceFile\tsourceLine\tsource\n")) return null;
+            foreach (string raw in lines.Skip(1))
+            {
+                string line = raw.TrimEnd('\r');
+                if (line.Length == 0) continue;
+                string[] fields = line.Split('\t');
+                TraceSource? source = null;
+                if (fields.Length > pcField && int.TryParse(fields[pcField], NumberStyles.Integer,
+                    CultureInfo.InvariantCulture, out int address) && address is >= 0 and <= 65535)
+                    source = addresses[address];
+                string suffix = source is null ? "\t\t\t\t"
+                    : $"{Escape(source.Program)}\t{Escape(source.MemoryBank)}\t{Escape(source.File)}\t{source.Line}\t{Escape(source.Source)}";
+                if (source is not null) mapped = true;
+                string annotated = line + "\t" + suffix + "\n";
+                if (bytes + System.Text.Encoding.UTF8.GetByteCount(annotated) + truncatedBytes > maximumBytes)
+                {
+                    Append(truncated);
+                    break;
+                }
+                Append(annotated);
+            }
+
+            bool Append(string value)
+            {
+                int length = System.Text.Encoding.UTF8.GetByteCount(value);
+                if (bytes + length > maximumBytes) return false;
+                writer.Write(value);
+                bytes += length;
+                return true;
+            }
+        }
+        if (mapped) return outputPath;
+        File.Delete(outputPath);
+        return null;
+
+        static string Escape(string? value)
+        {
+            value ??= "";
+            if (value.Length > 4096) value = value[..4096];
+            return value.Replace("\t", "\\t", StringComparison.Ordinal)
+                .Replace("\r", "\\r", StringComparison.Ordinal).Replace("\n", "\\n", StringComparison.Ordinal);
         }
     }
 
@@ -221,11 +356,22 @@ public static class BuildExecution
             if (symbol is null) return diagnostic;
             int address = ResolveAddress(build, symbol.Program, symbol.Symbol, symbol.Offset);
             BuiltFile file = build.Files.Single(file => file.Path.Equals(symbol.Program, StringComparison.OrdinalIgnoreCase));
-            AssemblySourceMapEntry? entry = (file.SourceMap as IEnumerable<AssemblySourceMapEntry>)?
+            AssemblySourceMapEntry? entry = SourceEntries(file.SourceMap)
                 .FirstOrDefault(entry => entry.Length > 0 && address >= entry.Address && address < (long)entry.Address + entry.Length);
             return diagnostic with { Symbol = symbol.Program + ":" + symbol.Symbol, File = entry?.File, Line = entry?.Line };
         }
     }
+
+    private static IEnumerable<AssemblySourceMapEntry> SourceEntries(object? sourceMap) => sourceMap switch
+    {
+        IEnumerable<AssemblySourceMapEntry> entries => entries,
+        Cc65SourceMap compiler => compiler.Entries,
+        _ => []
+    };
+
+    private static StringComparer PathComparer => OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
+        ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
+    private sealed record TraceSource(string Program, string MemoryBank, string? File, int Line, string Source);
 
     private static DiskException Error(string code, string message) => new("execution." + code, message, 2);
 }

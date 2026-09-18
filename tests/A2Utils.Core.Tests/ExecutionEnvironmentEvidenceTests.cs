@@ -13,7 +13,7 @@ public sealed class ExecutionEnvironmentEvidenceTests : IDisposable
     [Fact]
     public async Task Run_LockedEnvironment_RetainsExactProfileAndLockEvidence()
     {
-        ExecutionSpec spec = Spec("pass");
+        ExecutionSpec spec = LoadedSpec("pass");
         byte[] profile = File.ReadAllBytes(spec.Environment!);
         byte[] locked = File.ReadAllBytes(spec.ToolchainLock!);
         ExecutionResult result = await ExecutionRunner.RunAsync(spec, At("result"));
@@ -24,7 +24,7 @@ public sealed class ExecutionEnvironmentEvidenceTests : IDisposable
     [Fact]
     public async Task Run_ProfileAndLockReplacedDuringProbe_RejectsEvenWhenNewLockIsValid()
     {
-        ExecutionSpec spec = Spec("environment-change");
+        ExecutionSpec spec = LoadedSpec("environment-change");
         byte[] profile = File.ReadAllBytes(spec.Environment!);
         byte[] locked = File.ReadAllBytes(spec.ToolchainLock!);
         ExecutionResult result = await ExecutionRunner.RunAsync(spec, At("result"));
@@ -34,6 +34,44 @@ public sealed class ExecutionEnvironmentEvidenceTests : IDisposable
         AssertEvidence(result, spec, profile, locked);
         Assert.False(File.Exists(At("result/emulator.stdout.txt")));
         Assert.Equal("environment-change", File.ReadAllText(spec.DiskImage));
+    }
+
+    [Fact]
+    public async Task Run_LoadedProfileChangedBeforeCpuRun_RejectsBeforeCreatingArtifacts()
+    {
+        ExecutionSpec spec = LoadedCpuSpec() with { Name = "copied-cpu-environment" };
+        DevelopmentEnvironmentProfile changed = DevelopmentEnvironmentProfile.Load(spec.Environment!) with
+        {
+            Machine = "apple2e"
+        };
+        File.WriteAllText(spec.Environment!, JsonSerializer.Serialize(changed,
+            DevelopmentEnvironment.JsonOptions));
+
+        DiskException error = await Assert.ThrowsAsync<DiskException>(() =>
+            ExecutionRunner.RunAsync(spec, At("cpu-changed")));
+
+        Assert.Equal("execution.environment_changed", error.Code);
+        Assert.False(Directory.Exists(At("cpu-changed")));
+    }
+
+    [Fact]
+    public async Task Run_CpuEnvironment_RetainsProfileEvidenceWithoutLock()
+    {
+        ExecutionSpec spec = LoadedCpuSpec();
+        byte[] profile = File.ReadAllBytes(spec.Environment!);
+
+        ExecutionResult result = await ExecutionRunner.RunAsync(spec, At("cpu-result"));
+
+        Assert.True(result.Passed, string.Join("\n", result.Diagnostics.Select(item => item.Message)));
+        ExecutionEnvironmentEvidence evidence = Assert.IsType<ExecutionEnvironmentEvidence>(result.Environment);
+        Assert.Equal(spec.Environment, evidence.ProfilePath);
+        Assert.Equal(ProgramFiles.Hash(profile), evidence.ProfileSha256);
+        Assert.Equal(At("cpu-result/environment.json"), evidence.ProfileArtifact);
+        Assert.Null(evidence.LockPath);
+        Assert.Null(evidence.LockSha256);
+        Assert.Null(evidence.LockArtifact);
+        Assert.Equal(profile, File.ReadAllBytes(evidence.ProfileArtifact));
+        Assert.Contains(evidence.ProfileArtifact, result.Artifacts);
     }
 
     private void AssertEvidence(ExecutionResult result, ExecutionSpec spec, byte[] profile, byte[] locked)
@@ -70,6 +108,34 @@ public sealed class ExecutionEnvironmentEvidenceTests : IDisposable
             EmulatedSeconds = 3,
             HostTimeoutSeconds = 30
         };
+    }
+
+    private ExecutionSpec LoadedSpec(string mode)
+    {
+        ExecutionSpec declarative = Spec(mode);
+        File.WriteAllText(At("execution.json"), JsonSerializer.Serialize(declarative,
+            ExecutionSpec.JsonOptions));
+        return ExecutionSpec.Load(At("execution.json"));
+    }
+
+    private ExecutionSpec LoadedCpuSpec()
+    {
+        File.WriteAllText(At("routine.asm"), ".org $6000\nRTS\n");
+        DevelopmentEnvironmentProfile profile = new() { Machine = "apple2ee" };
+        File.WriteAllText(At("cpu-environment.json"), JsonSerializer.Serialize(profile,
+            DevelopmentEnvironment.JsonOptions));
+        ExecutionSpec declarative = new()
+        {
+            Name = "cpu-environment",
+            Engine = "cpu",
+            Machine = "",
+            Environment = "cpu-environment.json",
+            DiskImage = "",
+            Routine = new() { Source = "routine.asm" }
+        };
+        File.WriteAllText(At("cpu-execution.json"), JsonSerializer.Serialize(declarative,
+            ExecutionSpec.JsonOptions));
+        return ExecutionSpec.Load(At("cpu-execution.json"));
     }
 
     private static string HostPath()

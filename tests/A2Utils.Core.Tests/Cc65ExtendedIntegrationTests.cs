@@ -1,4 +1,5 @@
 using System.Text.Json;
+using A2Utils.Core.Execution;
 using A2Utils.Core.Programs;
 using A2Utils.Core.Projects;
 
@@ -20,6 +21,12 @@ public sealed class Cc65ExtendedIntegrationTests
         Assert.Equal(3, warning.Line);
         Assert.Equal("warning", warning.Severity);
         Assert.Equal(HostPath(), result.CompilerPath);
+        var location = Assert.Single(result.SourceMap);
+        Assert.Equal(source, location.File);
+        Assert.Equal(1, location.Line);
+        Assert.Equal(0x803, location.Address);
+        Assert.Equal("// A2_FAKE_FEEDBACK", location.Source);
+        Assert.Contains("version\tmajor=2,minor=0", result.Debug);
     }
 
     [Fact]
@@ -33,6 +40,15 @@ public sealed class Cc65ExtendedIntegrationTests
         ProjectBuildResult result = ProjectBuilder.Build(project, checkOnly: true);
         BuiltFile file = Assert.Single(result.Files);
         Assert.Equal(0x803, file.Symbols["_main"]);
+        Cc65SourceMap sourceMap = Assert.IsType<Cc65SourceMap>(file.SourceMap);
+        Assert.Equal("cc65-dbg-2.0", sourceMap.Format);
+        Assert.Single(sourceMap.Entries);
+        ExecutionResult run = new(1, "cc65", true, "emulated_limit", "0.289", 1,
+            new Dictionary<string, long> { ["PC"] = 0x803 }, new Dictionary<int, string>(), "", null,
+            workspace.DirectoryPath, [], []);
+        ExecutionSourceLocation location = Assert.Single(BuildExecution.Locate(result, run));
+        Assert.Equal(workspace.NewPath("main.c"), location.File);
+        Assert.Equal(1, location.Line);
         Assert.Contains(file.RuntimeMemory, region => region.Kind == "zero-page" && region.Start == 0x80);
         Assert.Contains(file.RuntimeMemory, region => region.Kind == "stack" && region.Start == 0x8e00);
         Assert.Equal(26 + 258 + 2048, result.Memory.Sum(region => region.Length));

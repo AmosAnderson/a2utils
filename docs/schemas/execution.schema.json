@@ -14,6 +14,14 @@
       "minLength": 1,
       "maxLength": 128
     },
+    "engine": {
+      "enum": [
+        "mame",
+        "cpu"
+      ],
+      "default": "mame",
+      "description": "Execution backend. Omission preserves the MAME default; cpu accepts only a disk-free routine."
+    },
     "emulatorPath": {
       "type": "string",
       "description": "An empty value inherits the environment profile; required and nonempty without a profile."
@@ -319,6 +327,72 @@
       },
       "maxItems": 1024
     },
+    "graphicsMemory": {
+      "description": "Encode each PNG with the Apple display-memory codec and compare the resulting bytes. Double-hires checks capture auxiliary and main memory explicitly.",
+      "type": "array",
+      "maxItems": 16,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "expectedImage",
+          "mode"
+        ],
+        "properties": {
+          "expectedImage": {
+            "type": "string",
+            "minLength": 1
+          },
+          "mode": {
+            "enum": [
+              "lores",
+              "hires",
+              "hires-color",
+              "dhires-mono",
+              "dhires-color"
+            ]
+          },
+          "page": {
+            "enum": [
+              1,
+              2
+            ]
+          },
+          "bank": {
+            "enum": [
+              "cpu",
+              "main",
+              "aux"
+            ],
+            "description": "Single-bank modes default to cpu. Double-hires selects aux and main automatically, so bank must be omitted or cpu."
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "required": [
+                "mode"
+              ],
+              "properties": {
+                "mode": {
+                  "enum": [
+                    "dhires-mono",
+                    "dhires-color"
+                  ]
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "bank": {
+                  "const": "cpu"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
     "registers": {
       "type": "array",
       "items": {
@@ -398,7 +472,8 @@
       "type": "boolean"
     },
     "trace": {
-      "type": "boolean"
+      "type": "boolean",
+      "description": "Request bounded trace.tsv evidence. CPU rows include source columns when routine mappings exist; project MAME runs may add trace-source.tsv from build mappings."
     },
     "observeMemory": {
       "type": "array",
@@ -793,6 +868,71 @@
                   ]
                 },
                 "maxItems": 1024
+              },
+              "graphicsMemory": {
+                "description": "Display-memory PNG expectations evaluated as part of this ordered condition.",
+                "type": "array",
+                "maxItems": 8,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "expectedImage",
+                    "mode"
+                  ],
+                  "properties": {
+                    "expectedImage": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "mode": {
+                      "enum": [
+                        "lores",
+                        "hires",
+                        "hires-color",
+                        "dhires-mono",
+                        "dhires-color"
+                      ]
+                    },
+                    "page": {
+                      "enum": [
+                        1,
+                        2
+                      ]
+                    },
+                    "bank": {
+                      "enum": [
+                        "cpu",
+                        "main",
+                        "aux"
+                      ]
+                    }
+                  },
+                  "allOf": [
+                    {
+                      "if": {
+                        "required": [
+                          "mode"
+                        ],
+                        "properties": {
+                          "mode": {
+                            "enum": [
+                              "dhires-mono",
+                              "dhires-color"
+                            ]
+                          }
+                        }
+                      },
+                      "then": {
+                        "properties": {
+                          "bank": {
+                            "const": "cpu"
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
               },
               "symbolicMemory": {
                 "type": "array",
@@ -1401,6 +1541,9 @@
           "machine"
         ],
         "properties": {
+          "routine": {
+            "type": "object"
+          },
           "machine": {
             "enum": [
               "apple2",
@@ -1446,42 +1589,229 @@
       }
     },
     {
-      "anyOf": [
-        {
-          "required": [
-            "environment"
-          ],
-          "properties": {
-            "environment": {
-              "type": "string"
-            }
-          }
-        },
-        {
-          "required": [
-            "emulatorPath",
-            "machine",
-            "romDirectory"
-          ],
-          "properties": {
-            "emulatorPath": {
-              "minLength": 1
-            },
-            "romDirectory": {
-              "minLength": 1
-            },
-            "machine": {
-              "enum": [
-                "apple2",
-                "apple2p",
-                "apple2e",
-                "apple2ee",
-                "apple2c"
-              ]
-            }
+      "if": {
+        "required": [
+          "engine"
+        ],
+        "properties": {
+          "engine": {
+            "const": "cpu"
           }
         }
-      ]
+      },
+      "then": {
+        "required": [
+          "routine"
+        ],
+        "anyOf": [
+          {
+            "required": [
+              "machine"
+            ],
+            "properties": {
+              "machine": {
+                "enum": [
+                  "apple2",
+                  "apple2p",
+                  "apple2e",
+                  "apple2ee",
+                  "apple2c"
+                ]
+              }
+            }
+          },
+          {
+            "required": [
+              "environment"
+            ],
+            "properties": {
+              "environment": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        ],
+        "properties": {
+          "routine": {
+            "type": "object"
+          },
+          "machine": {
+            "enum": [
+              "",
+              "apple2",
+              "apple2p",
+              "apple2e",
+              "apple2ee",
+              "apple2c"
+            ]
+          },
+          "diskImage": {
+            "const": ""
+          },
+          "disks": {
+            "maxItems": 0
+          },
+          "diskAssertions": {
+            "maxItems": 0
+          },
+          "memory": {
+            "items": {
+              "properties": {
+                "bank": {
+                  "const": "cpu"
+                }
+              }
+            }
+          },
+          "graphicsMemory": {
+            "items": {
+              "properties": {
+                "mode": {
+                  "enum": [
+                    "lores",
+                    "hires",
+                    "hires-color"
+                  ]
+                },
+                "bank": {
+                  "const": "cpu"
+                }
+              }
+            }
+          },
+          "observeMemory": {
+            "items": {
+              "properties": {
+                "bank": {
+                  "const": "cpu"
+                }
+              }
+            }
+          },
+          "registers": {
+            "items": {
+              "properties": {
+                "name": {
+                  "enum": [
+                    "PC",
+                    "A",
+                    "X",
+                    "Y",
+                    "P",
+                    "S",
+                    "SP"
+                  ]
+                }
+              }
+            }
+          },
+          "debug": {
+            "type": "null"
+          },
+          "cycles": {
+            "type": "null"
+          },
+          "until": {
+            "type": "null"
+          },
+          "keys": {
+            "maxItems": 0
+          },
+          "steps": {
+            "maxItems": 0,
+            "items": {
+              "properties": {
+                "condition": {
+                  "properties": {
+                    "graphicsMemory": {
+                      "items": {
+                        "properties": {
+                          "mode": {
+                            "enum": [
+                              "lores",
+                              "hires",
+                              "hires-color"
+                            ]
+                          },
+                          "bank": {
+                            "const": "cpu"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "storageProfile": {
+            "const": "floppy"
+          },
+          "gamePort": {
+            "const": "none"
+          },
+          "audio": {
+            "type": "null"
+          },
+          "screenshot": {
+            "const": false
+          },
+          "screenshotAssertion": {
+            "type": "null"
+          },
+          "checkBasicRuntime": {
+            "const": false
+          },
+          "textContains": {
+            "maxItems": 0
+          },
+          "textNotContains": {
+            "maxItems": 0
+          },
+          "toolchainLock": {
+            "type": "null"
+          }
+        }
+      },
+      "else": {
+        "anyOf": [
+          {
+            "required": [
+              "environment"
+            ],
+            "properties": {
+              "environment": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "required": [
+              "emulatorPath",
+              "machine",
+              "romDirectory"
+            ],
+            "properties": {
+              "emulatorPath": {
+                "minLength": 1
+              },
+              "romDirectory": {
+                "minLength": 1
+              },
+              "machine": {
+                "enum": [
+                  "apple2",
+                  "apple2p",
+                  "apple2e",
+                  "apple2ee",
+                  "apple2c"
+                ]
+              }
+            }
+          }
+        ]
+      }
     },
     {
       "if": {

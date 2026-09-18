@@ -19,6 +19,7 @@ public sealed record ProjectManifest
     public int BasicWorkspaceBytes { get; init; }
     public string Runtime { get; init; } = "auto";
     public ProjectStartup? Startup { get; init; }
+    public ProjectBoot? Boot { get; init; }
     public Cc65Options? Cc65 { get; init; }
     public ProjectExecutionSettings? Execution { get; init; }
     public string? Environment { get; init; }
@@ -62,6 +63,15 @@ public sealed record ProjectStartup
     public bool Replace { get; init; }
 }
 
+/// <summary>Original boot code written to one or more track-zero sectors of a DOS-order floppy.</summary>
+public sealed record ProjectBoot
+{
+    public string Source { get; init; } = "";
+    public string Kind { get; init; } = "asm";
+    public ushort Origin { get; init; } = 0x0800;
+    public int Sectors { get; init; } = 1;
+}
+
 public sealed record MemoryRegion(string Name, int Start, int Length, string MemoryBank = "main", string Kind = "data");
 public sealed record BuildInput(string Path, string Sha256);
 public sealed record BuiltFile(string Path, string Kind, string Type, ushort AuxType,
@@ -85,7 +95,12 @@ public sealed record ProjectBuildResult(string OutputPath, string Sha256, string
     public bool Preflight { get; init; }
     public ProjectBuildPlan? Plan { get; init; }
     public ProjectExecutionSettings? Execution { get; init; }
+    public BuiltBoot? Boot { get; init; }
+    public bool CacheHit { get; init; }
 }
+
+public sealed record BuiltBoot(string Source, string Kind, int Origin, int Sectors,
+    int Length, string Sha256);
 
 public static class ProjectJson
 {

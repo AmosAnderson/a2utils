@@ -21,8 +21,19 @@ public static partial class ExecutionRunner
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(spec);
-        MameAdapter.Validate(spec);
-        if (spec.ToolchainLock is not null) Setup.DevelopmentEnvironment.ValidateExecutionLock(spec, cancellationToken);
+        PreparedGraphicsExecution graphics = ExecutionGraphicsMemory.Prepare(spec, cancellationToken);
+        spec = graphics.Spec;
+        ValidatePrepared(spec);
+        ValidateExecutionEnvironment(spec, null, cancellationToken);
+        if (spec.Engine == "cpu")
+        {
+            ExecutionResult cpuResult = await CpuExecutionEngine.RunAsync(spec, artifactDirectory, cancellationToken);
+            cpuResult = ExecutionGraphicsMemory.Attach(cpuResult, graphics, cancellationToken);
+            string cpuResultPath = Path.Combine(cpuResult.ArtifactDirectory, "result.json");
+            cpuResult = cpuResult with { Artifacts = cpuResult.Artifacts.Append(cpuResultPath).Distinct().Order(StringComparer.Ordinal).ToArray() };
+            await File.WriteAllTextAsync(cpuResultPath, JsonSerializer.Serialize(cpuResult, ExecutionSpec.JsonOptions), CancellationToken.None);
+            return cpuResult;
+        }
         cancellationToken.ThrowIfCancellationRequested();
         string artifacts = Path.GetFullPath(artifactDirectory);
         ImageTransactions.ValidatePath(artifacts);
@@ -89,6 +100,7 @@ public static partial class ExecutionRunner
                 JsonSerializer.Serialize(new { executable = Path.GetFullPath(spec.EmulatorPath), arguments }, ExecutionSpec.JsonOptions), linked.Token);
 
             ProcessCapture probe = await RunProcessAsync(spec.EmulatorPath, ["-version"], artifacts, "version", linked.Token);
+            ValidateExecutionEnvironment(spec, environment, linked.Token);
             version = VersionNumber().Match(probe.StandardOutput).Value;
             if (probe.ExitCode != 0 || version != spec.ExpectedVersion)
             {
@@ -98,11 +110,9 @@ public static partial class ExecutionRunner
             }
             else
             {
-                if (spec.ToolchainLock is not null) Setup.DevelopmentEnvironment.ValidateExecutionLock(spec, linked.Token);
                 if (routine is not null) RoutineHarness.ValidateInputs(routine, linked.Token);
-                ValidateEnvironmentEvidence(environment, linked.Token);
                 ProcessCapture run = await RunProcessAsync(spec.EmulatorPath, arguments, artifacts, "emulator", linked.Token);
-                ValidateEnvironmentEvidence(environment, linked.Token);
+                ValidateExecutionEnvironment(spec, environment, linked.Token);
                 string errorFile = Path.Combine(artifacts, "adapter-error.txt");
                 string observations = Path.Combine(artifacts, "observations.tsv");
                 if (run.StandardError.Contains("WRONG CHECKSUMS", StringComparison.OrdinalIgnoreCase)
@@ -150,6 +160,7 @@ public static partial class ExecutionRunner
                         diagnostics.Add(new("execution.screenshot_missing", "error", "MAME did not create the requested screen.png artifact."));
                 }
             }
+            ValidateExecutionEnvironment(spec, environment, linked.Token);
         }
         catch (OperationCanceledException)
         {
@@ -205,6 +216,7 @@ public static partial class ExecutionRunner
             TextScreen = observation?.TextScreen,
             Video = observation?.Video ?? new Dictionary<string, int>()
         };
+        result = ExecutionGraphicsMemory.Attach(result, graphics, cancellationToken);
         string resultPath = Path.Combine(artifacts, "result.json");
         result = result with { Artifacts = result.Artifacts.Append(resultPath).ToArray() };
         await File.WriteAllTextAsync(resultPath, JsonSerializer.Serialize(result, ExecutionSpec.JsonOptions));
@@ -213,7 +225,7 @@ public static partial class ExecutionRunner
 
     public static IReadOnlyList<ProgramDiagnostic> Evaluate(ExecutionSpec spec, ExecutionObservation observation)
     {
-        MameAdapter.Validate(spec);
+        Validate(spec);
         List<ProgramDiagnostic> diagnostics = [];
         EvaluateInstrumentation(spec, observation, diagnostics);
         if (spec.CheckBasicRuntime) diagnostics.AddRange(Basic.ApplesoftTools.RuntimeDiagnostics(observation.ScreenText));
@@ -291,7 +303,7 @@ public static partial class ExecutionRunner
     public static IReadOnlyList<ProgramDiagnostic> EvaluateDisks(ExecutionSpec spec,
         IReadOnlyDictionary<string, string> copiedDisks, CancellationToken cancellationToken = default)
     {
-        MameAdapter.Validate(spec);
+        Validate(spec);
         List<ProgramDiagnostic> diagnostics = [];
         foreach (ExecutionDisk mount in spec.GetDisks())
         {
@@ -331,6 +343,20 @@ public static partial class ExecutionRunner
             }
         }
         return diagnostics;
+    }
+
+    /// <summary>Validates an execution specification for its selected engine.</summary>
+    public static void Validate(ExecutionSpec spec)
+    {
+        ArgumentNullException.ThrowIfNull(spec);
+        ValidatePrepared(ExecutionGraphicsMemory.Prepare(spec).Spec);
+    }
+
+    private static void ValidatePrepared(ExecutionSpec spec)
+    {
+        if (spec.Engine == "mame") MameAdapter.Validate(spec);
+        else if (spec.Engine == "cpu") CpuExecutionEngine.Validate(spec);
+        else throw new DiskException("execution.invalid_spec", "engine must be mame or cpu.", 2);
     }
 
     private static void EvaluateFile(DiskSession session, DiskFileAssertion assertion, List<ProgramDiagnostic> diagnostics)

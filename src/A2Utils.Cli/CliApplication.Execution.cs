@@ -10,53 +10,91 @@ public sealed partial class CliApplication
 {
     private void AddExecutionCommands(RootCommand root)
     {
-        foreach (string name in new[] { "run", "test" })
+        Command runCommand = new("run", "Run a versioned Apple II execution specification through its configured engine.");
+        Argument<string> runSpec = new("SPEC");
+        Option<string> runArtifacts = new("--artifacts")
         {
-            Command command = new(name, name == "run"
-                ? "Run a versioned Apple II execution specification through external MAME."
-                : "Run a versioned suite of Apple II execution specifications.");
-            Argument<string> spec = new(name == "run" ? "SPEC" : "SUITE");
-            Option<string> artifacts = new("--artifacts") { Required = true, Description = "New output directory for isolated disks, observations and results." };
-            command.Arguments.Add(spec);
-            command.Options.Add(artifacts);
-            command.SetAction(parse =>
+            Required = true,
+            Description = "New output directory for isolated disks, observations and results."
+        };
+        runCommand.Arguments.Add(runSpec);
+        runCommand.Options.Add(runArtifacts);
+        runCommand.SetAction(parse =>
+        {
+            string directory = Path.GetFullPath(parse.GetValue(runArtifacts)!);
+            ImageTransactions.ValidatePath(directory);
+            ExecutionResult run = ExecutionRunner.Run(ExecutionSpec.Load(parse.GetValue(runSpec)!), directory, _cancellationToken);
+            Result("run", run, $"{run.Name}: {(run.Passed ? "passed" : "failed")} ({run.StopReason})\nArtifacts: {run.ArtifactDirectory}");
+            return ExecutionExitCode(run);
+        });
+        root.Subcommands.Add(runCommand);
+
+        Command testCommand = new("test", "List or run a selectable suite of Apple II execution specifications.");
+        Argument<string> suite = new("SUITE");
+        Option<string?> suiteArtifacts = new("--artifacts")
+        {
+            Description = "New suite directory, or a parent directory with --run-subdirectory. Required unless --list is used."
+        };
+        Option<bool> list = new("--list") { Description = "List discovered and selected cases without creating artifacts or running them." };
+        Option<string[]> filters = new("--filter")
+        {
+            Description = "Select by case name/path glob (name:PATTERN, path:PATTERN, or either); may be repeated.",
+            Arity = ArgumentArity.OneOrMore,
+            AllowMultipleArgumentsPerToken = true
+        };
+        Option<int?> jobs = new("--jobs") { Description = "Run 1-16 selected cases concurrently; default 1." };
+        Option<string?> rerunFailed = new("--rerun-failed")
+        {
+            Description = "Select failures recorded in a previous suite-result.json file or artifact directory."
+        };
+        Option<bool> progress = new("--progress") { Description = "Write flushed JSONL progress to events.jsonl in the suite directory." };
+        Option<bool> runSubdirectory = new("--run-subdirectory")
+        {
+            Description = "Create a unique immutable run-* child beneath --artifacts, which may already exist."
+        };
+        testCommand.Arguments.Add(suite);
+        foreach (Option option in new Option[] { suiteArtifacts, list, filters, jobs, rerunFailed, progress, runSubdirectory })
+            testCommand.Options.Add(option);
+        testCommand.SetAction(parse =>
+        {
+            ExecutionSuiteRunOptions options = CreateSuiteOptions(parse.GetValue(filters), parse.GetValue(jobs),
+                parse.GetValue(rerunFailed), parse.GetValue(progress), parse.GetValue(runSubdirectory));
+            if (parse.GetValue(list))
             {
-                string directory = Path.GetFullPath(parse.GetValue(artifacts)!);
-                ImageTransactions.ValidatePath(directory);
-                if (name == "run")
-                {
-                    ExecutionResult run = ExecutionRunner.Run(ExecutionSpec.Load(parse.GetValue(spec)!), directory, _cancellationToken);
-                    Result("run", run, $"{run.Name}: {(run.Passed ? "passed" : "failed")} ({run.StopReason})\nArtifacts: {run.ArtifactDirectory}");
-                    return ExecutionExitCode(run);
-                }
-                ExecutionSuite suite = ExecutionSuite.Load(parse.GetValue(spec)!);
-                // Parse every case before executing any case.
-                ExecutionSpec[] cases = suite.Tests.Select(ExecutionSpec.Load).ToArray();
-                foreach (ExecutionSpec item in cases)
-                {
-                    MameAdapter.Validate(item);
-                    if (!ProjectWorkflow.HasAssertions(item))
-                        throw new DiskException("execution.invalid_suite", "Every test case needs at least one assertion or completion condition.", 2);
-                }
-                if (Directory.Exists(directory) || File.Exists(directory))
-                    throw new DiskException("execution.artifacts_exist", "Use a new artifact directory for each suite.", 2);
-                Directory.CreateDirectory(directory);
-                List<ExecutionResult> results = [];
-                foreach (ExecutionSpec item in cases)
-                {
-                    ExecutionResult run = ExecutionRunner.Run(item, Path.Combine(directory, $"case-{results.Count + 1:D3}"), _cancellationToken);
-                    results.Add(run);
-                    if (run.StopReason == "cancelled") break;
-                }
-                ExecutionSuiteResult summary = new(1, results.Count == cases.Length && results.All(r => r.Passed), results);
-                File.WriteAllText(Path.Combine(directory, "suite-result.json"), System.Text.Json.JsonSerializer.Serialize(summary, ExecutionSpec.JsonOptions));
-                Result("test", summary, $"{results.Count(r => r.Passed)}/{cases.Length} execution tests passed.\nArtifacts: {directory}");
-                return results.Select(ExecutionExitCode).DefaultIfEmpty(1).Max();
-            });
-            root.Subcommands.Add(command);
-        }
+                if (options.WriteProgress || options.CreateRunSubdirectory)
+                    throw new DiskException("execution.list_options", "--list cannot write progress or create an artifact run directory.", 2);
+                ExecutionSuitePlan plan = ExecutionSuiteRunner.Plan(parse.GetValue(suite)!, options);
+                string text = string.Join(Environment.NewLine, plan.Cases.Select(item =>
+                    $"{item.Id} {(item.Selected ? "selected" : "excluded"),-8} {item.Name} ({item.Path})"));
+                return Result("test.list", plan, text + $"\n{plan.Planned}/{plan.Discovered} cases selected.");
+            }
+            string? requestedArtifacts = parse.GetValue(suiteArtifacts);
+            if (string.IsNullOrWhiteSpace(requestedArtifacts))
+                throw new DiskException("execution.artifacts_required", "test requires --artifacts unless --list is used.", 2);
+            ExecutionSuiteResult summary = ExecutionSuiteRunner.Run(parse.GetValue(suite)!, requestedArtifacts,
+                options, _cancellationToken);
+            ExecutionSuiteCounts counts = summary.Counts;
+            Result("test", summary, $"{counts.Passed}/{counts.Planned} execution tests passed; " +
+                $"{counts.Failed} failed, {counts.Cancelled} cancelled, {counts.NotRun} not run.\nArtifacts: {summary.ArtifactDirectory}");
+            return ExecutionSuiteExitCode(summary);
+        });
+        root.Subcommands.Add(testCommand);
     }
+
+    private static ExecutionSuiteRunOptions CreateSuiteOptions(IReadOnlyList<string>? filters, int? jobs,
+        string? rerunFailedPath, bool writeProgress, bool createRunSubdirectory)
+        => new()
+        {
+            Filters = filters ?? [],
+            Jobs = jobs ?? 1,
+            RerunFailedPath = rerunFailedPath,
+            WriteProgress = writeProgress,
+            CreateRunSubdirectory = createRunSubdirectory
+        };
 
     private static int ExecutionExitCode(ExecutionResult result)
         => result.Passed ? 0 : result.StopReason == "cancelled" ? 6 : 1;
+
+    private static int ExecutionSuiteExitCode(ExecutionSuiteResult result)
+        => result.Cancelled ? 6 : result.Counts.Failed != 0 ? 1 : 0;
 }

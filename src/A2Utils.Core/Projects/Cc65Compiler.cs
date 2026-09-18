@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Text;
 using System.Text.RegularExpressions;
+using A2Utils.Core.Assembly;
 using A2Utils.Core.Operations;
 using A2Utils.Core.Programs;
 
@@ -29,6 +30,8 @@ public sealed record Cc65Result(byte[] AppleSingle, string Version, string Map, 
     public IReadOnlyList<BuildInput> ToolchainInputs { get; init; } = [];
     public IReadOnlyDictionary<string, int> Symbols { get; init; } = new Dictionary<string, int>();
     public IReadOnlyList<Cc65Segment> Segments { get; init; } = [];
+    public string Debug { get; init; } = "";
+    public IReadOnlyList<AssemblySourceMapEntry> SourceMap { get; init; } = [];
     public IReadOnlyList<ProgramDiagnostic> Diagnostics { get; init; } = [];
 }
 
@@ -92,7 +95,7 @@ public static class Cc65Compiler
             throw Error("linker_config", "Custom linker configurations must use a .cfg extension.");
         byte[]? configBytes = linkerConfig is null ? null : ProgramFiles.ReadBytes(linkerConfig, 1024 * 1024, cancellationToken);
         IReadOnlyDictionary<string, string>? segmentKinds = configBytes is null ? null : Cc65LinkerConfiguration.Validate(ProgramFiles.DecodeText(configBytes));
-        string temporaryRoot = ResolvePhysicalDirectory(Path.GetTempPath());
+        string temporaryRoot = HostFiles.ResolvePhysicalDirectory(Path.GetTempPath());
         string temporary = Path.Combine(temporaryRoot, $"a2-cc65-{Guid.NewGuid():N}");
         ImageTransactions.ValidatePath(temporary);
         Directory.CreateDirectory(temporary);
@@ -141,7 +144,9 @@ public static class Cc65Compiler
             string binary = Path.Combine(temporary, "program.as");
             string map = Path.Combine(temporary, "program.map");
             string labels = Path.Combine(temporary, "program.lbl");
-            List<string> arguments = ["-t", options.Target, "-g", "-o", binary, "-m", map, "-Ln", labels];
+            string debug = Path.Combine(stage, "program.dbg");
+            List<string> arguments = ["-t", options.Target, "-g", "-o", binary, "-m", map, "-Ln", labels,
+                "-Wl", "--dbgfile,program.dbg"];
             if (linkerConfig is not null) arguments.AddRange(["-C", Path.Combine(stage, Path.GetRelativePath(root, linkerConfig))]);
             if (options.Optimize) arguments.Add("-O");
             foreach (string include in includes)
@@ -165,7 +170,9 @@ public static class Cc65Compiler
             AppleSingleProgram.Decode(appleSingle);
             string mapText = ProgramFiles.ReadText(map, cancellationToken);
             string labelText = ProgramFiles.ReadText(labels, cancellationToken);
+            string debugText = ProgramFiles.ReadText(debug, cancellationToken);
             IReadOnlyList<Cc65Segment> segments = Cc65Feedback.ParseSegments(mapText, segmentKinds);
+            IReadOnlyList<AssemblySourceMapEntry> sourceMap = Cc65Feedback.ParseDebugMap(debugText, stage, root, cancellationToken);
             if (segments.Count == 0) diagnostics.Add(new("cc65.memory_incomplete", "warning", "The linker map contains no recognized segments; declare runtimeMemory for allocations not covered by the payload."));
             if (options.ToolchainRoot is null) diagnostics.Add(new("cc65.toolchain_partial", "warning", "Only the compiler executable is fingerprinted; set toolchainRoot to include installed tools, libraries, headers and configurations."));
             foreach (BuildInput input in toolchainInputs)
@@ -179,6 +186,8 @@ public static class Cc65Compiler
                 ToolchainInputs = toolchainInputs,
                 Symbols = Cc65Feedback.ParseLabels(labelText),
                 Segments = segments,
+                Debug = debugText.Replace(stage, ".", StringComparison.Ordinal),
+                SourceMap = sourceMap,
                 Diagnostics = diagnostics
             };
         }
@@ -228,28 +237,6 @@ public static class Cc65Compiler
             if (total > 256L * 1024 * 1024) throw Error("toolchain_limit", "Toolchain snapshot exceeds 256 MiB.");
             inputs[path] = new(path, ProgramFiles.Hash(bytes));
         }
-    }
-
-    internal static string ResolvePhysicalDirectory(string path)
-        => ResolvePhysicalDirectory(path, new(PathComparer));
-
-    private static string ResolvePhysicalDirectory(string path, HashSet<string> visited)
-    {
-        string fullPath = Path.GetFullPath(path);
-        if (!visited.Add(fullPath)) throw new IOException("A directory-link cycle was found while resolving the temporary path.");
-        if (!Directory.Exists(fullPath)) throw new DirectoryNotFoundException("The temporary directory does not exist.");
-
-        string root = Path.GetPathRoot(fullPath)!;
-        string resolved = root;
-        foreach (string segment in fullPath[root.Length..].Split(
-            [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar], StringSplitOptions.RemoveEmptyEntries))
-        {
-            DirectoryInfo directory = new(Path.Combine(resolved, segment));
-            FileSystemInfo? target = directory.ResolveLinkTarget(returnFinalTarget: true);
-            resolved = target is null ? directory.FullName : ResolvePhysicalDirectory(target.FullName, visited);
-        }
-
-        return Path.TrimEndingDirectorySeparator(resolved);
     }
 
     internal static async Task CleanupGeneratedDirectoryAsync(string path)
@@ -525,7 +512,8 @@ public static class Cc65Compiler
         return text.ToString();
     }
 
-    private static StringComparer PathComparer => OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
+    private static StringComparer PathComparer => OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
+        ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
     private static DiskException Error(string code, string message) => new($"cc65.{code}", message, 2);
     private sealed record ProcessResult(int ExitCode, string Details);
 }

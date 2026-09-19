@@ -64,13 +64,15 @@ public static class A2McpServer
         {
             return ToolError("arguments must contain 1..4096 strings, at most 32 KiB each and 1 MiB total.");
         }
-        if (SelectsMcpCommand(arguments))
+        if (CliApplication.SelectsMcpCommand(arguments))
             return ToolError("The MCP server cannot recursively invoke the mcp command.");
         if (arguments.Any(argument => argument.Equals("--quiet", StringComparison.Ordinal)
             || IsInlineOption(argument, "--quiet")))
             return ToolError("Do not combine MCP invocation with --quiet; the tool returns the JSON result directly.");
-        if (arguments.Any(argument => IsInlineOption(argument, "--json")))
-            return ToolError("Do not set --json with an inline value; the MCP server requires JSON output.");
+        if (arguments.Where((argument, index) => IsInlineOption(argument, "--json") ||
+            argument == "--json" && index + 1 < arguments.Length &&
+            bool.TryParse(arguments[index + 1], out _)).Any())
+            return ToolError("Do not set --json with a value; the MCP server requires JSON output.");
 
         string[] cliArguments = arguments.Contains("--json", StringComparer.Ordinal)
             ? arguments.ToArray() : [.. arguments, "--json"];
@@ -130,26 +132,6 @@ public static class A2McpServer
             value.ValueKind == JsonValueKind.String
                 ? value.GetString()! : "A2Utils command";
         return $"{command} completed with exit code {exitCode}; see structuredContent.envelope.";
-    }
-
-    private static bool SelectsMcpCommand(IReadOnlyList<string> arguments)
-    {
-        for (int index = 0; index < arguments.Count; index++)
-        {
-            string argument = arguments[index];
-            if (argument is "--json" or "--quiet" or "--verbose" ||
-                IsInlineOption(argument, "--json") || IsInlineOption(argument, "--quiet") ||
-                IsInlineOption(argument, "--verbose")) continue;
-            if (IsInlineOption(argument, "--input-order") ||
-                IsInlineOption(argument, "--input-fs")) continue;
-            if (argument is "--input-order" or "--input-fs")
-            {
-                index++;
-                continue;
-            }
-            return argument.Equals("mcp", StringComparison.OrdinalIgnoreCase);
-        }
-        return false;
     }
 
     private static bool IsInlineOption(string argument, string name)

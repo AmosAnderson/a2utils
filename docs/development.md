@@ -396,7 +396,7 @@ dotnet run --project third_party/evaluation/DiskEngineProbe.csproj -c Release
 
 ## Packaging and local installation
 
-The shared version is currently `0.6.0-dev` in
+The shared version is currently `0.6.1-dev` in
 [Directory.Build.props](../Directory.Build.props). When changing it, also update
 versioned local installation examples. Release builds take their version from
 the Git tag instead. The CLI package ID is `A2Utils.Tool`; its command is `a2`.
@@ -406,7 +406,7 @@ From the repository root:
 ```sh
 pwsh -File eng/Package.ps1
 pwsh -File eng/Package.ps1 -Runtime win-x64 -SkipTests
-pwsh -File eng/Package.ps1 -Runtime win-x64 -Version 0.6.0-dev -SkipTests
+pwsh -File eng/Package.ps1 -Runtime win-x64 -Version 0.6.1-dev -SkipTests
 ```
 
 The default runtime is the host's runtime identifier. Accepted explicit values
@@ -417,7 +417,7 @@ execution on that platform. Unix archives also require `tar` on the build host.
 
 | Artifact | Location and requirements |
 | --- | --- |
-| .NET tool package | `artifacts/packages/A2Utils.Tool.0.6.0-dev.nupkg`; running the installed tool requires the .NET 10 runtime |
+| .NET tool package | `artifacts/packages/A2Utils.Tool.0.6.1-dev.nupkg`; running the installed tool requires the .NET 10 runtime |
 | Self-contained files | `artifacts/publish/<RID>/`; includes the runtime and uses `a2.exe` on Windows or `a2` on Unix |
 | Windows archive | `artifacts/a2utils-<RID>.zip` |
 | Linux/macOS archive | `artifacts/a2utils-<RID>.tar.gz` |
@@ -436,7 +436,7 @@ version. Omitting this option preserves the local artifact names above.
 Install the tool into this checkout:
 
 ```sh
-dotnet tool install A2Utils.Tool --version 0.6.0-dev --add-source artifacts/packages --tool-path artifacts/tools --configfile NuGet.Config
+dotnet tool install A2Utils.Tool --version 0.6.1-dev --add-source artifacts/packages --tool-path artifacts/tools --configfile NuGet.Config
 ```
 
 Use `dotnet tool update` with the same arguments when upgrading an existing

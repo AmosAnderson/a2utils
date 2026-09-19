@@ -248,7 +248,8 @@ public sealed partial class CliApplication
     private static CliCommandCapability[] DescribeCommands(Command command, string prefix,
         IReadOnlyList<Option>? inheritedGlobals = null)
     {
-        inheritedGlobals ??= command is RootCommand ? command.Options.ToArray() : [];
+        inheritedGlobals ??= command is RootCommand
+            ? command.Options.Where(option => option.Recursive).ToArray() : [];
         return command.Subcommands.Select(child =>
         {
             string name = prefix + " " + child.Name;

@@ -325,6 +325,8 @@ logical/stored payload hashes, bounded physical byte ranges, and the total numbe
 of differing bytes. Each input image is limited to 34 MiB. At most 4,096 physical
 ranges are retained; `byteRangesTruncated` reports when additional ranges were
 counted but omitted.
+ProDOS volume-root metadata appears as the `/` entry, including root permission
+and timestamp changes in both diffs and change-set plans.
 
 `disk plan` accepts a strict version 1 change-set JSON document with 1–1,024
 ordered `add`, `replace`, `delete`, `rename`, `mkdir`, or `attr` operations. Add

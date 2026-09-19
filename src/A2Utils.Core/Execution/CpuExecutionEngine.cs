@@ -379,22 +379,22 @@ public static class CpuExecutionEngine
                 case "CPX": Compare(_x, ReadOperand(instruction.Mode, out crossed)); break;
                 case "CPY": Compare(_y, ReadOperand(instruction.Mode, out crossed)); break;
                 case "BIT": Bit(ReadOperand(instruction.Mode, out crossed), instruction.Mode == AddressingMode.Immediate); break;
-                case "ASL": Modify(instruction.Mode, value => { Set(Carry, (value & 0x80) != 0); return (byte)(value << 1); }); break;
-                case "LSR": Modify(instruction.Mode, value => { Set(Carry, (value & 1) != 0); return (byte)(value >> 1); }); break;
+                case "ASL": Modify(instruction.Mode, value => { Set(Carry, (value & 0x80) != 0); return (byte)(value << 1); }, out crossed); break;
+                case "LSR": Modify(instruction.Mode, value => { Set(Carry, (value & 1) != 0); return (byte)(value >> 1); }, out crossed); break;
                 case "ROL":
                     Modify(instruction.Mode, value =>
                     {
                         bool oldCarry = IsSet(Carry); Set(Carry, (value & 0x80) != 0); return (byte)((value << 1) | (oldCarry ? 1 : 0));
-                    });
+                    }, out crossed);
                     break;
                 case "ROR":
                     Modify(instruction.Mode, value =>
                     {
                         bool oldCarry = IsSet(Carry); Set(Carry, (value & 1) != 0); return (byte)((value >> 1) | (oldCarry ? 0x80 : 0));
-                    });
+                    }, out crossed);
                     break;
-                case "INC": Modify(instruction.Mode, value => (byte)(value + 1)); break;
-                case "DEC": Modify(instruction.Mode, value => (byte)(value - 1)); break;
+                case "INC": Modify(instruction.Mode, value => (byte)(value + 1), out crossed); break;
+                case "DEC": Modify(instruction.Mode, value => (byte)(value - 1), out crossed); break;
                 case "TSB": TestAndModify(instruction.Mode, set: true); break;
                 case "TRB": TestAndModify(instruction.Mode, set: false); break;
                 case "TAX": _x = _a; SetNz(_x); break;
@@ -505,13 +505,14 @@ public static class CpuExecutionEngine
             }
         }
 
-        private void Modify(AddressingMode mode, Func<byte, byte> operation)
+        private void Modify(AddressingMode mode, Func<byte, byte> operation, out bool crossed)
         {
+            crossed = false;
             if (mode == AddressingMode.Accumulator)
             {
                 _a = operation(_a); SetNz(_a); return;
             }
-            ushort address = Address(mode, out _);
+            ushort address = Address(mode, out crossed);
             byte result = operation(Read(address));
             Write(address, result); SetNz(result);
         }
@@ -549,12 +550,20 @@ public static class CpuExecutionEngine
             {
                 Set(Carry, binary > 0xff); _a = (byte)binary; SetNz(_a); return;
             }
-            int adjusted = binary;
-            if ((_a & 0x0f) + (value & 0x0f) + carry > 9) adjusted += 0x06;
-            if (adjusted > 0x99) adjusted += 0x60;
+            int low = (_a & 0x0f) + (value & 0x0f) + carry;
+            if (low > 9) low = ((low + 6) & 0x0f) + 0x10;
+            int adjusted = (_a & 0xf0) + (value & 0xf0) + low;
+            // Decimal carry from the low digit affects N and V before the high digit is corrected.
+            Set(Overflow, (~(_a ^ value) & (_a ^ adjusted) & 0x80) != 0);
+            if (_cpu == CpuKind.Mos6502)
+            {
+                Set(Zero, (byte)binary == 0);
+                Set(Negative, (adjusted & 0x80) != 0);
+            }
+            if (adjusted >= 0xa0) adjusted += 0x60;
             Set(Carry, adjusted > 0xff);
             _a = (byte)adjusted;
-            SetNz(_cpu == CpuKind.Mos6502 ? (byte)binary : _a);
+            if (_cpu == CpuKind.Apple65C02) SetNz(_a);
         }
 
         private void Sbc(byte value)
@@ -568,6 +577,14 @@ public static class CpuExecutionEngine
                 _a = (byte)binary; SetNz(_a); return;
             }
             int low = (_a & 0x0f) - (value & 0x0f) - borrow;
+            if (_cpu == CpuKind.Apple65C02)
+            {
+                // CMOS decimal correction can borrow between digits, including for non-BCD operands.
+                int adjusted = binary - (low < 0 ? 6 : 0) - (binary < 0 ? 0x60 : 0);
+                _a = (byte)adjusted;
+                SetNz(_a);
+                return;
+            }
             int high = (_a >> 4) - (value >> 4);
             if (low < 0) { low -= 6; high--; }
             if (high < 0) high -= 6;
@@ -620,7 +637,7 @@ public static class CpuExecutionEngine
                 AddressingMode.ZeroPage => 5,
                 AddressingMode.ZeroPageX => 6,
                 AddressingMode.Absolute => 6,
-                AddressingMode.AbsoluteX => _cpu == CpuKind.Mos6502 ? 7 : 6,
+                AddressingMode.AbsoluteX => _cpu == CpuKind.Mos6502 || crossed || mnemonic is "INC" or "DEC" ? 7 : 6,
                 _ => throw new CpuExecutionFault("Invalid read-modify-write mode.")
             };
             int cycles = mode switch

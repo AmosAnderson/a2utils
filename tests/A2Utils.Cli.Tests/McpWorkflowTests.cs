@@ -129,6 +129,47 @@ public sealed class McpWorkflowTests
         Assert.True(A2McpServer.Invoke(["--json:false", "targets"]).IsError);
     }
 
+    [Theory]
+    [InlineData("true")]
+    [InlineData("false")]
+    public void Invoke_RecursiveServerAfterBooleanValue_RefusesBeforeInvokingCli(string value)
+    {
+        bool invoked = false;
+
+        CallToolResult result = A2McpServer.InvokeForTesting(
+            ["--verbose", value, "mcp", "serve"], 1024,
+            (_, _, _, _) =>
+            {
+                invoked = true;
+                return 0;
+            });
+
+        Assert.True(result.IsError);
+        Assert.False(invoked);
+        Assert.Contains("recursively invoke", Assert.IsType<TextContentBlock>(Assert.Single(result.Content)).Text);
+    }
+
+    [Theory]
+    [InlineData("false")]
+    [InlineData("FALSE")]
+    public void Invoke_JsonWithSeparateFalseValue_RefusesNonJsonOutput(string value)
+    {
+        CallToolResult result = A2McpServer.Invoke(["--json", value, "targets"]);
+
+        Assert.True(result.IsError);
+        Assert.Contains("requires JSON output", Assert.IsType<TextContentBlock>(Assert.Single(result.Content)).Text);
+    }
+
+    [Fact]
+    public void Invoke_BooleanValueBeforeOrdinaryCommand_PreservesStructuredEnvelope()
+    {
+        CallToolResult result = A2McpServer.Invoke(["--verbose", "false", "schema", "project"]);
+
+        Assert.False(result.IsError);
+        Assert.Equal("schema", result.StructuredContent!.Value.GetProperty("envelope")
+            .GetProperty("command").GetString());
+    }
+
     [Fact]
     public void Invoke_ResponseFileCannotExpandHiddenRecursiveCommand()
     {

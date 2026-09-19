@@ -31,6 +31,8 @@ public static class HostFiles
                 : ResolvePhysicalDirectory(target.FullName, visited);
         }
 
+        // A later path component may traverse the same link target again without a cycle.
+        visited.Remove(fullPath);
         return Path.TrimEndingDirectorySeparator(resolved);
     }
 

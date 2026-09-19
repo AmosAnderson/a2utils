@@ -19,6 +19,10 @@ public sealed class DevelopmentWorkflowTests : IDisposable
         JsonElement data = document.RootElement.GetProperty("data");
         JsonElement build = data.GetProperty("commands").EnumerateArray()
             .Single(command => command.GetProperty("name").GetString() == "a2 build");
+        Assert.DoesNotContain(build.GetProperty("options").EnumerateArray(), option =>
+            option.GetProperty("name").GetString() == "--version");
+        Assert.Contains(data.GetProperty("globalOptions").EnumerateArray(), option =>
+            option.GetProperty("name").GetString() == "--version");
         JsonElement test = build.GetProperty("options").EnumerateArray()
             .Single(option => option.GetProperty("name").GetString() == "--test");
         Assert.Equal("boolean", test.GetProperty("type").GetString());

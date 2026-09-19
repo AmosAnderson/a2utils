@@ -64,6 +64,34 @@ public sealed class ExecutionGraphicsMemoryTests : IDisposable
     }
 
     [Fact]
+    public async Task Run_CancelledWithGraphicsAssertion_RetainsResultAndComparisonEvidence()
+    {
+        string expected = WritePng("black.png", 40, 48);
+        string source = At("routine.asm");
+        File.WriteAllText(source, "loop: jmp loop\n");
+        ExecutionSpec spec = new()
+        {
+            Engine = "cpu",
+            Machine = "apple2e",
+            Routine = new() { Source = source, MaxCycles = 1_000_000_000 },
+            GraphicsMemory = [new(expected, "lores")]
+        };
+        using CancellationTokenSource cancellation = new();
+
+        Task<ExecutionResult> running = ExecutionRunner.RunAsync(spec, At("cancelled"), cancellation.Token);
+        cancellation.Cancel();
+        ExecutionResult result = await running;
+
+        Assert.False(result.Passed);
+        Assert.Equal("cancelled", result.StopReason);
+        ExecutionGraphicsMemoryResult comparison = Assert.Single(result.GraphicsMemory);
+        Assert.True(File.Exists(comparison.ExpectedPreview));
+        using JsonDocument json = JsonDocument.Parse(File.ReadAllText(At("cancelled/result.json")));
+        Assert.Equal("cancelled", json.RootElement.GetProperty("stopReason").GetString());
+        Assert.Single(json.RootElement.GetProperty("graphicsMemory").EnumerateArray());
+    }
+
+    [Fact]
     public void Prepare_DoubleHiresStep_ExpandsToExplicitAuxiliaryAndMainPages()
     {
         string expected = WritePng("dhires.png", 560, 192);

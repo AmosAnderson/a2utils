@@ -43,6 +43,37 @@ public sealed class DiskChangeSetTests
     }
 
     [Fact]
+    public void PlanAndApply_VolumeRootAttributes_ReportsChangeAndPreservesSource()
+    {
+        using FixtureWorkspace workspace = new();
+        string input = workspace.NewPath("input.po");
+        DiskSession.Create(input, "prodos", volumeName: "PLAN");
+        byte[] original = File.ReadAllBytes(input);
+        string changes = WritePlan(workspace, new()
+        {
+            Changes = [new() { Action = "attr", Path = "/", Locked = true }]
+        });
+
+        DiskChangePlan plan = DiskChangeSetRunner.Plan(input, changes);
+
+        DiskEntryDifference change = Assert.Single(plan.Changes);
+        Assert.Equal("/", change.Path);
+        Assert.Equal("modified", change.Action);
+        Assert.Equal(["access"], change.ChangedFields);
+        Assert.NotEqual(change.Before!.Access, change.After!.Access);
+        Assert.Equal(original, File.ReadAllBytes(input));
+
+        DiskApplyResult result = DiskChangeSetRunner.Apply(input, changes,
+            workspace.NewPath("output.po"), inPlace: false, overwrite: false,
+            expectedPlanSha256: plan.PlanSha256);
+
+        Assert.Equal(plan.CandidateSha256, result.OutputSha256);
+        Assert.Equal(original, File.ReadAllBytes(input));
+        using DiskSession output = DiskSession.Open(result.Write.OutputPath);
+        Assert.True(output.GetEntry("/").IsLocked);
+    }
+
+    [Fact]
     public void Apply_ChangedPayloadAfterPlan_RefusesAndPreservesDestination()
     {
         using FixtureWorkspace workspace = new();
@@ -156,7 +187,8 @@ public sealed class DiskChangeSetTests
         DiskDifference result = DiskDiff.Compare(before, after,
             beforeFileSystem: "dos33", afterFileSystem: "prodos");
 
-        Assert.Equal(3, result.Entries.Count);
+        Assert.Equal(4, result.Entries.Count);
+        Assert.Contains(result.Entries, entry => entry.Path == "/" && entry.Action == "added");
         Assert.Contains(result.Entries, entry => entry.Path == "Mixed" && entry.Action == "removed");
         Assert.Contains(result.Entries, entry => entry.Path == "MIXED" && entry.Action == "removed");
         Assert.Contains(result.Entries, entry => entry.Path == "mixed" && entry.Action == "added");

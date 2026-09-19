@@ -7,7 +7,7 @@ programs. Build projects into disk images, prepare graphics assets, test pure
 6502/65C02 routines in-process, and test full machines through an optional MAME
 installation. The reusable core library is independent of console output.
 
-The current version is **0.6.0-dev**, a development preview. The
+The current version is **0.6.1-dev**, a development preview. The
 [GitHub repository](https://github.com/AmosAnderson/a2utils) is private.
 
 The AI programming workflow now includes [setup profiles and starters](docs/setup.md),

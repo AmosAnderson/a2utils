@@ -28,7 +28,7 @@ public static partial class ExecutionRunner
         if (spec.Engine == "cpu")
         {
             ExecutionResult cpuResult = await CpuExecutionEngine.RunAsync(spec, artifactDirectory, cancellationToken);
-            cpuResult = ExecutionGraphicsMemory.Attach(cpuResult, graphics, cancellationToken);
+            cpuResult = ExecutionGraphicsMemory.Attach(cpuResult, graphics, CancellationToken.None);
             string cpuResultPath = Path.Combine(cpuResult.ArtifactDirectory, "result.json");
             cpuResult = cpuResult with { Artifacts = cpuResult.Artifacts.Append(cpuResultPath).Distinct().Order(StringComparer.Ordinal).ToArray() };
             await File.WriteAllTextAsync(cpuResultPath, JsonSerializer.Serialize(cpuResult, ExecutionSpec.JsonOptions), CancellationToken.None);
@@ -216,7 +216,7 @@ public static partial class ExecutionRunner
             TextScreen = observation?.TextScreen,
             Video = observation?.Video ?? new Dictionary<string, int>()
         };
-        result = ExecutionGraphicsMemory.Attach(result, graphics, cancellationToken);
+        result = ExecutionGraphicsMemory.Attach(result, graphics, CancellationToken.None);
         string resultPath = Path.Combine(artifacts, "result.json");
         result = result with { Artifacts = result.Artifacts.Append(resultPath).ToArray() };
         await File.WriteAllTextAsync(resultPath, JsonSerializer.Serialize(result, ExecutionSpec.JsonOptions));

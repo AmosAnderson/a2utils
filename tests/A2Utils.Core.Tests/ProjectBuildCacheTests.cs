@@ -4,6 +4,7 @@ using A2Utils.Core.Assembly;
 using A2Utils.Core.Backends;
 using A2Utils.Core.Basic;
 using A2Utils.Core.Execution;
+using A2Utils.Core.Graphics;
 using A2Utils.Core.Programs;
 using A2Utils.Core.Projects;
 
@@ -11,6 +12,67 @@ namespace A2Utils.Core.Tests;
 
 public sealed class ProjectBuildCacheTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Build_NewCompilerInput_InvalidatesCachedBuild(bool toolchainInput)
+    {
+        using FixtureWorkspace workspace = new();
+        File.WriteAllText(workspace.NewPath("main.c"), "int main(void) { return 0; }\n");
+        string toolchain = workspace.NewPath(".toolchain");
+        Directory.CreateDirectory(Path.Combine(toolchain, "include"));
+        string project = WriteProject(workspace, new()
+        {
+            Cc65 = ContractCompiler() with { ToolchainRoot = toolchain },
+            Files = [new() { Source = "main.c", Path = "MAIN", Kind = "cc65" }]
+        });
+        string cache = workspace.NewPath("cache");
+        _ = ProjectBuildCache.Build(project, cache, workspace.NewPath("first.po"));
+        string added = toolchainInput ? Path.Combine(toolchain, "include", "added.h")
+            : workspace.NewPath("added.h");
+        File.WriteAllText(added, "#define VALUE 42\n");
+
+        ProjectBuildResult rebuilt = ProjectBuildCache.Build(project, cache, workspace.NewPath("second.po"));
+        ProjectBuildResult restored = ProjectBuildCache.Build(project, cache, workspace.NewPath("third.po"));
+
+        Assert.False(rebuilt.CacheHit);
+        Assert.Contains(rebuilt.Inputs, input => input.Path == added);
+        Assert.True(restored.CacheHit);
+        Assert.Equal(rebuilt.Inputs, restored.Inputs);
+    }
+
+    [Theory]
+    [InlineData("file")]
+    [InlineData("directory")]
+    [InlineData("output")]
+    public void Build_CacheHitWithGeneratedPathConflict_RefusesWithoutChangingDestination(string conflict)
+    {
+        using FixtureWorkspace workspace = new();
+        File.WriteAllBytes(workspace.NewPath("atlas.png"), PngCodec.Encode(new(7, 1, new byte[21])));
+        File.WriteAllText(workspace.NewPath("main.asm"), ".org $2000\nrts\n");
+        string project = WriteProject(workspace, new()
+        {
+            Assets = [new() { Name = "ATLAS", Source = "atlas.png", Output = "atlas.bin", CellHeight = 1 }],
+            Files = [new() { Source = "main.asm", Path = "MAIN", Kind = "asm" }]
+        });
+        string cache = workspace.NewPath("cache");
+        _ = ProjectBuildCache.Build(project, cache, workspace.NewPath("first.po"));
+        string generated = workspace.NewPath("atlas.bin");
+        if (conflict == "file") File.WriteAllText(generated, "keep source");
+        if (conflict == "directory") Directory.CreateDirectory(generated);
+        string destination = conflict == "output" ? generated : workspace.NewPath("second.po");
+        if (conflict != "output") File.WriteAllText(destination, "keep destination");
+
+        DiskException error = Assert.Throws<DiskException>(() =>
+            ProjectBuildCache.Build(project, cache, destination, overwrite: true));
+
+        Assert.Equal(conflict == "output" ? "write.source_alias" : "project.asset_collision", error.Code);
+        if (conflict == "output") Assert.False(File.Exists(destination));
+        else Assert.Equal("keep destination", File.ReadAllText(destination));
+        if (conflict == "file") Assert.Equal("keep source", File.ReadAllText(generated));
+        if (conflict == "directory") Assert.True(Directory.Exists(generated));
+    }
+
     [Fact]
     public void Build_UnchangedInputs_RestoresValidatedContentAddressedObject()
     {

@@ -66,6 +66,10 @@ sources, an import report, and locked reference entries that remain preserved by
 the template. `--disassemble` converts load-addressed BIN files to reassemblable
 source; without it their payload bytes remain binary. Input layout/filesystem
 overrides use the global `--input-order` and `--input-fs` options.
+Imported BASIC retains its load address, and optional BASIC lint checks are disabled
+so existing programs can rebuild. Enable `checkBasic` on a file to check it while
+editing. BASIC or text that cannot be converted without changing its payload or
+metadata remains binary, with the reason recorded in the import report.
 
 ## Bare-metal boot projects
 
@@ -110,8 +114,10 @@ Normal CLI builds can opt into a content-addressed image cache with
 `ProjectBuildCache.Build(manifestPath, cacheDirectory, outputPath, overwrite)`.
 The cache accepts a hit only when all recorded input hashes and the tool version
 match, validates the cached image before a transactional restore, and reports the
-hit in `ProjectBuildResult.CacheHit` and the CLI's `cacheHit` JSON field. Keep
-outputs outside the cache directory. `--cache` conflicts with `--check`,
+hit in `ProjectBuildResult.CacheHit` and the CLI's `cacheHit` JSON field. The cache
+also checks cc65 project and toolchain directory membership; added inputs trigger
+a rebuild. Generated asset paths retain the same collision and output-alias checks
+as an uncached build. Keep outputs outside the cache directory. `--cache` conflicts with `--check`,
 `--preflight`, and `--test`; builds without it do not read or populate the cache.
 Each normalized manifest path retains at most 1,024 metadata entries, each capped
 at 8 MiB; images are capped at the normal 34 MiB project-image limit, and cache

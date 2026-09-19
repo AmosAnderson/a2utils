@@ -155,7 +155,12 @@ public static class DiskDiff
         StringComparer comparer = session.Info.FileSystem == "dos33"
             ? StringComparer.Ordinal : StringComparer.OrdinalIgnoreCase;
         Dictionary<string, DiskEntrySnapshot> result = new(comparer);
-        foreach (DiskEntry entry in session.List(recursive: true))
+        IEnumerable<DiskEntry> entries = session.List(recursive: true);
+        // ProDOS stores mutable permissions and timestamps on the volume root itself.
+        // Include them so an approval preview cannot hide a root attribute change.
+        if (session.Info.FileSystem == "prodos")
+            entries = entries.Prepend(session.GetEntry("/") with { Path = "/" });
+        foreach (DiskEntry entry in entries)
         {
             cancellationToken.ThrowIfCancellationRequested();
             string? payloadHash = null;

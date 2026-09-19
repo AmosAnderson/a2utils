@@ -203,7 +203,32 @@ public static class Cc65Compiler
     {
         Dictionary<string, BuildInput> inputs = new(PathComparer);
         long total = 0;
-        Add(executable);
+        foreach (string path in EnumerateToolchainInputPaths(executable, configuredRoot, projectRoot, cancellationToken))
+        {
+            if (inputs.ContainsKey(path)) continue;
+            if (inputs.Count >= MaximumInputCount) throw Error("toolchain_limit", "Toolchain exceeds 4096 files.");
+            byte[] bytes = ProgramFiles.ReadBytes(path, MaximumInputBytes, cancellationToken);
+            total += bytes.Length;
+            if (total > 256L * 1024 * 1024) throw Error("toolchain_limit", "Toolchain snapshot exceeds 256 MiB.");
+            inputs[path] = new(path, ProgramFiles.Hash(bytes));
+        }
+        return inputs.Values.OrderBy(input => input.Path, StringComparer.Ordinal).ToArray();
+    }
+
+    internal static IEnumerable<string> EnumerateInputPaths(Cc65Options options, string projectRoot,
+        CancellationToken cancellationToken)
+    {
+        foreach (string path in EnumerateProjectInputPaths(projectRoot, cancellationToken)) yield return path;
+        string executable = ResolveCompiler(options.Compiler, projectRoot);
+        foreach (string path in EnumerateToolchainInputPaths(executable, options.ToolchainRoot,
+            projectRoot, cancellationToken)) yield return path;
+    }
+
+    private static IEnumerable<string> EnumerateToolchainInputPaths(string executable, string? configuredRoot,
+        string projectRoot, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        yield return executable;
         if (configuredRoot is not null)
         {
             string root = Path.GetFullPath(configuredRoot, projectRoot);
@@ -218,24 +243,13 @@ public static class Cc65Compiler
                 int directories = 0;
                 while (pending.TryPop(out string? current))
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
                     ImageTransactions.ValidatePath(current);
                     if (++directories > MaximumInputCount) throw Error("toolchain_limit", "Toolchain contains too many directories.");
-                    foreach (string path in Directory.EnumerateFiles(current).Order(StringComparer.Ordinal)) Add(path);
+                    foreach (string path in Directory.EnumerateFiles(current).Order(StringComparer.Ordinal)) yield return path;
                     foreach (string child in Directory.EnumerateDirectories(current).Order(StringComparer.Ordinal)) pending.Push(child);
                 }
             }
-        }
-        return inputs.Values.OrderBy(input => input.Path, StringComparer.Ordinal).ToArray();
-
-        void Add(string path)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            if (inputs.ContainsKey(path)) return;
-            if (inputs.Count >= MaximumInputCount) throw Error("toolchain_limit", "Toolchain exceeds 4096 files.");
-            byte[] bytes = ProgramFiles.ReadBytes(path, MaximumInputBytes, cancellationToken);
-            total += bytes.Length;
-            if (total > 256L * 1024 * 1024) throw Error("toolchain_limit", "Toolchain snapshot exceeds 256 MiB.");
-            inputs[path] = new(path, ProgramFiles.Hash(bytes));
         }
     }
 
@@ -265,11 +279,32 @@ public static class Cc65Compiler
         CancellationToken cancellationToken)
     {
         List<BuildInput> inputs = [];
+        long totalBytes = 0;
+        foreach (string path in EnumerateProjectInputPaths(root, cancellationToken))
+        {
+            byte[] bytes = ProgramFiles.ReadBytes(path, cancellationToken: cancellationToken);
+            totalBytes += bytes.Length;
+            if (totalBytes > MaximumInputBytes) throw Error("input_limit", $"Compiler project exceeds {MaximumInputBytes} source bytes.");
+            string relative = Path.GetRelativePath(root, path);
+            if (!Path.GetExtension(path).Equals(".bin", StringComparison.OrdinalIgnoreCase)) ValidateIncludes(ProgramFiles.DecodeText(bytes), path, root);
+            string output = Path.Combine(destination, relative);
+            Directory.CreateDirectory(Path.GetDirectoryName(output)!);
+            File.WriteAllBytes(output, bytes);
+            inputs.Add(new(relative.Replace('\\', '/'), ProgramFiles.Hash(bytes)));
+        }
+        foreach (string source in sources)
+            if (!File.Exists(Path.Combine(destination, Path.GetRelativePath(root, source))))
+                throw Error("source_path", "Sources under excluded build or hidden directories are unsupported.");
+        return inputs;
+    }
+
+    private static IEnumerable<string> EnumerateProjectInputPaths(string root,
+        CancellationToken cancellationToken)
+    {
         Stack<string> directories = new();
         directories.Push(root);
         int total = 0;
         int directoryCount = 0;
-        long totalBytes = 0;
         while (directories.TryPop(out string? directory))
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -287,21 +322,9 @@ public static class Cc65Compiler
                 cancellationToken.ThrowIfCancellationRequested();
                 if (!SourceExtensions.Contains(Path.GetExtension(path))) continue;
                 if (++total > MaximumInputCount) throw Error("input_limit", $"Project exceeds {MaximumInputCount} compiler input files.");
-                byte[] bytes = ProgramFiles.ReadBytes(path, cancellationToken: cancellationToken);
-                totalBytes += bytes.Length;
-                if (totalBytes > MaximumInputBytes) throw Error("input_limit", $"Compiler project exceeds {MaximumInputBytes} source bytes.");
-                string relative = Path.GetRelativePath(root, path);
-                if (!Path.GetExtension(path).Equals(".bin", StringComparison.OrdinalIgnoreCase)) ValidateIncludes(ProgramFiles.DecodeText(bytes), path, root);
-                string output = Path.Combine(destination, relative);
-                Directory.CreateDirectory(Path.GetDirectoryName(output)!);
-                File.WriteAllBytes(output, bytes);
-                inputs.Add(new(relative.Replace('\\', '/'), ProgramFiles.Hash(bytes)));
+                yield return path;
             }
         }
-        foreach (string source in sources)
-            if (!File.Exists(Path.Combine(destination, Path.GetRelativePath(root, source))))
-                throw Error("source_path", "Sources under excluded build or hidden directories are unsupported.");
-        return inputs;
     }
 
     private static void ValidateIncludes(string source, string path, string root)

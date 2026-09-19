@@ -81,7 +81,7 @@ public static class ProjectImporter
                     cancellationToken.ThrowIfCancellationRequested();
                     index++;
                     byte[] payload = disk.ReadFile(entry.Path);
-                    (string extensionName, string kind, byte[] contents) = Convert(entry, payload,
+                    (string extensionName, string kind, byte[] contents) = Convert(entry, payload, disk.Info.FileSystem,
                         disassembleBinaries, TargetProfiles.ParseCpu(TargetProfiles.Get(target).Cpu),
                         cancellationToken, diagnostics);
                     string filename = $"{index:D4}_{SafeName(entry.Path)}{extensionName}";
@@ -99,6 +99,8 @@ public static class ProjectImporter
                         Kind = kind,
                         Type = $"0x{entry.FileType:x2}",
                         AuxType = entry.AuxType,
+                        Origin = kind == "basic" ? entry.AuxType : null,
+                        CheckBasic = false,
                         Replace = true,
                         Resident = false
                     });
@@ -159,15 +161,14 @@ public static class ProjectImporter
     }
 
     private static (string Extension, string Kind, byte[] Contents) Convert(DiskEntry entry,
-        byte[] payload, bool disassembleBinaries, CpuKind cpu, CancellationToken cancellationToken,
+        byte[] payload, string fileSystem, bool disassembleBinaries, CpuKind cpu, CancellationToken cancellationToken,
         List<string> diagnostics)
     {
         if (entry.Type is "A" or "BAS")
         {
             try
             {
-                string source = ApplesoftBasic.Decompile(payload,
-                    entry.AuxType == 0 ? ApplesoftBasic.DefaultOrigin : entry.AuxType, cancellationToken);
+                string source = ApplesoftBasic.Decompile(payload, entry.AuxType, cancellationToken);
                 return (".bas", "basic", Encoding.UTF8.GetBytes(source));
             }
             catch (DiskException exception)
@@ -177,7 +178,13 @@ public static class ProjectImporter
         }
         if (entry.Type is "T" or "TXT")
         {
-            try { return (".txt", "text", AppleTextCodec.Decode(payload)); }
+            try
+            {
+                byte[] text = AppleTextCodec.Decode(payload);
+                if (AppleTextCodec.Encode(text, fileSystem).AsSpan().SequenceEqual(payload))
+                    return (".txt", "text", text);
+                diagnostics.Add($"{entry.Path}: text conversion would change the original bytes; preserved as binary.");
+            }
             catch (DiskException exception)
             {
                 diagnostics.Add($"{entry.Path}: text decoding was unavailable ({exception.Code}); preserved as binary.");

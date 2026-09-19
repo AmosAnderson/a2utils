@@ -127,6 +127,7 @@ public static class ProjectBuildCache
                 !MatchesResolvedInput(entry.Build.Inputs, resolved.TemplateInput))
                 continue;
             if (!InputsMatch(entry.Build.Inputs, observed, cancellationToken)) continue;
+            if (!CurrentInputSetMatches(resolved, entry.Build, destination, cancellationToken)) continue;
 
             string objectPath = Path.Combine(objects, entry.ImageSha256 + ".img");
             if (!File.Exists(objectPath)) continue;
@@ -141,6 +142,8 @@ public static class ProjectBuildCache
                         ValidateImage(temporary, entry.Build, cancellationToken);
                         if (!InputsMatch(entry.Build.Inputs, null, cancellationToken))
                             throw Error("stale", "Project inputs changed while restoring a cached build.", 6);
+                        if (!CurrentInputSetMatches(resolved, entry.Build, destination, cancellationToken))
+                            throw Error("stale", "Project input paths changed while restoring a cached build.", 6);
                     }, cancellationToken);
             }
             catch (DiskException exception) when (exception.Code is "project.cache_corrupt" or "project.cache_stale")
@@ -158,6 +161,29 @@ public static class ProjectBuildCache
         }
 
         return null;
+    }
+
+    private static bool CurrentInputSetMatches(ResolvedProjectManifest resolved,
+        ProjectBuildResult build, string destination, CancellationToken cancellationToken)
+    {
+        foreach (ProjectAssetReport asset in build.Assets)
+        {
+            foreach (BuildInput output in asset.Outputs)
+            {
+                string path = Path.GetFullPath(output.Path, resolved.ProjectRoot);
+                ImageTransactions.ValidatePath(path);
+                ImageTransactions.EnsureDistinctPaths(path, destination);
+                if (File.Exists(path) || Directory.Exists(path))
+                    throw new DiskException("project.asset_collision",
+                        "Generated asset collides with an existing path: " + output.Path, 2);
+            }
+        }
+        if (!resolved.Manifest.Files.Any(file => file.Kind == "cc65")) return true;
+        HashSet<string> inputs = build.Inputs.Select(input => input.Path).ToHashSet(PathComparer);
+        // Added headers can shadow older includes even when every previously captured
+        // file is unchanged. Enumerate the same project and toolchain trees as compilation.
+        return Cc65Compiler.EnumerateInputPaths(resolved.Manifest.Cc65!, resolved.ProjectRoot,
+            cancellationToken).All(inputs.Contains);
     }
 
     private static bool MatchesResolvedInput(IReadOnlyList<BuildInput> inputs,

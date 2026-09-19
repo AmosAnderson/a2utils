@@ -1,5 +1,22 @@
 # Development preview validation
 
+## Recent-change review — September 18, 2026
+
+Reviewed the recent development changes and added 34 regression cases for:
+
+- MCP recursive invocation and JSON-option guards, plus accurate inherited CLI options.
+- Imported BASIC origins/metadata and byte-preserving text fallback.
+- cc65 cache invalidation for added project/toolchain files and generated asset collisions.
+- ProDOS volume-root changes in disk plans and repeated directory-link traversal.
+- NMOS/CMOS decimal arithmetic, 65C02 indexed instruction timing, and cancelled graphics evidence.
+
+The locked restore and Release build with warnings as errors passed on Windows x64.
+The full suites passed **1,311 tests (1,141 Core, 170 CLI)**; 15 optional external-MAME
+tests were skipped. Formatting and `git diff --check` passed. The directory-link
+regression ran with a Windows junction and does not depend on symlink privileges.
+Compiler checks use the process-contract host; this review adds no actual emulator
+or compiler interoperability evidence and did not create a package or release.
+
 ## Agentic Apple II development milestone — September 18, 2026
 
 Validated locally on Windows x64 with .NET SDK 10.0.401:

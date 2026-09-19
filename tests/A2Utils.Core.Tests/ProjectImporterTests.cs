@@ -1,4 +1,5 @@
 using A2Utils.Core.Backends;
+using A2Utils.Core.Basic;
 using A2Utils.Core.Operations;
 using A2Utils.Core.Projects;
 
@@ -6,6 +7,77 @@ namespace A2Utils.Core.Tests;
 
 public sealed class ProjectImporterTests
 {
+    [Theory]
+    [InlineData(0x0801)]
+    [InlineData(0x1001)]
+    public void Import_BasicWithExistingLineReferences_PreservesOriginAndPayload(int origin)
+    {
+        using FixtureWorkspace workspace = new();
+        string source = workspace.NewPath("source.po");
+        byte[] program = ApplesoftBasic.Compile("10 GOTO 100\n", (ushort)origin);
+        DiskSession.Create(source, "prodos");
+        using (DiskSession disk = DiskSession.Open(source, writable: true))
+        {
+            disk.Add("PROGRAM", program, "BAS", (ushort)origin);
+            disk.Flush();
+        }
+
+        ProjectImportResult imported = ProjectImporter.Import(source, workspace.NewPath("imported"));
+        ProjectBuildResult build = ProjectBuilder.Build(imported.ProjectPath);
+
+        Assert.Equal("basic", Assert.Single(imported.Files).Kind);
+        using DiskSession rebuilt = DiskSession.Open(build.OutputPath);
+        Assert.Equal((ushort)origin, rebuilt.GetEntry("PROGRAM").AuxType);
+        Assert.Equal(program, rebuilt.ReadFile("PROGRAM"));
+    }
+
+    [Theory]
+    [InlineData("dos33", "HELLO\r")]
+    [InlineData("prodos", "HELLO\n")]
+    public void Import_TextThatCannotRoundTrip_PreservesOriginalBytes(string fileSystem, string contents)
+    {
+        using FixtureWorkspace workspace = new();
+        string source = workspace.NewPath("source.img");
+        byte[] payload = System.Text.Encoding.ASCII.GetBytes(contents);
+        DiskSession.Create(source, fileSystem);
+        using (DiskSession disk = DiskSession.Open(source, inputFs: fileSystem, writable: true))
+        {
+            disk.Add("MESSAGE", payload, "TXT");
+            disk.Flush();
+        }
+
+        ProjectImportResult imported = ProjectImporter.Import(source, workspace.NewPath("imported"),
+            inputFileSystem: fileSystem);
+        ProjectBuildResult build = ProjectBuilder.Build(imported.ProjectPath);
+
+        Assert.Equal("binary", Assert.Single(imported.Files).Kind);
+        Assert.Contains(imported.Diagnostics, message => message.Contains("would change the original bytes", StringComparison.Ordinal));
+        using DiskSession rebuilt = DiskSession.Open(build.OutputPath);
+        Assert.Equal(payload, rebuilt.ReadFile("MESSAGE"));
+    }
+
+    [Fact]
+    public void Import_BasicWithZeroAuxType_PreservesOriginalMetadataAsBinary()
+    {
+        using FixtureWorkspace workspace = new();
+        string source = workspace.NewPath("source.po");
+        byte[] program = ApplesoftBasic.Compile("10 END\n");
+        DiskSession.Create(source, "prodos");
+        using (DiskSession disk = DiskSession.Open(source, writable: true))
+        {
+            disk.Add("PROGRAM", program, "BAS", 0);
+            disk.Flush();
+        }
+
+        ProjectImportResult imported = ProjectImporter.Import(source, workspace.NewPath("imported"));
+        ProjectBuildResult build = ProjectBuilder.Build(imported.ProjectPath);
+
+        Assert.Equal("binary", Assert.Single(imported.Files).Kind);
+        using DiskSession rebuilt = DiskSession.Open(build.OutputPath);
+        Assert.Equal(0, rebuilt.GetEntry("PROGRAM").AuxType);
+        Assert.Equal(program, rebuilt.ReadFile("PROGRAM"));
+    }
+
     [Fact]
     public void Import_DosImage_CreatesPinnedBuildableProjectAndPreservesLockedEntries()
     {

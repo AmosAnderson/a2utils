@@ -115,6 +115,75 @@ public sealed class CpuExecutionTests : IDisposable
         Assert.Equal(0x01ff, result.Registers["SP"]);
     }
 
+    [Theory]
+    [InlineData("apple2e", 0x79, 0x00, 1, 0x80, 0xec)]
+    [InlineData("apple2ee", 0x79, 0x00, 1, 0x80, 0xec)]
+    [InlineData("apple2e", 0x99, 0x00, 1, 0x00, 0xad)]
+    [InlineData("apple2ee", 0x99, 0x00, 1, 0x00, 0x2f)]
+    [InlineData("apple2e", 0x50, 0x50, 0, 0x00, 0xed)]
+    [InlineData("apple2ee", 0x50, 0x50, 0, 0x00, 0x6f)]
+    [InlineData("apple2e", 0x0f, 0x0f, 0, 0x14, 0x2c)]
+    [InlineData("apple2ee", 0x0f, 0x0f, 0, 0x14, 0x2c)]
+    public async Task Run_DecimalAddition_UsesProcessorDigitCarryAndFlags(string machine,
+        int accumulator, int operand, int carry, int expectedAccumulator, int expectedStatus)
+    {
+        string source = At("decimal-add.asm");
+        File.WriteAllText(source, $"adc #${operand:X2}\nrts\n");
+        ExecutionSpec spec = CpuSpec(source) with
+        {
+            Machine = machine,
+            Routine = new() { Source = source, Registers = [new("A", accumulator), new("P", 0x2c | carry)] },
+            Registers = [new("A", expectedAccumulator), new("P", expectedStatus)]
+        };
+
+        ExecutionResult result = await ExecutionRunner.RunAsync(spec, At("decimal-add-run"));
+
+        Assert.True(result.Passed, string.Join('\n', result.Diagnostics.Select(diagnostic => diagnostic.Message)));
+        Assert.Equal(machine == "apple2ee" ? 9 : 8, result.Cycles!.Cycles);
+    }
+
+    [Theory]
+    [InlineData("apple2e", 0x9b)]
+    [InlineData("apple2ee", 0x8b)]
+    public async Task Run_DecimalSubtractionWithNonBcdOperand_UsesProcessorBorrowSemantics(
+        string machine, int expectedAccumulator)
+    {
+        string source = At("decimal-subtract.asm");
+        File.WriteAllText(source, "sbc #$0f\nrts\n");
+        ExecutionSpec spec = CpuSpec(source) with
+        {
+            Machine = machine,
+            Routine = new() { Source = source, Registers = [new("A", 0), new("P", 0x2d)] },
+            Registers = [new("A", expectedAccumulator), new("P", 0xac)]
+        };
+
+        ExecutionResult result = await ExecutionRunner.RunAsync(spec, At("decimal-subtract-run"));
+
+        Assert.True(result.Passed, string.Join('\n', result.Diagnostics.Select(diagnostic => diagnostic.Message)));
+    }
+
+    [Theory]
+    [InlineData("asl", 21)]
+    [InlineData("lsr", 21)]
+    [InlineData("rol", 21)]
+    [InlineData("ror", 21)]
+    [InlineData("inc", 22)]
+    [InlineData("dec", 22)]
+    public async Task Run_Apple65C02IndexedMemoryModification_UsesInstructionAndPageCrossingTiming(
+        string mnemonic, int expectedCycles)
+    {
+        string source = At("modify-indexed.asm");
+        File.WriteAllText(source, $"ldx #1\n{mnemonic} $30fe,x\n{mnemonic} $30ff,x\nrts\n");
+
+        ExecutionResult result = await ExecutionRunner.RunAsync(CpuSpec(source) with
+        {
+            Machine = "apple2ee"
+        }, At("modify-indexed-run"));
+
+        Assert.True(result.Passed, string.Join('\n', result.Diagnostics.Select(diagnostic => diagnostic.Message)));
+        Assert.Equal(expectedCycles, result.Cycles!.Cycles);
+    }
+
     [Fact]
     public async Task Run_IndirectJump_UsesSelectedProcessorSemanticsAndTiming()
     {

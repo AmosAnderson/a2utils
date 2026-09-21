@@ -16,6 +16,10 @@ commands run on the host computer, not at an Apple II prompt.
 | Run `eng/Package.ps1` | PowerShell 7 (`pwsh`), the SDK, and access to dependencies/runtime packs |
 | Unix directory import or host program input | `/usr/bin/stat` for regular-file checks |
 
+For installation sources and optional MAME, ROM, OS-template, and cc65 setup,
+follow [external dependencies and environments](setup.md). The disk walkthrough
+below requires none of those optional Apple II tools or assets.
+
 Check your SDK from the repository root:
 
 ```sh
@@ -27,11 +31,11 @@ The pin does not automatically accept every .NET 10 feature band. See
 [SDK troubleshooting](troubleshooting.md#setup-and-installation) if a compatible
 SDK cannot be found. Initial restore uses the package source in
 [NuGet.Config](../NuGet.Config); later operations can use cached dependencies.
-Windows x64 has been tested locally. The `v0.4.0-dev` hosted attempt completed
-Linux packaging and smoke tests but exposed cc65 temporary-workspace defects on
-Windows and macOS. Those defects are fixed with local regression coverage; release
-policy requires a new version tag for hosted confirmation. See
-[the validation record](VALIDATION.md).
+Windows x64 has been tested locally. Subsequent hosted validation completed Linux
+and macOS packaging and smoke checks; Windows release validation had a separate
+path-assertion failure. Consult the dated entries in
+[the validation record](VALIDATION.md) for the tested revision and outstanding
+release checks, rather than assuming every platform passed for this checkout.
 
 ## Download a tagged release
 
@@ -230,6 +234,8 @@ raw payloads explicitly rather than using `disk copy` across filesystems.
 
 ## Next steps
 
+- [External dependencies and environments](setup.md): install MAME/cc65, audit
+  ROMs, prepare an OS template, and build and test a starter project.
 - [Disk workflows](disk-images.md): export text, preserve original stored bytes,
   restore manifests, import directories, and convert image layout.
 - [Program tools](programs.md): assembly syntax, CPU choices, BASIC rules, and

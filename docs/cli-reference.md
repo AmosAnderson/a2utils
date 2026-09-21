@@ -12,6 +12,8 @@ help, for example `a2 disk add --help`.
 
 | Command | Purpose and guide |
 | --- | --- |
+| `env check PROFILE` / `env lock PROFILE --output LOCK` | [Check external dependencies and fingerprint an environment](setup.md). |
+| `init DIRECTORY [--language asm\|basic\|c] [--environment PROFILE] [--bare-metal]` | Create a starter project and execution suite; bare-metal mode requires assembly. |
 | `build PROJECT [--to IMAGE] [--overwrite] [MODE OPTIONS]` | [Project manifests](projects.md), source checks, optional content-addressed caching, memory reports, build-bound tests, and transactional disk output. |
 | `project resolve PROJECT` | Resolve effective settings, dependencies, tools, memory, and a disk plan without committing the output image. Alias: `project inspect`. |
 | `project import IMAGE --to DIR` | Adopt an existing image as a hash-pinned editable project; optionally disassemble load-addressed binaries. |
@@ -512,15 +514,30 @@ causes than the status alone. See [scripting](scripting.md) for envelopes,
 stdout/stderr handling, and shell examples, or [troubleshooting](troubleshooting.md)
 for remedies.
 
-### Setup and extended execution
+## Setup commands
 
-`a2 env check PROFILE [--json]` checks local tools/ROMs/template readiness.
-`a2 env lock PROFILE --output LOCK` records the configured input hashes.
-`a2 init DIRECTORY --language basic|asm|c [--environment PROFILE]` creates a staged
-starter project. `a2 init DIRECTORY --language asm --bare-metal` instead creates
-an original DOS-order 140 KiB boot-sector project without an OS template.
-`a2 schema environment --json` returns the profile schema.
-See [setup](setup.md).
+```text
+a2 env check PROFILE
+a2 env lock PROFILE --output LOCK
+a2 init DIRECTORY [--language asm|basic|c] [--environment PROFILE] [--bare-metal]
+a2 schema environment [--json]
+```
+
+All accept the global `--json` option. `env check` returns a readiness result with
+separate tool/ROM/template checks: exit 0 when ready, 1 for failed checks. It does
+not compile a program or prove template bootability. `env lock` fingerprints the
+configured inputs to a new file; it does not perform readiness probes and cannot
+overwrite an existing lock. Set `toolchainLock` in project/execution JSON to
+enforce that lock.
+
+`init` requires a new directory. `--language` defaults to `asm`; other choices
+are `basic` and `c`. `--environment` selects an existing profile; omitting it
+creates an editable profile with placeholder local paths. `--bare-metal` accepts
+only assembly and creates an original DOS-order 140 KiB boot-sector project
+without an OS template. Full-machine testing still needs MAME and ROMs.
+See [installation, profiles, and starter examples](setup.md).
+
+## Extended execution
 
 Existing `run`, `test`, and `build --test` commands accept ordered steps,
 routines/cycle budgets, game-port controls, audio assertions, screenshot

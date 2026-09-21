@@ -17,6 +17,11 @@ with patch roll-forward enabled. All projects target `net10.0`; this is modern
 for the packaging script and fixture generator. Unix directory imports and
 host program inputs use `/usr/bin/stat` to reject nonregular files before reading them.
 
+See [external dependency setup](setup.md) for installation sources, compiler and
+emulator setup, ROM audits, OS templates, and optional real-machine test variables.
+Python 3 is required only when regenerating the ProDOS fixture; the normal test
+suite uses the committed fixtures and does not require Python, cc65, or MAME.
+
 Run these commands from the repository root:
 
 ```sh
@@ -29,8 +34,10 @@ dotnet format A2Utils.slnx --verify-no-changes --no-restore --exclude third_part
 
 Restore uses the repository's [NuGet.Config](../NuGet.Config), which explicitly
 selects nuget.org. Tracked `packages.lock.json` files pin dependency resolutions.
-A locked restore failure means the package graph and lockfiles disagree;
-investigate that difference before regenerating locks.
+A locked restore can fail because of package-source/network access or a mismatch
+between the package graph and lockfiles. Inspect the diagnostic before
+regenerating locks; `NU1900` reports unavailable vulnerability metadata, not a
+dependency-graph mismatch.
 
 For an edit/build/run cycle, use the default Debug configuration:
 

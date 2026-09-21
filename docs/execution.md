@@ -18,6 +18,8 @@ success, 1 on execution/assertion failure,
 2 for invalid input, and 6 for cancellation. An unavailable emulator is a failure.
 
 For `engine: "mame"`, install MAME **0.289** separately and provide its executable and machine ROM directory.
+Follow [external dependency setup](setup.md#install-mame-0289) for download/build
+instructions, ROM audit commands, OS-template preparation, and a starter smoke test.
 The adapter checks the executable version before booting and rejects ROM checksum
 warnings. No emulator, ROM, DOS, or ProDOS system files are included in A2Utils.
 The current profiles are `apple2`, `apple2p`, `apple2e`, `apple2ee`, and `apple2c`.

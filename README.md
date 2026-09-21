@@ -206,6 +206,11 @@ media; none of those emulator files are bundled. A routine specification with
 `engine: "cpu"` needs none of them. On Linux and macOS, host program
 input and directory import also expect the standard `/usr/bin/stat` utility.
 
+Follow [external dependency setup](docs/setup.md) for host prerequisites, MAME
+installation and ROM auditing, bootable OS templates, cc65 installation, and
+end-to-end smoke checks. It also explains reusable environment profiles and
+locks; a successful readiness check alone does not establish that a disk boots.
+
 Coding agents can start `a2 mcp serve` as a local stdio MCP server. It exposes
 `a2_cli`, `a2_capabilities`, and `a2_schema`; relative paths use the server
 process working directory. Keep standard input/output attached to the MCP client.
@@ -217,6 +222,7 @@ and use `a2 capabilities --json` before generating invocations.
 | Guide | What you will find |
 | --- | --- |
 | [Getting started](docs/getting-started.md) | Downloads, requirements, installation, shell setup, and a complete first project |
+| [External dependencies and environments](docs/setup.md) | .NET/PowerShell prerequisites, MAME 0.289, ROMs, DOS/ProDOS templates, cc65, setup checks, starters, and locks |
 | [Command reference](docs/cli-reference.md) | Every command, argument, option, alias, and default |
 | [Working with disk images](docs/disk-images.md) | Catalogs, file transfers, metadata, manifests, conversion, and backups |
 | [Assembly and Applesoft BASIC](docs/programs.md) | Compiler syntax, CPU modes, source examples, program headers, and disk integration |
@@ -224,9 +230,15 @@ and use `a2 capabilities --json` before generating invocations.
 | [BASIC development](docs/basic-development.md) | Source checking, renumbering, symbolic labels, and source mappings |
 | [Automated execution](docs/execution.md) | CPU and MAME run/test specifications, assertions, timeouts, and execution evidence |
 | [Runtime debugging](docs/runtime-debugging.md) | Breakpoints, watchpoints, bounded steps, and instruction history |
+| [Interactive testing](docs/interactive-testing.md) | Ordered interactions, checkpoints, in-process routines, and cycle budgets |
+| [Runtime memory](docs/runtime-memory.md) | Resident allocations, stacks, heaps, and memory-budget validation |
+| [Project assets and visual tests](docs/project-assets.md) | Generated assets, loaders, screenshot comparison, and graphics-memory checks |
+| [Audio execution](docs/audio-execution.md) | Speaker capture and bounded audio assertions |
+| [Block-storage execution](docs/block-storage-execution.md) | CFFA2 device configuration, isolated block images, and saved-file checks |
 | [IIe memory](docs/iie-memory.md) and [observations](docs/iie-execution.md) | Banked projects, explicit loaders, physical memory, 80-column text, and MouseText |
 | [C and ca65](docs/cc65.md) | Optional isolated cc65 compilation and AppleSingle programs |
 | [Graphics](docs/graphics.md) | PNG screen conversion and sprite, font, tile, shape, and double-hires assets |
+| [Graphics assets](docs/graphics-assets.md) | Detailed sprite, font, tile, shape-table, and double-hires formats |
 | [Scripting and JSON](docs/scripting.md) | Output contracts, result fields, exit codes, and PowerShell/Bash examples |
 | [Troubleshooting](docs/troubleshooting.md) | Common diagnostics, likely causes, and corrective commands |
 | [Supported formats](docs/formats/supported-images.md) | Containers, sector order, filesystem capabilities, geometry, and preservation limits |

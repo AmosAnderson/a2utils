@@ -20,8 +20,38 @@ stdout and stderr separate when collecting evidence. The
 | Missing `/usr/bin/stat` | Restore that system utility for Linux/macOS host-file checks; program input and directory import require it |
 | Published executable cannot start on another computer | Use the complete self-contained package for that computer's OS/architecture, including runtime files |
 
-Installation commands are in [getting started](getting-started.md). Dependency
+Installation commands are in [getting started](getting-started.md), with
+[external dependency setup](setup.md) covering MAME, ROMs, OS templates, and cc65.
+Dependency
 changes and accepted runtime identifiers are in [development](development.md).
+
+## Environment checks and locks
+
+Run `a2 env check environment.json --json` and read `data.checks` when
+`data.ready` is false. Readiness failures exit 1; invalid JSON/profile errors use
+the error envelope. A lock records file identity and does not replace these checks.
+
+| Check or diagnostic | Check or action |
+| --- | --- |
+| `mame.path` / `roms.path` | Set existing paths relative to the profile or absolute paths. JSON does not expand shell variables or search `PATH`. |
+| `mame.version` | Install MAME 0.289 and select its executable; changing an execution version field does not make other versions compatible. |
+| `roms.verify` | Audit the chosen machine and devices using the [ROM setup commands](setup.md#configure-and-audit-roms); supply all required sets with matching checksums. |
+| `template.verify` | Check the image, declared filesystem, and structural diagnostics. A clean structural check still needs a real boot test. |
+| `cc65.version` / `cc65.distribution` | Probe `cl65 --version`; correct any exact version pin and set `cc65Root` to the distribution containing `include`, `asminc`, `lib`, and `cfg`. Compile a small program to test the libraries. |
+| `setup.invalid_json` / `setup.invalid_profile` | Use `schemaVersion: 1` and only fields from `a2 schema environment`. `bootSeconds` must be between 1 and 120. |
+| `setup.cc65_root` | Locking a configured compiler requires its complete distribution root. |
+| `setup.link` | Select physical paths, including parent directories; package-manager symlinks cannot be locked. |
+| `setup.lock_location` | Write the lock outside the ROM and cc65 trees and away from existing inputs. |
+| `setup.invalid_lock` / `setup.lock_changed` | Review changed profile paths, files, hashes, or directory membership. Create a new lock for intentional changes and update both project and execution references. |
+| `setup.lock_scope` | Use the emulator/ROMs/template/compiler selected by the locked profile, or create a separate profile and lock for overrides. |
+| `setup.destination_exists` | Initialize into a new project directory; `init` does not merge into existing files. |
+| `setup.starter_template` / `setup.starter_compiler` | Configure a bootable OS template; C additionally needs `cc65Path` and `cc65Root`. Use `--bare-metal --language asm` for an OS-free starter. |
+
+If a starter builds but times out, confirm that the template reaches the
+Applesoft/BASIC.SYSTEM prompt before `bootSeconds`, then inspect the retained
+`result.json` and emulator logs. `AI.MAIN` must be absent from the input template.
+Use a new run artifact directory; use `--overwrite` explicitly when rebuilding
+an existing project output.
 
 ## Paths and numeric arguments
 

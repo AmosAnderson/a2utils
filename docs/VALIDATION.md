@@ -1,5 +1,35 @@
 # Development preview validation
 
+## Documentation and dependency setup review — September 21, 2026
+
+Reviewed setup, compiler, execution, and CLI documentation against the current
+implementation and upstream installation references. Expanded
+[external dependency setup](setup.md) with host prerequisites, MAME 0.289
+installation, ROM auditing, OS-template preparation, cc65 installation and
+compiler smoke checks, profile/lock behavior, starters, and optional test setup.
+Added guide navigation and corrected stale hosted-validation and restore claims.
+
+Validation on Windows x64 with .NET SDK 10.0.401:
+
+- All 48 leaf commands reported by `capabilities` are represented in the CLI
+  reference; repository documentation links and local heading anchors resolve.
+- The setup profile example passes the environment JSON Schema. Missing tool
+  paths produce the documented readiness failure and exit code 1.
+- Bare-metal starter initialization, build checking, disk creation, and structural
+  verification passed without external tools. Setup/compiler help commands passed.
+- Locked restore and the normal Release build completed with `NU1900` warnings
+  because NuGet vulnerability metadata was unavailable. The documented
+  `--warnaserror` build consequently failed on those warnings; no dependency pins
+  or audit settings were changed.
+- The existing suites passed **1,311 tests (1,141 Core, 170 CLI)**; 15 optional
+  real-machine tests were skipped. Formatting verification and `git diff --check`
+  passed; formatting reported workspace-load warnings.
+
+MAME, ROM/OS resources, and cc65 were not configured for this review. External
+installation and boot/compile commands were checked against source and upstream
+documentation, but were not executed with real tools. Earlier real-tool evidence
+below remains separate from these documentation checks.
+
 ## Recent-change review — September 18, 2026
 
 Reviewed the recent development changes and added 34 regression cases for:

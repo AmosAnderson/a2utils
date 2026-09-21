@@ -2,12 +2,14 @@
 
 ## Project Structure & Module Organization
 
-This C#/.NET 10 utility handles DOS 3.3/ProDOS disks, 6502 assembly, and Applesoft BASIC. Consult `PLAN.md` for release checks. The layout is:
+This C#/.NET 10 utility handles DOS 3.3/ProDOS disks, 6502/65C02 assembly, Applesoft BASIC, project builds, graphics, and optional cc65/MAME integration. Consult `PLAN.md` for scope and `docs/VALIDATION.md` for completed checks and remaining release gates. The layout is:
 
 - `src/A2Utils.Core/`: disk operations and adapters; `Assembly/`, `Basic/`, and `Programs/` contain program codecs and headers.
-- `src/A2Utils.Cli/`: `a2 disk`, `asm`, and `basic` commands and output formatting.
+- `src/A2Utils.Core/Projects/`, `Execution/`, and `Graphics/`: project manifests/builds, external execution, and graphics codecs.
+- `src/A2Utils.Cli/`: command parsing, orchestration, and output formatting; `CliApplication.*.cs` splits commands by area.
 - `examples/`: original assembly and Applesoft source programs.
 - `tests/A2Utils.Core.Tests/` and `tests/A2Utils.Cli.Tests/`: library and command tests.
+- `tests/A2Utils.ExecutionTestHost/`: external-process contract test host.
 - `tests/TestData/`: redistributable disk fixtures with provenance, expected catalogs, and hashes.
 - `docs/decisions/` and `docs/formats/`: architecture decisions and format references.
 - `third_party/CiderPress2/`: pinned DiskArc/CommonUtil sources and notices; preserve upstream formatting.
@@ -22,13 +24,17 @@ Use the SDK pinned in `global.json`. Run from the repository root:
 
 ```sh
 dotnet restore A2Utils.slnx --locked-mode           # Restore pinned dependencies
-dotnet build A2Utils.slnx -c Release                # Compile
-dotnet test A2Utils.slnx -c Release                 # Run tests
+dotnet build A2Utils.slnx -c Release --no-restore --warnaserror
+dotnet test A2Utils.slnx -c Release --no-restore
 dotnet run --project src/A2Utils.Cli -- disk --help  # Show CLI help
-dotnet format A2Utils.slnx --verify-no-changes --exclude third_party
+dotnet format A2Utils.slnx --verify-no-changes --no-restore --exclude third_party
 ```
 
 `dotnet format` checks source formatting. `pwsh -File eng/Package.ps1` tests and builds local tool and self-contained packages.
+
+Investigate locked restore failures before regenerating `packages.lock.json`. Run `pwsh -File eng/Test-Release.ps1` when changing release automation. Release CI runs on version tags and validates that the tagged commit belongs to main.
+
+MAME and cc65 are optional external installations; distinguish adapter contract tests from real-tool integration checks. No emulator, compiler, Apple ROM, or operating-system disk is bundled. Use ignored `artifacts/` for scratch outputs and create output parent directories before invoking write commands.
 
 ## Coding Style & Naming Conventions
 

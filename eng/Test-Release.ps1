@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Amos Anderson
+# SPDX-License-Identifier: GPL-2.0-only
+
 # Exercises real Git tag/branch relationships and a simulated GitHub CLI.
 # This script never connects to GitHub or publishes a release.
 $ErrorActionPreference = 'Stop'

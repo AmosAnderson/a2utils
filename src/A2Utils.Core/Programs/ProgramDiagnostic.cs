@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Amos Anderson
+// SPDX-License-Identifier: GPL-2.0-only
+
 namespace A2Utils.Core.Programs;
 
 /// <summary>A source or runtime diagnostic that can be consumed without parsing prose.</summary>

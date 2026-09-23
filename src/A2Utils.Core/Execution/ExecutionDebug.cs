@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Amos Anderson
+// SPDX-License-Identifier: GPL-2.0-only
+
 namespace A2Utils.Core.Execution;
 
 /// <summary>A bounded debugging run. Stops at the first trigger, optionally executes instructions, then captures evidence.</summary>

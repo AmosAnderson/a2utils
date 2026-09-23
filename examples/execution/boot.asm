@@ -1,3 +1,6 @@
+; SPDX-FileCopyrightText: 2026 Amos Anderson
+; SPDX-License-Identifier: GPL-2.0-only
+
 ; Original one-sector Disk II boot program. No operating-system files are used.
 ; The Disk II firmware loads sector zero at $0800 and enters at $0801.
 .org $0800

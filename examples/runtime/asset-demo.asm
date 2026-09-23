@@ -1,3 +1,6 @@
+; SPDX-FileCopyrightText: 2026 Amos Anderson
+; SPDX-License-Identifier: GPL-2.0-only
+
 .org $6000
 .include "generated/atlas.inc"
 start:

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Amos Anderson
+# SPDX-License-Identifier: GPL-2.0-only
+
 param(
     [Parameter(Mandatory)][string]$Tag,
     [Parameter(Mandatory)][ValidatePattern('^[0-9a-f]{40}$')][string]$Commit,

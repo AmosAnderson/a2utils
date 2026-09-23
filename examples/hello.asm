@@ -1,3 +1,6 @@
+; SPDX-FileCopyrightText: 2026 Amos Anderson
+; SPDX-License-Identifier: GPL-2.0-only
+
 ; Prints HELLO through the Apple II monitor's COUT routine, then returns.
 .org $2000
 COUT = $FDED

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Amos Anderson
+// SPDX-License-Identifier: GPL-2.0-only
+
 namespace A2Utils.Core.Execution;
 
 /// <summary>Physical memory observations for the Apple IIe/IIc backend in MAME 0.289.</summary>

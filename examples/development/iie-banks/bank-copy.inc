@@ -1,3 +1,6 @@
+; SPDX-FileCopyrightText: 2026 Amos Anderson
+; SPDX-License-Identifier: GPL-2.0-only
+
 ; Original 6502 routines for a 128 KiB Apple IIe or IIc.
 ; Execute from MAIN RAM with RAMRD=0 and ALTZP=0; no NMI may occur.
 ; $06/$07 = source pointer in main RAM, $08/$09 = destination pointer.

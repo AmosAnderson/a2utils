@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Amos Anderson
+// SPDX-License-Identifier: GPL-2.0-only
+
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using A2Utils.Core.Programs;

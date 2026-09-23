@@ -1,3 +1,6 @@
+; SPDX-FileCopyrightText: 2026 Amos Anderson
+; SPDX-License-Identifier: GPL-2.0-only
+
 ; Original ProDOS 8 MLI wrappers. ProDOS must be initialized; MAIN RAM/ROM and
 ; ALTZP=0. Keep code in writable main RAM below $BF00; not reentrant.
 ; All entries take X=parameter-list low byte, Y=high byte.

@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <Description>Apple II disk image operations and metadata preservation.</Description>
+    <Copyright>Copyright (C) 2026 Amos Anderson</Copyright>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../../third_party/CiderPress2/DiskArc/DiskArc.csproj" />

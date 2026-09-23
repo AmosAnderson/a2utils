@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Amos Anderson
+// SPDX-License-Identifier: GPL-2.0-only
+
 namespace A2Utils.Core.Graphics;
 
 /// <summary>Converts explicit auxiliary/main 8 KiB pages using Apple IIe Technical Note #3.</summary>

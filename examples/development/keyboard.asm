@@ -1,3 +1,6 @@
+; SPDX-FileCopyrightText: 2026 Amos Anderson
+; SPDX-License-Identifier: GPL-2.0-only
+
 ; BRUN KEYECHO. Echo keys through the monitor; Return exits to the caller.
 .include "apple2.inc"
 .org $2000

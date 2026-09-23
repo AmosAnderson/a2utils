@@ -1,3 +1,6 @@
+; SPDX-FileCopyrightText: 2026 Amos Anderson
+; SPDX-License-Identifier: GPL-2.0-only
+
 ; Called by mixed.bas. Load address and CALL operand must agree.
 .include "apple2.inc"
 .org $2000

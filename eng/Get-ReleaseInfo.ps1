@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Amos Anderson
+# SPDX-License-Identifier: GPL-2.0-only
+
 param(
     [Parameter(Mandatory)][string]$Tag,
     [string]$MainRef = 'refs/remotes/origin/main'

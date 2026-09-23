@@ -1,3 +1,6 @@
+; SPDX-FileCopyrightText: 2026 Amos Anderson
+; SPDX-License-Identifier: GPL-2.0-only
+
 ; DOS/custom-runtime demonstration. Leaves the normal main/ROM mapping.
 ; Clobbers A/X/Y, $06-$09, $0300-$0302, main $3000-$30FF and $4000,
 ; aux $4000-$40FF, lc1 $D000-$D0FF, and lc2 $D000.

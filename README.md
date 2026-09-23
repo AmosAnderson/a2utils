@@ -274,8 +274,9 @@ external tools along with the remaining limits. The standard local suites and
 remaining external-machine checks are recorded there; real MAME and OS
 interoperability checks require local emulator resources.
 
-Original A2Utils code is licensed under the GNU General Public License, version
-2 only (`GPL-2.0-only`); see [LICENSE](LICENSE). Third-party code and dependencies
+Original A2Utils code, scripts, and examples are Copyright (C) 2026 Amos
+Anderson and licensed under the GNU General Public License, version 2 only
+(`GPL-2.0-only`); see [LICENSE](LICENSE). Third-party code and dependencies
 retain their own licenses, which are included in each archive and summarized in
 [THIRD_PARTY.md](THIRD_PARTY.md).
 

@@ -6,7 +6,8 @@
     <ToolCommandName>a2</ToolCommandName>
     <PackageId>A2Utils.Tool</PackageId>
     <Description>Apple II disk, assembly, BASIC, graphics, project build, and execution-test utilities.</Description>
-    <Authors>A2Utils contributors</Authors>
+    <Authors>Amos Anderson</Authors>
+    <Copyright>Copyright (C) 2026 Amos Anderson for original A2Utils code; third-party components retain their own copyrights.</Copyright>
     <PackageLicenseExpression>GPL-2.0-only</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>

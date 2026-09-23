@@ -1,3 +1,6 @@
+; SPDX-FileCopyrightText: 2026 Amos Anderson
+; SPDX-License-Identifier: GPL-2.0-only
+
 ; BRUN STRIPES. Fill HGR page 1 with a visible stripe pattern; any key restores text.
 ; The program lives at $6000, above the $2000-$3FFF display page it changes.
 .include "apple2.inc"

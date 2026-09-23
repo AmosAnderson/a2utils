@@ -1,5 +1,8 @@
-A2Utils original code is licensed under the GNU General Public License,
-version 2 only. No later version is permitted.
+Original A2Utils code, scripts, examples, and test fixture generators are
+Copyright (C) 2026 Amos Anderson and licensed under the GNU General Public
+License, version 2 only. No later version is permitted. This notice also
+applies to original files whose formats cannot contain comments, including
+Applesoft BASIC and JSON files.
 
 SPDX-License-Identifier: GPL-2.0-only
 

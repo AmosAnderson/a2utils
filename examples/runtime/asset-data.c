@@ -1,3 +1,6 @@
+/* SPDX-FileCopyrightText: 2026 Amos Anderson */
+/* SPDX-License-Identifier: GPL-2.0-only */
+
 /* A generated header is a compile-time input, requiring no host generated file.
  * Include the header in a single C translation unit to avoid duplicating data.
  * Select this as a project c source with cc65 and the same asset step.

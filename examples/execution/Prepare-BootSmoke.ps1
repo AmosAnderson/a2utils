@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Amos Anderson
+# SPDX-License-Identifier: GPL-2.0-only
+
 param(
     [Parameter(Mandatory = $true)][string]$MamePath,
     [Parameter(Mandatory = $true)][string]$RomDirectory,

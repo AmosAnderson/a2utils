@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Amos Anderson
+// SPDX-License-Identifier: GPL-2.0-only
+
 using A2Utils.Core.Graphics;
 
 namespace A2Utils.Core.Tests;

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Amos Anderson
+# SPDX-License-Identifier: GPL-2.0-only
+
 $ErrorActionPreference = 'Stop'
 
 # Construct all sectors directly. This generator deliberately has no disk-engine dependency.

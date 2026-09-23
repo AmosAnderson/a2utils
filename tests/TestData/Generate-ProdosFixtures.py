@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2026 Amos Anderson
+# SPDX-License-Identifier: GPL-2.0-only
+
 """Construct original ProDOS test bytes directly, without a filesystem engine.
 
 Reference: Apple ProDOS 8 Technical Reference, Appendix B, figures B-3/B-4/B-5/B-7/B-8.

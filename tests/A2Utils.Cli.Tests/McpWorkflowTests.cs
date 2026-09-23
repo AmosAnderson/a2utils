@@ -205,6 +205,7 @@ public sealed class McpWorkflowTests
 
         await using McpClient client = await McpClient.CreateAsync(
             new StreamClientTransport(clientToServer.Writer.AsStream(), serverToClient.Reader.AsStream()),
+            new McpClientOptions { ProtocolVersion = "2026-07-28" },
             cancellationToken: deadline.Token);
         IList<McpClientTool> tools = await client.ListToolsAsync(cancellationToken: deadline.Token);
         Assert.Contains(tools, tool => tool.Name == "a2_cli");

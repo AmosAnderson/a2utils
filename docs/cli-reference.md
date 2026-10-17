@@ -13,9 +13,9 @@ help, for example `a2 disk add --help`.
 | Command | Purpose and guide |
 | --- | --- |
 | `env check PROFILE` / `env lock PROFILE --output LOCK` | [Check external dependencies and fingerprint an environment](setup.md). |
-| `init DIRECTORY [--language asm\|basic\|c] [--environment PROFILE] [--bare-metal]` | Create a starter project and execution suite; bare-metal mode requires assembly. |
-| `build PROJECT [--to IMAGE] [--overwrite] [MODE OPTIONS]` | [Project manifests](projects.md), source checks, optional content-addressed caching, memory reports, build-bound tests, and transactional disk output. |
-| `project resolve PROJECT` | Resolve effective settings, dependencies, tools, memory, and a disk plan without committing the output image. Alias: `project inspect`. |
+| `init DIRECTORY [--language asm\|basic\|c] [--engine mame\|cpu] [--environment PROFILE] [--bare-metal]` | Create a starter project and execution suite; CPU mode needs no external tools; CPU and bare-metal modes require assembly. |
+| `build [PROJECT] [--to IMAGE] [--overwrite] [MODE OPTIONS]` | [Project manifests](projects.md), source checks, optional content-addressed caching, memory reports, build-bound tests, and transactional disk output. |
+| `project resolve [PROJECT]` | Resolve effective settings, dependencies, tools, memory, and a disk plan without committing the output image. Alias: `project inspect`. |
 | `project import IMAGE --to DIR` | Adopt an existing image as a hash-pinned editable project; optionally disassemble load-addressed binaries. |
 | `capabilities --json` | Discover the typed command tree, defaults, constraints, path roles, side effects, result schemas, targets, and supported values. |
 | `targets --json` | Inspect machine profiles, platform symbols, and runtime memory reservations. |
@@ -29,15 +29,16 @@ help, for example `a2 disk add --help`.
 | `basic renumber INPUT --to OUTPUT` | Safe line-reference rewriting and mappings; `--start` and `--step` default to 10. |
 | `basic prepare INPUT --to OUTPUT` | Unnumbered source with symbolic labels to numbered Applesoft, with source mappings. |
 | `cc compile INPUT --to OUTPUT` | [Optional cc65 compiler](cc65.md); AppleSingle output, maps, labels, and input hashes. |
-| `run SPEC --artifacts NEWDIR` | [Apple II execution](execution.md) with bounded input, assertions, and captured state. |
+| `run SPEC [--artifacts NEWDIR]` | [Apple II execution](execution.md) with bounded input, assertions, and captured state. |
 | `test SUITE [--artifacts DIR] [--list] [SUITE OPTIONS]` | List or execute selected run specifications and aggregate results. |
 | `graphics encode INPUT --mode MODE --to OUTPUT` | [PNG to display memory](graphics.md); lores, hires, or hires-color. |
 | `graphics decode INPUT --mode MODE --to OUTPUT` | Display-memory preview as PNG. |
 | `graphics assets`, `graphics shapes`, `graphics dhires` | [Sprites, fonts, tiles, shape tables and double-hires](graphics-assets.md); consult subcommand help. |
 
 Development commands accept the usual `--json` output option. File-producing
-commands require explicit overwrite. Run always uses a new artifact directory;
-test and build-test can instead create a unique child under an artifact parent.
+commands require explicit overwrite. `run`, `test`, and `build --test` always
+write to a new artifact directory, choosing one automatically by default. Use
+`--run-subdirectory` to create a unique child beneath an explicit artifact parent.
 
 The remainder of this reference lists the complete syntax and command-specific
 options. The five custom global options in the next section are recursive and
@@ -46,6 +47,12 @@ can follow subcommands. Command help is available at every level, while
 (or program decompilation with `--from-image`).
 
 ## Global options and value conventions
+
+Host output options named `--to` or `--output` accept either spelling, including program reports,
+graphics, exported files, new extraction/project directories, and disk mutation
+outputs. Existing positional destinations for `disk create` and `disk convert`
+remain positional. `disk import` retains `--to` for its directory **inside the
+image**, also spelled `--into`; its host image destination uses `--output`.
 
 | Option | Meaning |
 | --- | --- |
@@ -91,15 +98,21 @@ are separate concepts: a `.po` file can contain DOS 3.3.
 
 ## Build and discovery commands
 
+`build` and `project resolve` / `project inspect` accept an omitted `PROJECT`.
+They use `project.a2.json` in the current directory, otherwise the only
+`*.a2.json` there. Missing or ambiguous candidates produce an error asking for
+an explicit path. Discovery never searches parent directories. Explicit paths
+retain their existing meaning.
+
 ```text
-a2 build PROJECT [--to IMAGE] [--overwrite] [--cache DIRECTORY]
-a2 build PROJECT [--to IMAGE] [--overwrite] --check
-a2 build PROJECT [--to IMAGE] [--overwrite] --preflight
-a2 build PROJECT [--to IMAGE] [--overwrite] --test --artifacts DIRECTORY
+a2 build [PROJECT] [--to IMAGE] [--overwrite] [--cache DIRECTORY]
+a2 build [PROJECT] [--to IMAGE] [--overwrite] --check
+a2 build [PROJECT] [--to IMAGE] [--overwrite] --preflight
+a2 build [PROJECT] [--to IMAGE] [--overwrite] --test [--artifacts DIRECTORY]
          [--filter GLOB] [--jobs N] [--rerun-failed PREVIOUS]
          [--progress] [--run-subdirectory]
-a2 project resolve PROJECT
-a2 project inspect PROJECT
+a2 project resolve [PROJECT]
+a2 project inspect [PROJECT]
 a2 project import IMAGE --to DIR [--disassemble] [--target TARGET]
 a2 targets
 a2 capabilities
@@ -108,14 +121,14 @@ a2 schema NAME
 
 | Command or option | Behavior |
 | --- | --- |
-| `build PROJECT` | Load a strict version 1 project manifest, compile every source, validate metadata and memory, then commit one image. Manifest-relative paths resolve from the directory containing `PROJECT`. |
+| `build [PROJECT]` | Load a strict version 1 project manifest, compile every source, validate metadata and memory, then commit one image. Manifest-relative paths resolve from the directory containing `PROJECT`. |
 | `build --to IMAGE` | Override the manifest's `output`; this CLI path resolves from the current working directory. |
 | `build --overwrite` | Permit replacement of an existing output only after the complete staged build validates. |
 | `build --cache DIRECTORY` | Use an opt-in content-addressed image cache for a normal build. A verified hit is restored transactionally and reported as `cacheHit: true`; a miss builds and populates the cache. Outputs must be outside the cache. This option conflicts with `--check`, `--preflight`, and `--test`. |
 | `build --check` | Compile and validate source, metadata, and resident-memory ranges without writing an image. It does not prove disk capacity or bootability. |
 | `build --preflight` | Create, populate, reopen, and validate a disposable image; report its hash and allocation/change plan without committing output or creating output parents. Existing output policies apply. |
-| `build --test --artifacts DIR` | Preflight and build the project, then run its build-bound `execution.suite` with symbolic assertions resolved. `DIR` must be new unless `--run-subdirectory` treats it as an existing parent for a unique child. Mutually exclusive with `--check`/`--preflight`/`--cache`; artifacts are retained on behavioral failure. The selected mount of each MAME case is pinned to the output hash; CPU cases remain disk-free. |
-| `project resolve PROJECT` | Apply defaults and environment settings, compile checks, validate locks, and return effective settings, resolved boot metadata, hashed build/execution dependencies, required tools, memory ranges, and a disk/file/boot-sector plan. It does not create the declared output or its parent or start MAME. cc65 projects may invoke the compiler in temporary storage. `project inspect` is an alias. |
+| `build --test [--artifacts DIR]` | Preflight and build the project, then run its build-bound `execution.suite` with symbolic assertions resolved. Omitting `DIR` creates a unique `artifacts/runs/run-*` directory beside the manifest. An explicit `DIR` must be new unless `--run-subdirectory` treats it as an existing parent for a unique child. Mutually exclusive with `--check`/`--preflight`/`--cache`; artifacts are retained on behavioral failure. The selected mount of each MAME case is pinned to the output hash; CPU cases remain disk-free. |
+| `project resolve [PROJECT]` | Apply defaults and environment settings, compile checks, validate locks, and return effective settings, resolved boot metadata, hashed build/execution dependencies, required tools, memory ranges, and a disk/file/boot-sector plan. It does not create the declared output or its parent or start MAME. cc65 projects may invoke the compiler in temporary storage. `project inspect` is an alias. |
 | `project import IMAGE --to DIR` | Create a new project directory from a verified image, including a hash-pinned template, strict manifest, exported sources, locked reference files, and an import report. `--disassemble` emits reassemblable source for load-addressed BIN files; `--target` defaults to `apple2e`. Global input order/filesystem overrides apply. |
 | `targets` | Return the four target profiles, platform symbols, and DOS/ProDOS runtime reservations. Text mode prints the profiles; use `--json` for the complete data. |
 | `capabilities` | Return typed arguments/options with defaults, choices, conflicts, requirements, path roles, side effects, result/error schema identifiers, plus targets, filesystems, containers, source kinds, graphics modes, schemas, and external tools. Every command record includes its effective inherited global options once; `globalOptions` also provides the reusable root list. Use `--help` as the authority for effective syntax. |
@@ -229,18 +242,20 @@ Project tests resolve native assembly symbols in debug points. These features us
 the existing `run`, `test`, and `build --test` commands.
 
 ```text
-a2 run SPEC --artifacts NEW_DIRECTORY
+a2 run SPEC [--artifacts NEW_DIRECTORY] [--run-subdirectory]
 a2 test SUITE [--artifacts NEW_DIRECTORY] [--list] [--filter GLOB]
               [--jobs N] [--rerun-failed PREVIOUS] [--progress]
               [--run-subdirectory]
 ```
 
-`run` loads one strict version 1 execution specification. `test` first loads
-and validates every specification named by a strict version 1 suite, then runs
-at most 128 cases. Every suite case needs an assertion, a bounded completion/debug/
-routine/cycle condition, or mounted-disk verification. `--artifacts` is required for
-execution. It must name a new path unless `test --run-subdirectory` uses it as an
-existing parent for a unique child. `--list` is read-only, does not require
+`run` loads one strict version 1 execution specification. `test` parses every
+definition named by a strict version 1 suite, selects cases, then loads their
+environment profiles and validates them. A suite contains at most 128 cases.
+Each selected case needs an assertion, a bounded completion/debug/
+routine/cycle condition, or mounted-disk verification. Omitting `--artifacts`
+creates a unique `artifacts/runs/run-*` directory beside the specification or suite.
+An explicit path must be new unless `--run-subdirectory` uses it as an existing
+parent for a unique child. This option is available for both `run` and `test`. `--list` is read-only, does not require
 artifacts, and conflicts with `--progress` and `--run-subdirectory`. The commands
 retain isolated disk copies, configuration, logs, observations, and results in
 the actual run directory. A suite uses numbered `case-001`, `case-002`, ...
@@ -378,6 +393,9 @@ retains the filesystem. See [format limits](formats/supported-images.md).
 
 ## Add, replace, and restore files
 
+Host payloads must be regular files and no larger than the destination image
+capacity. Pipes, sockets, and devices are rejected before opening them.
+
 ```text
 a2 disk add IMAGE HOSTFILE --name PATH --type TYPE WRITE_OPTIONS
 a2 disk add IMAGE HOSTFILE --name PATH --format text WRITE_OPTIONS
@@ -407,7 +425,7 @@ a2 disk import IMAGE HOSTDIRECTORY [options] WRITE_OPTIONS
 
 | Option | Behavior |
 | --- | --- |
-| `--to IMAGEPATH` | Existing destination directory; default `/`, the image root. Imports the host directory's **contents**. |
+| `--into IMAGEPATH` / `--to IMAGEPATH` | Existing directory inside the image; default `/`, the image root. Use `--output` for the separate host image. Imports the host directory's **contents**. |
 | `--recursive` | Include host subdirectories on ProDOS. Without it, encountering a subdirectory fails the operation. DOS always requires a flat host directory. |
 | `--format binary\|text` | Default `binary`; `text` explicitly converts every file. |
 | `--type TYPE` | Type for every file; required for binary, defaults to `TXT` for text. |
@@ -519,7 +537,7 @@ for remedies.
 ```text
 a2 env check PROFILE
 a2 env lock PROFILE --output LOCK
-a2 init DIRECTORY [--language asm|basic|c] [--environment PROFILE] [--bare-metal]
+a2 init DIRECTORY [--language asm|basic|c] [--engine mame|cpu] [--environment PROFILE] [--bare-metal]
 a2 schema environment [--json]
 ```
 
@@ -531,11 +549,17 @@ overwrite an existing lock. Set `toolchainLock` in project/execution JSON to
 enforce that lock.
 
 `init` requires a new directory. `--language` defaults to `asm`; other choices
-are `basic` and `c`. `--environment` selects an existing profile; omitting it
-creates an editable profile with placeholder local paths. `--bare-metal` accepts
+are `basic` and `c`. `--engine cpu` creates an assembly routine starter with a
+deterministic in-process test and no external environment, emulator, ROM, or OS
+requirements. It accepts only `--language asm` and cannot be combined with
+`--environment` or `--bare-metal`. With the default `--engine mame`,
+`--environment` selects an existing profile; omitting it creates an editable
+profile with placeholder local paths. `--bare-metal` accepts
 only assembly and creates an original DOS-order 140 KiB boot-sector project
 without an OS template. Full-machine testing still needs MAME and ROMs.
-See [installation, profiles, and starter examples](setup.md).
+Successful initialization prints quoted next commands and includes them as
+`data.nextCommands` in JSON. Windows commands target PowerShell; Unix commands
+target Bash/zsh. See [installation, profiles, and starter examples](setup.md).
 
 ## Extended execution
 

@@ -66,6 +66,11 @@ public static class DiskChangeSetRunner
     public static DiskChangePlan Plan(string imagePath, string changeSetPath,
         string? inputOrder = null, string? inputFileSystem = null,
         CancellationToken cancellationToken = default)
+        => PlanCore(imagePath, changeSetPath, inputOrder, inputFileSystem, cancellationToken);
+
+    internal static DiskChangePlan PlanCore(string imagePath, string changeSetPath,
+        string? inputOrder = null, string? inputFileSystem = null,
+        CancellationToken cancellationToken = default, Action? candidateValidated = null)
     {
         PreparedChangeSet prepared = Prepare(imagePath, changeSetPath, inputOrder,
             inputFileSystem, cancellationToken);
@@ -91,6 +96,7 @@ public static class DiskChangeSetRunner
                     Validate(temporary, prepared.Order, prepared.FileSystem);
                     RecheckInputs(prepared, cancellationToken);
                 }, cancellationToken);
+            candidateValidated?.Invoke();
             DiskDifference difference = DiskDiff.Compare(baseline, candidate,
                 prepared.Order, prepared.FileSystem, prepared.Order, prepared.FileSystem, cancellationToken);
             RecheckInputs(prepared, cancellationToken);

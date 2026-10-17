@@ -6,16 +6,21 @@ budgets, see [interactive testing](interactive-testing.md). See also
 [environment profiles](setup.md). These are optional execution-schema extensions;
 existing timed-key specifications remain supported.
 
-`a2 run SPEC --artifacts NEW_DIRECTORY --json` uses the specification's execution
+`a2 run SPEC --json` uses the specification's execution
 engine and returns observations and assertions. The default `mame` engine boots a
 disposable copy of each mounted disk and injects scheduled input. The `cpu` engine
 runs one bounded routine in-process without an emulator, ROM, or disk.
-`a2 test SUITE --artifacts NEW_DIRECTORY --json` runs up to 128 specifications and
+`a2 test SUITE --json` runs up to 128 specifications and
 returns an aggregate result. Runs are sequential by default; `--jobs` enables bounded
 parallel execution. Every suite case requires an assertion, bounded completion/
 debug/routine/cycle condition, or mounted-disk verification. Exit status is 0 on
 success, 1 on execution/assertion failure,
 2 for invalid input, and 6 for cancellation. An unavailable emulator is a failure.
+
+Omitting `--artifacts` creates a unique `artifacts/runs/run-*` directory beside
+the specification or suite. Explicit `--artifacts PATH` must name a new directory;
+`--run-subdirectory` treats it as a parent and creates a unique child. The same
+default applies to `build --test`, relative to the project manifest.
 
 For `engine: "mame"`, install MAME **0.289** separately and provide its executable and machine ROM directory.
 Follow [external dependency setup](setup.md#install-mame-0289) for download/build
@@ -106,9 +111,11 @@ properties use these defaults:
 The suite document is also strict. It contains only `schemaVersion: 1` and a
 required `tests` array of 1–128 nonempty specification paths. Paths resolve from
 the suite file. Before creating the suite artifact directory or launching MAME,
-the CLI parses every case and validates its intrinsic specification constraints,
-including the requirement for at least one assertion, bounded completion/debug/
-routine/cycle condition, or mounted-disk verification.
+the CLI parses every case definition to identify its name and path, applies the
+selection, then loads environment profiles and validates selected cases. Each
+selected case requires at least one assertion, bounded completion/debug/routine/
+cycle condition, or mounted-disk verification. Excluded cases do not require
+their external profiles, locks, or expected graphics files.
 External path existence and emulator availability are checked per case during
 execution, so a later external-resource failure can leave the suite root and
 earlier case artifacts in place.
@@ -234,7 +241,10 @@ that post-run filesystem assertions passed.
 Suite paths resolve relative to the suite. Cases receive separate `case-001`,
 `case-002`, etc. artifact directories based on their positions in the original suite.
 Those identities do not change when cases are selected. The suite parses every case
-before execution; `suite-result.json` records every selected case and its status.
+definition for its name and path, then loads environment profiles/locks and validates
+only selected cases. A filtered CPU test therefore does not need excluded MAME
+profiles, ROMs, or expected graphics. Case definition JSON must still be readable;
+`suite-result.json` records the selected and excluded cases and their status.
 It also reports explicit `planned`, `completed`, `passed`, `failed`, `cancelled`, and
 `notRun` counts. Cancellation terminates active emulator process trees, prevents new
 cases from starting, and records selected cases that did not start as `not-run`.
@@ -250,7 +260,8 @@ a2 test tests.execution-suite.json --artifacts artifacts/tests --filter "path:di
 Filters are case-insensitive globs; `*` and `?` are supported, and a value without a
 wildcard is a substring match. Prefix a value with `name:` or `path:` to restrict the
 field, or omit the prefix to match either field. Multiple filters are combined with OR.
-Selection happens after every specification is parsed and intrinsically validated.
+Selection happens after every case definition is parsed; environment loading and
+intrinsic validation then apply only to the selected cases.
 
 `--rerun-failed PREVIOUS` reads `suite-result.json` from a previous artifact directory
 (or accepts that file directly) and selects its failed cases. It can be combined with

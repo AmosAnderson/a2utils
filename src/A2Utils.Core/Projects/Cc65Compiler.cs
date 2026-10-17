@@ -177,7 +177,7 @@ public static class Cc65Compiler
             IReadOnlyList<Cc65Segment> segments = Cc65Feedback.ParseSegments(mapText, segmentKinds);
             IReadOnlyList<AssemblySourceMapEntry> sourceMap = Cc65Feedback.ParseDebugMap(debugText, stage, root, cancellationToken);
             if (segments.Count == 0) diagnostics.Add(new("cc65.memory_incomplete", "warning", "The linker map contains no recognized segments; declare runtimeMemory for allocations not covered by the payload."));
-            if (options.ToolchainRoot is null) diagnostics.Add(new("cc65.toolchain_partial", "warning", "Only the compiler executable is fingerprinted; set toolchainRoot to include installed tools, libraries, headers and configurations."));
+            if (options.ToolchainRoot is null) diagnostics.Add(new("cc65.toolchain_partial", "warning", "Only the compiler executable is fingerprinted; set toolchainRoot to include installed tools, libraries, headers and configurations. Project image caching is disabled without it."));
             foreach (BuildInput input in toolchainInputs)
                 if (ProgramFiles.Hash(ProgramFiles.ReadBytes(input.Path, MaximumInputBytes, cancellationToken)) != input.Sha256)
                     throw Error("toolchain_changed", "The compiler distribution changed during compilation.");

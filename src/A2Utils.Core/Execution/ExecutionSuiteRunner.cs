@@ -83,8 +83,9 @@ public static class ExecutionSuiteRunner
         for (int offset = 0; offset < suite.Tests.Count; offset++)
         {
             string path = suite.Tests[offset];
-            ExecutionSpec spec = ExecutionSpec.Load(path, inputLoaded);
-            validate(spec);
+            ExecutionSpec spec = ExecutionSpec.LoadDefinition(path, inputLoaded);
+            if (string.IsNullOrWhiteSpace(spec.Name) || spec.Name.Length > 128)
+                throw new DiskException("execution.invalid_spec", "Case names must contain between 1 and 128 characters.", 2);
             string relative = Path.GetRelativePath(suiteDirectory, path)
                 .Replace(Path.DirectorySeparatorChar, '/')
                 .Replace(Path.AltDirectorySeparatorChar, '/');
@@ -99,6 +100,16 @@ public static class ExecutionSuiteRunner
             (previousFailures is null || previousFailures.Contains(item.Index))).ToArray();
         if (options.Filters.Count != 0 && selected.Length == 0)
             throw new DiskException("execution.filter_empty", "No suite cases match the requested filter and rerun selection.", 2);
+
+        for (int index = 0; index < selected.Length; index++)
+        {
+            ExecutionSuiteCase item = selected[index];
+            ExecutionSpec spec = ExecutionSpec.LoadEnvironment(item.Spec, inputLoaded);
+            validate(spec);
+            ExecutionSuiteCase resolved = item with { Spec = spec };
+            cases[item.Index - 1] = resolved;
+            selected[index] = resolved;
+        }
 
         ExecutionSuiteCaseInfo[] information = cases.Select(item => new ExecutionSuiteCaseInfo(
             item.Index, item.Id, item.RelativePath, item.Spec.Name, selected.Contains(item))).ToArray();

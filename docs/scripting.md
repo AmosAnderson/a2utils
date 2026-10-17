@@ -16,7 +16,7 @@ The examples use a locally installed executable as described in
 | `--json` | Uses a versioned result or error envelope; takes precedence over `--quiet` for normal output |
 | `--quiet` | Suppresses normal text results; does not suppress errors |
 | `--verbose` | Adds diagnostic detail in text mode; JSON mode keeps diagnostics structured |
-| `--to` / `--output` | Programs, exported payloads, and images go to files, not standard output |
+| `--to` / `--output` | Aliases for host output options; programs, exported payloads, and images go to files. `disk import --to` retains its image-directory meaning, also available as `--into`; use `--output` for its host image |
 
 Keep the channels separate. Do not use `2>&1` before parsing stdout as JSON.
 JSON mode collects diagnostics in the result/error envelope and keeps stderr
@@ -80,8 +80,10 @@ useful results. Inspect the process exit and result diagnostics together.
 Use `capabilities --json` and `schema NAME --json` for discovery. Capability
 records include value types, defaults, choices, option relationships, path roles,
 side effects, result/error schema identifiers, execution engines, selective-suite
-features, CPU processors/tracing, graphics-memory assertions, bare-metal project
-support, and the MCP stdio interface. MAME is required only for execution specs
+features, CPU processors/tracing, graphics-memory assertions, bare-metal and
+CPU starter support, and the MCP stdio interface. Optional project arguments and
+host-output aliases are reflected in command discovery. Generated artifact paths
+are described in the option help rather than represented as a fixed default. MAME is required only for execution specs
 or suite cases whose `engine` is `mame`. New command
 results include build hashes/files/memory maps, assembly symbols/source maps,
 renumber mappings, graphics artifact metadata, and execution state/artifact paths.
@@ -251,6 +253,18 @@ The branch preserves the command's actual exit status before running another
 process. An empty/unparseable stdout result follows the stderr path.
 
 ## Writes, batching, and cancellation
+
+`build` and `project resolve` can discover `project.a2.json` or the sole
+`*.a2.json` in the current directory. Pass an explicit manifest in automation
+when its selection should not depend on directory contents.
+
+`run`, `test`, and `build --test` generate a unique
+`artifacts/runs/run-*` directory beside their input when `--artifacts` is omitted.
+Read the actual absolute path from `data.artifactDirectory`; do not predict its
+timestamp or identifier. Explicit artifact paths still require a new directory,
+unless `--run-subdirectory` treats the path as a parent. `test --list` does not
+create artifact directories. Rebuilding an existing disk output still requires
+`--overwrite`.
 
 Each mutation is a separate transaction. An invocation with `--in-place`
 creates a backup and returns its absolute path in `data.backupPath`; record

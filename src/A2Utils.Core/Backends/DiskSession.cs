@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Amos Anderson
 // SPDX-License-Identifier: GPL-2.0-only
 
+using A2Utils.Core.Operations;
 using CommonUtil;
 using DiskArc;
 using DiskArc.Disk;
@@ -12,6 +13,7 @@ namespace A2Utils.Core.Backends;
 /// <summary>Disk engine adapter. Writable sessions must target a transaction's staging file.</summary>
 public sealed partial class DiskSession : IDisposable
 {
+    internal const int MaximumImageFileSize = 34 * 1024 * 1024;
     private readonly FileStream _stream;
     private readonly IDiskImage _disk;
     private readonly IFileSystem _fs;
@@ -50,6 +52,7 @@ public sealed partial class DiskSession : IDisposable
         }
         catch (DiskException exception) when (exception.Code == "unrecognized_filesystem" && inputFs is null)
         {
+            ValidateImageFile(path);
             using FileStream stream = new(path, FileMode.Open, FileAccess.Read, FileShare.Read);
             byte[] signature = new byte[4];
             stream.ReadExactly(signature);
@@ -82,6 +85,7 @@ public sealed partial class DiskSession : IDisposable
     {
         SectorOrder? requestedOrder = inputOrder is null ? null : ParseOrder(inputOrder);
         string? requestedFs = inputFs is null ? null : ParseFileSystem(inputFs);
+        ValidateImageFile(path);
         FileStream stream = new(path, FileMode.Open,
             writable ? FileAccess.ReadWrite : FileAccess.Read,
             writable ? FileShare.None : FileShare.Read);
@@ -354,6 +358,13 @@ public sealed partial class DiskSession : IDisposable
         EnsureWritable();
         IFileEntry entry = Resolve(path);
         byte? fileType = type is null ? null : ParseType(type);
+        bool root = entry == _fs.GetVolDirEntry();
+        if (_fs is DOS && root && (locked.HasValue || fileType.HasValue || auxType.HasValue))
+            throw new DiskException("unsupported_attributes", "DOS volume roots do not store file attributes.", 3);
+        if (fileType.HasValue && (entry.IsDirectory ? fileType.Value != 0x0f : fileType.Value == 0x0f))
+            throw new DiskException("invalid_file_type", "DIR is reserved for directories; a directory's file type cannot be changed.", 2);
+        if (auxType.HasValue && (root || _fs is DOS && (fileType ?? entry.FileType) != 0x06))
+            throw new DiskException("unsupported_attributes", "Auxiliary values require a ProDOS file or subdirectory, or a DOS binary file.", 3);
         if ((fileType.HasValue || auxType.HasValue) && locked != false)
             RequireAccess(entry, AccessFlags.Write);
         Mutate(() =>
@@ -463,6 +474,15 @@ public sealed partial class DiskSession : IDisposable
             throw new DiskException("hybrid_filesystem", "Writes to hybrid or embedded filesystems are refused.");
         if (List(recursive: true).Any(entry => entry.HasResourceFork || entry.IsDubious))
             throw new DiskException("unsafe_allocation", "Writes require an undamaged volume without forked files.");
+    }
+
+    internal static void ValidateImageFile(string path, CancellationToken cancellationToken = default)
+    {
+        HostFiles.EnsureRegularFile(path, cancellationToken);
+        FileInfo image = new(path);
+        FileInfo target = new(image.ResolveLinkTarget(returnFinalTarget: true)?.FullName ?? image.FullName);
+        if (target.Length > MaximumImageFileSize)
+            throw new DiskException("image_too_large", "Image containers are limited to 34 MiB including metadata.", 3);
     }
 
     private void Mutate(Action action)

@@ -7,7 +7,7 @@ programs. Build projects into disk images, prepare graphics assets, test pure
 6502/65C02 routines in-process, and test full machines through an optional MAME
 installation. The reusable core library is independent of console output.
 
-The current version is **0.6.1-dev**, a development preview. The
+The current version is **0.6.2-dev**, a development preview. The
 [GitHub repository](https://github.com/AmosAnderson/a2utils) is private.
 
 The AI programming workflow now includes [setup profiles and starters](docs/setup.md),
@@ -99,6 +99,21 @@ Use `dotnet tool update --global A2Utils.Tool --version VERSION --add-source .`
 instead when upgrading an existing global installation.
 
 ## First commands
+
+For a complete assembly edit/build/test loop without MAME, ROMs, or OS disks:
+
+```sh
+a2 init hello --engine cpu
+cd hello
+a2 build --test --overwrite
+```
+
+Edit `main.asm` and repeat the last command. The generated test checks a known
+memory result and a bounded subroutine return. `build` finds `project.a2.json`
+in the current directory and gives every test run a new folder under
+`artifacts/runs/`. `--overwrite` permits replacement of the generated build
+image after validation; previous test evidence is retained. See the
+[first-project walkthrough](docs/getting-started.md#start-with-a-cpu-only-project).
 
 Help is available at every command level. Start with read-only inspection of a
 copy of your disk image:
@@ -194,7 +209,7 @@ unfamiliar or ambiguous image.
 
 Use `a2 build PROJECT --preflight --json` for a complete disposable build with a
 change/capacity plan. Projects with `execution.suite` can run
-`a2 build PROJECT --test --artifacts NEW_DIRECTORY --json` to bind tests and
+`a2 build PROJECT --test --json` to bind tests and
 symbolic addresses to the exact built image. See the
 [project test example](examples/development/project-tests/README.md).
 
@@ -203,8 +218,8 @@ graphics conversion are built in. `a2 cc` and project manifests containing cc65
 sources additionally require a separate cc65 installation containing `cl65`.
 The `run` and `test` commands default to MAME 0.289, matching ROMs, and supplied
 media; none of those emulator files are bundled. A routine specification with
-`engine: "cpu"` needs none of them. On Linux and macOS, host program
-input and directory import also expect the standard `/usr/bin/stat` utility.
+`engine: "cpu"` needs none of them. On Linux and macOS, disk images, host program
+inputs, and directory imports also expect the standard `/usr/bin/stat` utility.
 
 Follow [external dependency setup](docs/setup.md) for host prerequisites, MAME
 installation and ROM auditing, bootable OS templates, cc65 installation, and

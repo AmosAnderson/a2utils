@@ -1,5 +1,60 @@
 # Development preview validation
 
+## Version bump — October 17, 2026
+
+Bumped the shared development version and active installation examples to
+`0.6.2-dev`. The Release build with warnings as errors passed, the CLI reported
+`0.6.2-dev`, and the cache regression for changed tool versions passed. The full
+functional validation below preceded this metadata-only bump; its recorded
+package names and hashes still identify the tested `0.6.1-dev` artifacts.
+
+## Review fixes and simpler usage — October 16, 2026
+
+Implemented the six review corrections: incomplete cc65 fingerprints no longer
+produce cache hits; disk/payload/manifest reads reject nonregular and oversized
+inputs; imports retain unrepresentable load ranges as template references;
+unsupported attribute writes fail before mutation; snapshot-change regressions
+use deterministic mutation hooks; and packaging uses fresh staging with rollback.
+Read-only image symlinks remain supported, including target-size checks, while
+transactional writes continue to reject links.
+
+The development workflow now discovers omitted project manifests, assigns fresh
+artifact directories automatically, provides a CPU-only assembly starter and
+actionable next commands, accepts consistent host-output aliases, validates only
+selected suite cases, exposes `DiskEditor.Edit`, and commits validated staged
+builds without compiling a second time. Guides and the public API reference
+describe the new behavior and preservation boundaries.
+
+Validation on macOS ARM64 with .NET SDK **10.0.402**, selected by the repository's
+permitted patch roll-forward:
+
+| Check | Result |
+| --- | --- |
+| Locked restore and Release build with warnings as errors | Passed; zero build warnings or errors. Portable locked restore also passed after runtime-specific publishing. |
+| Full Core and CLI suites | 1,392 passed (1,199 Core, 193 CLI); zero failures and 15 optional real-MAME cases skipped. This is 81 additional cases compared with the previous 1,311-test baseline. |
+| Formatting and repository integrity | `dotnet format --verify-no-changes --no-restore --exclude third_party` and `git diff --check` passed. All ten JSON Schemas parse and local documentation file links resolve. |
+| CLI smoke | CPU initialization, omitted-manifest build checks, and two repeated build/test runs passed with separate evidence directories. |
+| Offline release and packaging checks | 49 release checks and 46 packaging checks passed, including ZIP/tar stale-file exclusion, failed publishing/notices, archive commit rollback, and successful retry. No GitHub requests were made. |
+| Local packages | Tool package and self-contained `osx-arm64` archive built successfully. Extracted executable version, CPU initialization, build check, and build/test passed; project/dependency/runtime notices are present. |
+
+Regression coverage includes stale legacy cache entries, external compiler-input
+changes, one-compile workflows, high-address DOS/ProDOS imports, pipe inputs in
+bounded child processes, read-only image aliases, staged-image/source/destination
+tampering, failed edits and postconditions, cancellation, backups, output aliases,
+manifest discovery, immutable evidence, and filtered/rerun suite dependencies.
+
+Ignored local outputs are `artifacts/packages/A2Utils.Tool.0.6.1-dev.nupkg`
+(SHA-256 `3f5f31aee60163a66e603fab14ca3a5a40a291a3cdbcf235e25b64cc8da9ee78`)
+and `artifacts/a2utils-osx-arm64.tar.gz`
+(SHA-256 `eb59ea813b0544ecea26b93f9449e699460c7e68b626d64df5f07c6be9f3ded0`).
+No package or release was published. Test and smoke evidence is under
+`artifacts/review-fixes/`.
+
+The optional real-MAME tests require separately configured emulator/ROM/OS inputs.
+Compiler regressions use the execution contract host; these checks add no real
+cc65 or MAME interoperability evidence. Windows and Linux were not rerun locally
+for this change.
+
 ## Documentation and dependency setup review — September 21, 2026
 
 Reviewed setup, compiler, execution, and CLI documentation against the current

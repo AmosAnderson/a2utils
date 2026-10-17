@@ -49,12 +49,13 @@ public sealed class ProjectMilestoneWorkflowTests : IDisposable
     }
 
     [Fact]
-    public void Build_TestWithoutArtifacts_ReportsRequiredOption()
+    public void Build_TestWithoutArtifactsOrExecution_ReportsMissingExecutionAndCreatesNoOutput()
     {
         var result = Run("build", At("project.json"), "--test", "--json");
         Assert.Equal(2, result.Code);
-        Assert.Contains("project.artifacts", result.Error);
+        Assert.Contains("project.execution_required", result.Error);
         Assert.False(Directory.Exists(At("out")));
+        Assert.False(Directory.Exists(At("artifacts")));
     }
 
     [Fact]

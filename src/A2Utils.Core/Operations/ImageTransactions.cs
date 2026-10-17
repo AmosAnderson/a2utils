@@ -38,6 +38,7 @@ public static class ImageTransactions
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(editTemporary);
+        cancellationToken.ThrowIfCancellationRequested();
         if (inPlace == !string.IsNullOrWhiteSpace(outputPath))
         {
             throw new DiskException("write.destination_required", "Specify either an output path or in-place mode.", 2);
@@ -140,6 +141,7 @@ public static class ImageTransactions
     private static void Flush(string temporary)
     {
         CheckPath(temporary);
+        HostFiles.EnsureRegularFile(temporary);
         using FileStream staged = new(temporary, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
         staged.Flush(flushToDisk: true);
     }
@@ -194,6 +196,7 @@ public static class ImageTransactions
 
     private static Fingerprint Capture(string path)
     {
+        HostFiles.EnsureRegularFile(path);
         using FileStream stream = new(path, FileMode.Open, FileAccess.Read, FileShare.Read);
         long length = stream.Length;
         DateTime modified = File.GetLastWriteTimeUtc(path);

@@ -195,3 +195,4 @@ Assert-Release ($releaseTestFixture.State.CreateArguments -contains '--prereleas
 Assert-Release ($releaseTestFixture.State.EditArguments -contains '--prerelease=true') 'Preview was published as stable.'
 
 Write-Host "Release automation: $($releaseTestFixture.Checks) checks passed. No GitHub requests were made."
+& (Join-Path $PSScriptRoot 'Test-Packaging.ps1')

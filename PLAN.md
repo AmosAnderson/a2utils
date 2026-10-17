@@ -1,6 +1,24 @@
 Apple II disk image utility — implementation plan
 ================================================
 
+Review fixes and simpler development workflows (October 16, 2026)
+-----------------------------------------------------------------
+
+- [x] Refuse incomplete cc65 cache fingerprints; retain validated staged builds
+  so cache misses and project tests compile only once, with commit-time input guards.
+- [x] Keep imported payloads outside representable main RAM as documented template
+  references, preserving their bytes and load metadata.
+- [x] Reject nonregular disk/payload/restore inputs and unsupported attribute writes;
+  expose `DiskEditor.Edit` for staged, validated library edits with backups.
+- [x] Replace the timing-dependent snapshot watcher test with a deterministic hook;
+  package from fresh directories and cover stale-file/failure preservation offline.
+- [x] Discover omitted project manifests, generate immutable run artifact directories,
+  standardize host destination aliases, and print actionable starter commands.
+- [x] Add an assembly CPU starter requiring no emulator/ROM/OS inputs; defer external
+  dependency loading and validation until after suite case selection.
+- [x] Complete integrated regression, Release build, formatting, and release checks;
+  record the results and external-tool boundaries in `docs/VALIDATION.md`.
+
 Agentic software development milestone (September 18, 2026)
 -----------------------------------------------------------
 

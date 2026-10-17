@@ -30,6 +30,7 @@ public static class ImageConverter
         {
             _ = ParseOrder(inputOrder);
         }
+        DiskSession.ValidateImageFile(inputPath, cancellationToken);
 
         byte[]? expectedPayload = null;
         return ImageTransactions.Write(inputPath, outputPath, false, overwrite, temporary =>

@@ -84,16 +84,21 @@ public static class ProjectImporter
                     cancellationToken.ThrowIfCancellationRequested();
                     index++;
                     byte[] payload = disk.ReadFile(entry.Path);
-                    (string extensionName, string kind, byte[] contents) = Convert(entry, payload, disk.Info.FileSystem,
-                        disassembleBinaries, TargetProfiles.ParseCpu(TargetProfiles.Get(target).Cpu),
-                        cancellationToken, diagnostics);
+                    string? storageReason = ReferenceReason(entry, payload.Length, TargetProfiles.Get(target));
+                    (string extensionName, string kind, byte[] contents) = storageReason is not null
+                        ? (".bin", "binary", payload)
+                        : Convert(entry, payload, disk.Info.FileSystem, disassembleBinaries,
+                            TargetProfiles.ParseCpu(TargetProfiles.Get(target).Cpu), cancellationToken, diagnostics);
                     string filename = $"{index:D4}_{SafeName(entry.Path)}{extensionName}";
-                    bool editable = !entry.IsLocked;
+                    string? referenceReason = entry.IsLocked
+                        ? "The template entry is locked; its source is exported for reference and omitted from replacements."
+                        : storageReason;
+                    bool editable = referenceReason is null;
                     string folder = editable ? "sources" : "reference";
                     string relative = folder + "/" + filename;
                     File.WriteAllBytes(Path.Combine(staging, folder, filename), contents);
-                    imported.Add(new(entry.Path, relative, kind, editable,
-                        editable ? null : "The template entry is locked; its source is exported for reference and omitted from replacements."));
+                    imported.Add(new(entry.Path, relative, kind, editable, referenceReason));
+                    if (storageReason is not null) diagnostics.Add($"{entry.Path}: {storageReason}");
                     if (!editable) continue;
                     projectFiles.Add(new()
                     {
@@ -163,6 +168,28 @@ public static class ProjectImporter
         cancellationToken.ThrowIfCancellationRequested();
     }
 
+    private static string? ReferenceReason(DiskEntry entry, int length, TargetProfile profile)
+    {
+        int? origin = entry.FileType switch
+        {
+            0x06 or 0xfc => entry.AuxType,
+            0xff => 0x2000,
+            _ => null
+        };
+        if (origin is null) return null;
+        try
+        {
+            ProjectRuntimeMemory.Validate(profile, new(entry.Path, origin.Value, length));
+            return null;
+        }
+        catch (DiskException exception) when (exception.Code is "project.memory_range" or "project.memory_bank_range")
+        {
+            return "The payload's load range cannot be represented as ordinary main RAM on the selected target; "
+                + "its bytes are exported for reference and the original entry remains in the template. "
+                + "Add an explicit bank and loader declaration before making it an editable project file.";
+        }
+    }
+
     private static (string Extension, string Kind, byte[] Contents) Convert(DiskEntry entry,
         byte[] payload, string fileSystem, bool disassembleBinaries, CpuKind cpu, CancellationToken cancellationToken,
         List<string> diagnostics)
@@ -208,9 +235,9 @@ public static class ProjectImporter
         return value.Length == 0 ? "FILE" : value;
     }
 
-    private static string Readme(int editable, int locked, string extension) => "# Imported Apple II project\n\n"
-        + "This project preserves the original image as a hash-pinned template. Editable entries are rebuilt and replaced transactionally; locked entries remain untouched in the template and their exported files are under `reference/`.\n\n"
-        + $"Editable files: {editable}. Locked reference files: {locked}.\n\n"
+    private static string Readme(int editable, int references, string extension) => "# Imported Apple II project\n\n"
+        + "This project preserves the original image as a hash-pinned template. Editable entries are rebuilt and replaced transactionally; entries requiring a bank/loader declaration and locked entries remain untouched in the template and their exported files are under `reference/`. See `import-report.json` for each reference entry's reason.\n\n"
+        + $"Editable files: {editable}. Reference files: {references}.\n\n"
         + "```sh\n"
         + "a2 project resolve project.a2.json --json\n"
         + "a2 build project.a2.json --preflight --json\n"

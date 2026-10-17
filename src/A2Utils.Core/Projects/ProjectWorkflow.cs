@@ -32,8 +32,8 @@ public static class ProjectWorkflow
         ExecutionSuiteRunner.ValidateNewArtifactDirectory(artifacts);
         ResolvedProjectManifest resolved = ProjectResolver.Load(manifestPath, outputPath,
             cancellationToken);
-        ProjectBuildResult preview = ProjectBuilder.BuildResolved(resolved, overwrite,
-            cancellationToken: cancellationToken, preflight: true);
+        using StagedProjectBuild staged = ProjectBuilder.Stage(resolved, overwrite, cancellationToken);
+        ProjectBuildResult preview = staged.Preview;
         ProjectExecutionSettings settings = preview.Execution
             ?? throw new DiskException("project.execution_required", "Project testing requires execution.suite in the manifest.", 2);
         EnsureOutsideArtifacts(preview.OutputPath);
@@ -86,8 +86,7 @@ public static class ProjectWorkflow
             }
         }
         CheckExecutionInputs();
-        ProjectBuildResult build = ProjectBuilder.BuildVerified(resolved, overwrite, preview,
-            cancellationToken, CheckExecutionInputs);
+        ProjectBuildResult build = staged.Commit(CheckExecutionInputs);
         if (build.Sha256 != preview.Sha256 || !build.Inputs.SequenceEqual(preview.Inputs))
             throw new DiskException("project.build_changed", "The build changed after preflight; execution was refused. The validated build output is retained.", 6);
         CheckExecutionInputs();

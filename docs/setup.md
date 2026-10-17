@@ -354,13 +354,26 @@ profile directory and may need adjustment before using the copies elsewhere.
 
 ## Create and test a starter
 
+For assembly without external tools, use the CPU starter:
+
+```sh
+a2 init hello --engine cpu
+cd hello
+a2 build --test --overwrite
+```
+
+It creates a routine and memory assertions for the built-in 6502 engine, with
+no environment profile. It accepts assembly only, and cannot be combined with
+`--environment` or `--bare-metal`. CPU execution has no ROM or hardware devices.
+Initialization prints exact next commands and includes them in JSON `nextCommands`.
+
 With a configured profile and OS template, choose one language and a new project
 directory (`asm` is the default):
 
 ```sh
 a2 init my-program --language asm --environment environment.json --json
 a2 build my-program/project.a2.json --check --json
-a2 build my-program/project.a2.json --test --artifacts my-program/runs/first --json
+a2 build my-program/project.a2.json --test --overwrite --json
 ```
 
 Substitute `basic` or `c` in the `init` command for those starters. `init` does
@@ -390,12 +403,13 @@ a2 build boot-demo/project.a2.json --test --artifacts boot-demo/runs/first --jso
 Starter machines are `apple2p`, `apple2e`, `apple2ee`, and `apple2c`; the original
 `apple2` is supported by execution but has no starter target profile.
 
-Without `--environment`, initialization creates an editable `environment.json`.
+With the default `--engine mame`, omitting `--environment` creates an editable `environment.json`.
 Configure its local paths before building or testing; generated configuration
 is not evidence of a successful emulator run.
 
-Use a fresh artifact directory each run. To rebuild an existing output, add
-`--overwrite` and choose another artifact directory, such as `runs/second`.
+When `--artifacts` is omitted, every run creates a unique directory under the
+project's `artifacts/runs/`. To rebuild an existing output, add `--overwrite`.
+Explicit artifact paths must be new unless `--run-subdirectory` is supplied.
 The C starter also requires a working
 cc65 distribution. The starter README explains how to add the environment
 lock to both its project and execution specification.

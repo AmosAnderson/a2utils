@@ -163,6 +163,45 @@ public sealed class ExecutionSuiteRunnerTests : IDisposable
         Assert.False(File.Exists(At("cpu-artifacts/case-001/emulator.stdout.txt")));
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Run_FilterOrRerun_RequiresOnlySelectedCaseDependencies(bool rerun)
+    {
+        File.WriteAllText(At("routine.asm"), "lda #$2a\nsta $0300\nrts\n");
+        Write(At("cpu.execution.json"), new ExecutionSpec
+        {
+            Name = "cpu",
+            Engine = "cpu",
+            Machine = "apple2e",
+            Routine = new() { Source = "routine.asm" },
+            Memory = [new(0x0300, "2A")]
+        });
+        Write(At("unavailable.execution.json"), new ExecutionSpec
+        {
+            Name = "unavailable",
+            Environment = "uninstalled/environment.json",
+            ToolchainLock = "uninstalled/environment.lock.json",
+            ScreenshotAssertion = new("missing.png")
+        });
+        Write(At("offline-suite.json"), new ExecutionSuite { Tests = ["unavailable.execution.json", "cpu.execution.json"] });
+        WritePreviousResult(At("previous.json"),
+            new(1, "case-001", "unavailable.execution.json", "unavailable", true, "passed", null),
+            new(2, "case-002", "cpu.execution.json", "cpu", true, "failed", null));
+
+        ExecutionSuiteRunOptions options = rerun
+            ? new() { RerunFailedPath = At("previous.json") }
+            : new() { Filters = ["name:cpu"] };
+        ExecutionSuiteResult result = ExecutionSuiteRunner.Run(At("offline-suite.json"), At("offline-run"), options);
+
+        Assert.True(result.Passed);
+        Assert.Equal("excluded", result.Cases[0].Status);
+        Assert.Equal("passed", result.Cases[1].Status);
+        Assert.False(Directory.Exists(At("offline-run/case-001")));
+        Assert.ThrowsAny<IOException>(() => ExecutionSuiteRunner.Plan(At("offline-suite.json"),
+            new() { Filters = ["name:unavailable"] }));
+    }
+
     private void WriteSpec(string path, string name, string expectedText)
         => Write(At(path), new ExecutionSpec
         {

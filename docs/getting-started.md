@@ -2,9 +2,38 @@
 
 [Documentation home](../README.md#documentation) · [Command reference](cli-reference.md)
 
-This walkthrough starts from a local checkout and creates an Apple II data
-disk containing a machine-code program and an Applesoft BASIC program. All
+Start with a self-contained CPU project, or follow the longer disk walkthrough
+to create an Apple II data disk with machine-code and Applesoft BASIC programs. All
 commands run on the host computer, not at an Apple II prompt.
+
+## Start with a CPU-only project
+
+Once `a2` is installed using a release or the local installation steps below:
+
+```sh
+a2 init hello --engine cpu
+cd hello
+a2 build --check
+a2 build --test --overwrite
+```
+
+This creates `main.asm`, `project.a2.json`, `execution.json`, and `suite.json`.
+The built-in 6502 engine executes the routine without MAME, ROMs, or an OS image.
+The test expects bytes `2A A5 5A` at `$0300–$0302` and a return through `RTS`
+within 1,000 cycles. Change a value in `main.asm` and rerun the last command to
+see an assertion failure and its retained evidence.
+
+`build` uses `project.a2.json`, or a single `*.a2.json`, in the current directory.
+If there is no default and multiple candidates, specify the manifest explicitly.
+The project output is `build/program.po`, a formatted data disk. Each test run
+gets a new `artifacts/runs/run-*` directory; the command prints its full path.
+Explicit `--artifacts PATH` still requires a new directory, or add
+`--run-subdirectory` to create a unique child beneath an existing parent.
+
+CPU tests provide a flat memory space and instruction execution. Use the
+[MAME starter](setup.md#create-and-test-a-starter) for ROM calls, peripherals,
+keyboard input, or booting a disk. Existing BASIC, C, and full-machine assembly
+starters remain available.
 
 ## Requirements
 
@@ -14,7 +43,7 @@ commands run on the host computer, not at an Apple II prompt.
 | Locally packaged .NET tool | .NET 10 runtime to run; the SDK to build, install, or update the tool |
 | Self-contained download | The complete package for the host OS/architecture; no separately installed .NET runtime |
 | Run `eng/Package.ps1` | PowerShell 7 (`pwsh`), the SDK, and access to dependencies/runtime packs |
-| Unix directory import or host program input | `/usr/bin/stat` for regular-file checks |
+| Unix disk images, directory imports, or host program inputs | `/usr/bin/stat` for regular-file checks |
 
 For installation sources and optional MAME, ROM, OS-template, and cc65 setup,
 follow [external dependencies and environments](setup.md). The disk walkthrough
@@ -77,13 +106,13 @@ Build and install the preview package into this checkout:
 
 ```sh
 dotnet pack src/A2Utils.Cli -c Release --no-restore -o artifacts/packages
-dotnet tool install A2Utils.Tool --version 0.6.1-dev --add-source artifacts/packages --tool-path artifacts/tools --configfile NuGet.Config
+dotnet tool install A2Utils.Tool --version 0.6.2-dev --add-source artifacts/packages --tool-path artifacts/tools --configfile NuGet.Config
 ```
 
 For an already installed preview, substitute `update` for `install`:
 
 ```sh
-dotnet tool update A2Utils.Tool --version 0.6.1-dev --add-source artifacts/packages --tool-path artifacts/tools --configfile NuGet.Config --no-cache
+dotnet tool update A2Utils.Tool --version 0.6.2-dev --add-source artifacts/packages --tool-path artifacts/tools --configfile NuGet.Config --no-cache
 ```
 
 The package ID is `A2Utils.Tool`; its executable is `a2`. Installation is local

@@ -68,6 +68,11 @@ public sealed record ExecutionSpec
         => Load(path, null);
 
     internal static ExecutionSpec Load(string path, Action<string, string>? inputLoaded)
+        => LoadEnvironment(LoadDefinition(path, inputLoaded), inputLoaded);
+
+    // Suite discovery needs names and paths, but excluded cases must not require
+    // their machine profiles, locks, or other external inputs to be installed.
+    internal static ExecutionSpec LoadDefinition(string path, Action<string, string>? inputLoaded)
     {
         try
         {
@@ -76,24 +81,28 @@ public sealed record ExecutionSpec
             inputLoaded?.Invoke(fullPath, ProgramFiles.Hash(bytes));
             ExecutionSpec spec = JsonSerializer.Deserialize<ExecutionSpec>(bytes, JsonOptions)
                 ?? throw new JsonException("Execution specification must be an object.");
-            ExecutionSpec resolved = spec.ResolvePaths(Path.GetDirectoryName(fullPath)!);
-            if (resolved.Environment is null) return resolved;
-            byte[] profileBytes = ProgramFiles.ReadBytes(resolved.Environment, 4 * 1024 * 1024);
-            Setup.DevelopmentEnvironmentProfile profile = Setup.DevelopmentEnvironmentProfile.Load(
-                resolved.Environment, profileBytes);
-            inputLoaded?.Invoke(resolved.Environment, profile.InputSha256);
-            byte[]? lockBytes = resolved.ToolchainLock is null ? null
-                : ProgramFiles.ReadBytes(resolved.ToolchainLock, 4 * 1024 * 1024);
-            string? lockHash = lockBytes is null ? null : ProgramFiles.Hash(lockBytes);
-            if (lockHash is not null) inputLoaded?.Invoke(resolved.ToolchainLock!, lockHash);
-            ExecutionEnvironmentSnapshot environment = new(resolved.Environment, profileBytes, profile,
-                resolved.ToolchainLock, lockBytes, lockHash);
-            return Setup.DevelopmentEnvironment.Apply(resolved, profile) with { EnvironmentSnapshot = environment };
+            return spec.ResolvePaths(Path.GetDirectoryName(fullPath)!);
         }
         catch (JsonException ex)
         {
             throw new DiskException("execution.invalid_spec", ex.Message, 2);
         }
+    }
+
+    internal static ExecutionSpec LoadEnvironment(ExecutionSpec resolved, Action<string, string>? inputLoaded)
+    {
+        if (resolved.Environment is null) return resolved;
+        byte[] profileBytes = ProgramFiles.ReadBytes(resolved.Environment, 4 * 1024 * 1024);
+        Setup.DevelopmentEnvironmentProfile profile = Setup.DevelopmentEnvironmentProfile.Load(
+            resolved.Environment, profileBytes);
+        inputLoaded?.Invoke(resolved.Environment, profile.InputSha256);
+        byte[]? lockBytes = resolved.ToolchainLock is null ? null
+            : ProgramFiles.ReadBytes(resolved.ToolchainLock, 4 * 1024 * 1024);
+        string? lockHash = lockBytes is null ? null : ProgramFiles.Hash(lockBytes);
+        if (lockHash is not null) inputLoaded?.Invoke(resolved.ToolchainLock!, lockHash);
+        ExecutionEnvironmentSnapshot environment = new(resolved.Environment, profileBytes, profile,
+            resolved.ToolchainLock, lockBytes, lockHash);
+        return Setup.DevelopmentEnvironment.Apply(resolved, profile) with { EnvironmentSnapshot = environment };
     }
 
     public ExecutionSpec ResolvePaths(string directory) => this with

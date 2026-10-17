@@ -70,6 +70,11 @@ Imported BASIC retains its load address, and optional BASIC lint checks are disa
 so existing programs can rebuild. Enable `checkBasic` on a file to check it while
 editing. BASIC or text that cannot be converted without changing its payload or
 metadata remains binary, with the reason recorded in the import report.
+BIN/BAS/SYS payloads whose load range does not fit the target's ordinary main RAM
+are exported under `reference/` and preserved in the template. The report explains
+why they were excluded from replacements; declare the intended memory bank and
+loader before adding such a file to the manifest. Importing a banked payload does
+not guess its runtime mapping.
 
 ## Bare-metal boot projects
 
@@ -116,7 +121,10 @@ The cache accepts a hit only when all recorded input hashes and the tool version
 match, validates the cached image before a transactional restore, and reports the
 hit in `ProjectBuildResult.CacheHit` and the CLI's `cacheHit` JSON field. The cache
 also checks cc65 project and toolchain directory membership; added inputs trigger
-a rebuild. Generated asset paths retain the same collision and output-alias checks
+a rebuild. cc65 builds without `toolchainRoot` always build uncached, because
+external headers, libraries, and compiler environment overrides are not fully
+fingerprinted; `cc65.toolchain_partial` explains the missing configuration.
+Generated asset paths retain the same collision and output-alias checks
 as an uncached build. Keep outputs outside the cache directory. `--cache` conflicts with `--check`,
 `--preflight`, and `--test`; builds without it do not read or populate the cache.
 Each normalized manifest path retains at most 1,024 metadata entries, each capped
@@ -126,6 +134,13 @@ same time, their combined bytes are capped at 512 MiB. At the entry/metadata or
 input limits, or during concurrent writer contention, the requested build
 still succeeds but is reported uncached. A cache with more than the supported
 entry count is refused for review instead of being pruned automatically.
+
+On a cache miss and during `--test`, the project is compiled once into a validated
+staged image. Before committing that image, the builder rechecks source and
+toolchain hashes, compiler input membership, generated-path collisions, and the
+destination's original contents. Project tests also recheck their captured
+execution inputs. A changed input or destination refuses the commit and leaves
+the existing destination intact.
 
 Project JSON is strict and case-sensitive: unknown or duplicate properties are
 errors. `schemaVersion` is required. `files` can be empty only when an explicit
@@ -197,8 +212,9 @@ Add `execution` to a project, then run:
 a2 build project.a2.json --test --artifacts evidence/run-001 --json
 ```
 
-`--artifacts` is required with `--test` and must be outside the build output and
-inputs. It must name a new directory unless `--run-subdirectory` treats it as an
+Omitting `--artifacts` creates a unique `artifacts/runs/run-*` directory beside
+the project manifest. An explicit path must be outside the build output and
+inputs, and must name a new directory unless `--run-subdirectory` treats it as an
 existing parent for a unique child run. A normal build never starts an emulator.
 The configured suite uses the [execution specification](execution.md), with paths
 relative to each test file. For a MAME case, the chosen `execution.diskDevice` is
@@ -219,12 +235,14 @@ an artifact parent.
 These controls are exposed by the project workflow API and by the corresponding
 `build --test` command options. Selection never renumbers case evidence: selecting the
 second suite entry still writes `case-002`. Build and execution input hashes remain
-pinned before any selected case starts. Every suite case is build-bound and
-engine-validated before selection, so a filter cannot hide an invalid case.
+pinned before any selected case starts. Selected cases are build-bound and
+engine-validated; excluded cases do not require their environment or graphics
+inputs to be available.
 
-The workflow first performs full preflight, binds symbols, checks test inputs,
-and then builds again. Source hashes, test inputs, and the would-be image hash
-must still match before replacement. A nonreproducible compiler output is refused.
+The workflow compiles and validates a staged image, binds symbols, and checks
+selected test inputs. It then commits that same image after rechecking source
+hashes, compiler input membership, test inputs, the image hash, and the original
+destination state. The compiler runs once per source in this workflow.
 After a valid image is committed, failed tests retain it and their evidence;
 an artifact I/O failure after commit can also leave the validated image in place.
 

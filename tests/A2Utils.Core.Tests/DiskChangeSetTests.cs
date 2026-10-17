@@ -198,43 +198,26 @@ public sealed class DiskChangeSetTests
     }
 
     [Fact]
-    public async Task Diff_SourceMutatesAfterCapture_LogicalAndPhysicalEvidenceUsesCapturedBytes()
+    public void Diff_SourceMutatesAfterCapture_LogicalAndPhysicalEvidenceUsesCapturedBytes()
     {
         using FixtureWorkspace workspace = new();
         string before = workspace.CopyDisk(name: $"diff-mutation-{Guid.NewGuid():N}.do");
         string after = workspace.NewPath("same.do");
         File.Copy(before, after);
         string originalHash = ProgramFiles.Hash(File.ReadAllBytes(before));
-        TaskCompletionSource<bool> changed = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        using FileSystemWatcher watcher = new(HostFiles.ResolvePhysicalDirectory(Path.GetTempPath()))
-        {
-            NotifyFilter = NotifyFilters.FileName,
-            EnableRaisingEvents = true
-        };
-        string suffix = "-" + Path.GetFileName(before);
-        watcher.Created += (_, args) =>
-        {
-            if (args.Name?.StartsWith("a2-diff-before-", StringComparison.Ordinal) != true ||
-                !args.Name.EndsWith(suffix, StringComparison.Ordinal)) return;
-            try
-            {
-                using FileStream file = new(before, FileMode.Open, FileAccess.ReadWrite,
-                    FileShare.ReadWrite);
-                int value = file.ReadByte();
-                file.Position = 0;
-                file.WriteByte((byte)(value ^ 0xff));
-                file.Flush(true);
-                changed.TrySetResult(true);
-            }
-            catch (Exception exception)
-            {
-                changed.TrySetException(exception);
-            }
-        };
+        bool changed = false;
 
-        DiskDifference result = DiskDiff.Compare(before, after);
+        DiskDifference result = DiskDiff.CompareCore(before, after, snapshotsCaptured: () =>
+        {
+            using FileStream file = new(before, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+            int value = file.ReadByte();
+            file.Position = 0;
+            file.WriteByte((byte)(value ^ 0xff));
+            file.Flush(true);
+            changed = true;
+        });
 
-        Assert.True(await changed.Task.WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.True(changed);
         Assert.Equal(originalHash, result.BeforeSha256);
         Assert.Equal(result.BeforeSha256, result.AfterSha256);
         Assert.True(result.Identical);
@@ -385,43 +368,25 @@ public sealed class DiskChangeSetTests
     }
 
     [Fact]
-    public async Task Plan_ChangeSetMutatesAfterCandidateValidation_RefusesIncoherentApproval()
+    public void Plan_ChangeSetMutatesAfterCandidateValidation_RefusesIncoherentApproval()
     {
         using FixtureWorkspace workspace = new();
-        string input = workspace.NewPath($"large-{Guid.NewGuid():N}.po");
-        DiskSession.Create(input, "prodos", order: "prodos", volumeName: "PLAN",
-            blocks: 65535);
+        string input = workspace.NewPath("input.po");
+        DiskSession.Create(input, "prodos", order: "prodos", volumeName: "PLAN");
         string changes = WritePlan(workspace, new()
         {
             Changes = [new() { Action = "mkdir", Path = "TOOLS" }]
         });
-        TaskCompletionSource<bool> changed = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        using FileSystemWatcher watcher = new(HostFiles.ResolvePhysicalDirectory(Path.GetTempPath()))
-        {
-            NotifyFilter = NotifyFilters.FileName,
-            EnableRaisingEvents = true
-        };
-        string candidatePrefix = "." + Path.GetFileName(input) + ".plan-candidate-";
-        void Mutate(object? _, FileSystemEventArgs args)
-        {
-            if (args.Name?.StartsWith(candidatePrefix, StringComparison.Ordinal) != true) return;
-            try
+        bool changed = false;
+
+        DiskException error = Assert.Throws<DiskException>(() => DiskChangeSetRunner.PlanCore(input, changes,
+            candidateValidated: () =>
             {
                 File.AppendAllText(changes, "\n");
-                changed.TrySetResult(true);
-            }
-            catch (Exception exception)
-            {
-                changed.TrySetException(exception);
-            }
-        }
-        watcher.Created += Mutate;
-        watcher.Renamed += Mutate;
+                changed = true;
+            }));
 
-        Exception? exception = Record.Exception(() => DiskChangeSetRunner.Plan(input, changes));
-
-        Assert.True(await changed.Task.WaitAsync(TimeSpan.FromSeconds(5)));
-        DiskException error = Assert.IsType<DiskException>(exception);
+        Assert.True(changed);
         Assert.Equal("disk_plan.changed", error.Code);
         Assert.Empty(Directory.EnumerateFiles(workspace.DirectoryPath,
             "." + Path.GetFileName(input) + ".plan-*"));

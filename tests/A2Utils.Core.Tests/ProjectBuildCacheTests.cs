@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Amos Anderson
 // SPDX-License-Identifier: GPL-2.0-only
 
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using A2Utils.Core.Assembly;
@@ -15,6 +16,83 @@ namespace A2Utils.Core.Tests;
 
 public sealed class ProjectBuildCacheTests
 {
+    [Fact]
+    public void Build_UnpinnedCompilerDependencies_RebuildsWithoutCachingPartialEvidence()
+    {
+        using FixtureWorkspace workspace = new();
+        string external = workspace.NewPath("external-input.txt");
+        File.WriteAllText(external, "1");
+        File.WriteAllText(workspace.NewPath("main.c"),
+            $"// A2_EXTERNAL_INPUT {external}\nint main(void) {{ return 0; }}\n");
+        string project = WriteProject(workspace, new()
+        {
+            Cc65 = ContractCompiler(workspace, pinned: false),
+            Files = [new() { Source = "main.c", Path = "MAIN", Kind = "cc65" }]
+        });
+        string cache = workspace.NewPath("cache");
+
+        ProjectBuildResult first = ProjectBuildCache.Build(project, cache, workspace.NewPath("first.po"));
+        File.WriteAllText(external, "2");
+        ProjectBuildResult second = ProjectBuildCache.Build(project, cache, workspace.NewPath("second.po"));
+
+        Assert.False(first.CacheHit);
+        Assert.False(second.CacheHit);
+        Assert.NotEqual(first.Sha256, second.Sha256);
+        Assert.Contains(second.Diagnostics, diagnostic => diagnostic.Code == "cc65.toolchain_partial");
+        Assert.Empty(Directory.GetFiles(Path.Combine(cache, "entries"), "*.json", SearchOption.AllDirectories));
+        Assert.Empty(Directory.GetFiles(Path.Combine(cache, "objects")));
+    }
+
+    [Fact]
+    public void Build_CacheMiss_CompilesOnceAndCacheHitDoesNotCompile()
+    {
+        using FixtureWorkspace workspace = new();
+        string log = workspace.NewPath("compiler-invocations.txt");
+        File.WriteAllText(workspace.NewPath("main.c"),
+            $"// A2_COMPILER_LOG {log}\nint main(void) {{ return 0; }}\n");
+        string project = WriteProject(workspace, new()
+        {
+            Cc65 = ContractCompiler(workspace),
+            Files = [new() { Source = "main.c", Path = "MAIN", Kind = "cc65" }]
+        });
+        string cache = workspace.NewPath("cache");
+
+        ProjectBuildResult first = ProjectBuildCache.Build(project, cache, workspace.NewPath("first.po"));
+        ProjectBuildResult second = ProjectBuildCache.Build(project, cache, workspace.NewPath("second.po"));
+
+        Assert.False(first.CacheHit);
+        Assert.True(second.CacheHit);
+        Assert.Equal(first.Sha256, second.Sha256);
+        Assert.Single(File.ReadAllLines(log));
+    }
+
+    [Fact]
+    public void Build_LegacyUnpinnedCompilerCacheEntry_IgnoresStaleImage()
+    {
+        using FixtureWorkspace workspace = new();
+        string external = workspace.NewPath("external-input.txt");
+        File.WriteAllText(external, "1");
+        File.WriteAllText(workspace.NewPath("main.c"),
+            $"// A2_EXTERNAL_INPUT {external}\nint main(void) {{ return 0; }}\n");
+        string project = WriteProject(workspace, new()
+        {
+            Cc65 = ContractCompiler(workspace, pinned: false),
+            Files = [new() { Source = "main.c", Path = "MAIN", Kind = "cc65" }]
+        });
+        ProjectBuildResult original = ProjectBuilder.Build(project, workspace.NewPath("first.po"));
+        string cache = workspace.NewPath("legacy-cache");
+        string metadata = SeedLegacyEntry(cache, project, original);
+        byte[] metadataBefore = File.ReadAllBytes(metadata);
+        File.WriteAllText(external, "2");
+
+        ProjectBuildResult rebuilt = ProjectBuildCache.Build(project, cache, workspace.NewPath("second.po"));
+
+        Assert.False(rebuilt.CacheHit);
+        Assert.NotEqual(original.Sha256, rebuilt.Sha256);
+        Assert.Equal(metadataBefore, File.ReadAllBytes(metadata));
+        Assert.Single(Directory.GetFiles(Path.Combine(cache, "objects")));
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -26,7 +104,7 @@ public sealed class ProjectBuildCacheTests
         Directory.CreateDirectory(Path.Combine(toolchain, "include"));
         string project = WriteProject(workspace, new()
         {
-            Cc65 = ContractCompiler() with { ToolchainRoot = toolchain },
+            Cc65 = ContractCompiler(workspace) with { ToolchainRoot = toolchain },
             Files = [new() { Source = "main.c", Path = "MAIN", Kind = "cc65" }]
         });
         string cache = workspace.NewPath("cache");
@@ -155,7 +233,7 @@ public sealed class ProjectBuildCacheTests
             "// A2_FAKE_FEEDBACK\nint main(void) { return 0; }\n");
         string project = WriteProject(workspace, new()
         {
-            Cc65 = ContractCompiler(),
+            Cc65 = ContractCompiler(workspace),
             Files = [new() { Source = "main.c", Path = "MAIN", Kind = "cc65" }]
         });
         string cache = workspace.NewPath("cache");
@@ -180,7 +258,7 @@ public sealed class ProjectBuildCacheTests
             "// A2_FAKE_OVERSIZE_CACHE_METADATA\nint main(void) { return 0; }\n");
         string project = WriteProject(workspace, new()
         {
-            Cc65 = ContractCompiler(),
+            Cc65 = ContractCompiler(workspace),
             Files = [new() { Source = "main.c", Path = "MAIN", Kind = "cc65" }]
         });
         string cache = workspace.NewPath("cache");
@@ -436,9 +514,49 @@ public sealed class ProjectBuildCacheTests
         return project;
     }
 
-    private static Cc65Options ContractCompiler() => new()
+    private static Cc65Options ContractCompiler(FixtureWorkspace workspace, bool pinned = true)
     {
-        Compiler = TestPaths.ExecutionHost(),
-        ExpectedVersion = "cl65 V0.0 - contract test double"
-    };
+        string toolchain = workspace.NewPath(".toolchain");
+        if (pinned) Directory.CreateDirectory(toolchain);
+        return new()
+        {
+            Compiler = TestPaths.ExecutionHost(),
+            ExpectedVersion = "cl65 V0.0 - contract test double",
+            ToolchainRoot = pinned ? toolchain : null
+        };
+    }
+
+    private static string SeedLegacyEntry(string cache, string project, ProjectBuildResult build)
+    {
+        static string Normalize(string path) => OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
+            ? Path.GetFullPath(path).ToUpperInvariant() : Path.GetFullPath(path);
+        ProjectBuildResult canonical = build with
+        {
+            OutputPath = "",
+            CacheHit = false,
+            Inputs = build.Inputs.OrderBy(input => Normalize(input.Path), StringComparer.Ordinal)
+                .Select(input => new BuildInput(Normalize(input.Path), input.Sha256.ToLowerInvariant())).ToArray()
+        };
+        string contentKey = ProgramFiles.Hash(JsonSerializer.SerializeToUtf8Bytes(new
+        {
+            SchemaVersion = 1,
+            ManifestPath = Normalize(project),
+            Build = canonical
+        }, ProjectJson.Options));
+        string entries = Path.Combine(cache, "entries", ProgramFiles.Hash(Encoding.UTF8.GetBytes(Normalize(project))));
+        string objects = Path.Combine(cache, "objects");
+        Directory.CreateDirectory(entries);
+        Directory.CreateDirectory(objects);
+        File.Copy(build.OutputPath, Path.Combine(objects, build.Sha256 + ".img"));
+        string metadata = Path.Combine(entries, contentKey + ".json");
+        File.WriteAllText(metadata, JsonSerializer.Serialize(new
+        {
+            SchemaVersion = 1,
+            ManifestPath = project,
+            ContentKey = contentKey,
+            ImageSha256 = build.Sha256,
+            Build = build
+        }, ProjectJson.Options));
+        return metadata;
+    }
 }

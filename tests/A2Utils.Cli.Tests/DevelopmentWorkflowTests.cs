@@ -22,6 +22,10 @@ public sealed class DevelopmentWorkflowTests : IDisposable
         JsonElement data = document.RootElement.GetProperty("data");
         JsonElement build = data.GetProperty("commands").EnumerateArray()
             .Single(command => command.GetProperty("name").GetString() == "a2 build");
+        Assert.Equal(0, build.GetProperty("arguments")[0].GetProperty("minimum").GetInt32());
+        Assert.Contains("--output", build.GetProperty("options").EnumerateArray()
+            .Single(option => option.GetProperty("name").GetString() == "--to")
+            .GetProperty("aliases").EnumerateArray().Select(value => value.GetString()));
         Assert.DoesNotContain(build.GetProperty("options").EnumerateArray(), option =>
             option.GetProperty("name").GetString() == "--version");
         Assert.Contains(data.GetProperty("globalOptions").EnumerateArray(), option =>
@@ -32,7 +36,7 @@ public sealed class DevelopmentWorkflowTests : IDisposable
         Assert.False(test.GetProperty("defaultValue").GetBoolean());
         Assert.Contains("--preflight", test.GetProperty("conflictsWith").EnumerateArray()
             .Select(value => value.GetString()));
-        Assert.Contains("--artifacts", test.GetProperty("requires").EnumerateArray()
+        Assert.DoesNotContain("--artifacts", test.GetProperty("requires").EnumerateArray()
             .Select(value => value.GetString()));
         JsonElement cache = build.GetProperty("options").EnumerateArray()
             .Single(option => option.GetProperty("name").GetString() == "--cache");
@@ -56,11 +60,17 @@ public sealed class DevelopmentWorkflowTests : IDisposable
             option.GetProperty("name").GetString() == "--json");
         JsonElement resolve = project.GetProperty("subcommands").EnumerateArray()
             .Single(command => command.GetProperty("name").GetString() == "a2 project resolve");
+        Assert.Equal(0, resolve.GetProperty("arguments")[0].GetProperty("minimum").GetInt32());
         Assert.Contains(resolve.GetProperty("sideEffects").EnumerateArray(), value =>
             value.GetString() == "uses-temporary-storage");
         Assert.Contains(data.GetProperty("executionEngines").EnumerateArray(), value =>
             value.GetString() == "cpu");
         Assert.True(data.GetProperty("developmentWorkflow").GetProperty("cpuRoutineExecution").GetBoolean());
+        JsonElement init = data.GetProperty("commands").EnumerateArray()
+            .Single(command => command.GetProperty("name").GetString() == "a2 init");
+        Assert.Equal(new[] { "mame", "cpu" }, init.GetProperty("options").EnumerateArray()
+            .Single(option => option.GetProperty("name").GetString() == "--engine")
+            .GetProperty("choices").EnumerateArray().Select(value => value.GetString()));
         Assert.True(data.GetProperty("developmentWorkflow").GetProperty("contentAddressedBuildCache").GetBoolean());
         Assert.Contains(data.GetProperty("developmentWorkflow").GetProperty("cpuProcessors").EnumerateArray(),
             value => value.GetString() == "apple65c02");

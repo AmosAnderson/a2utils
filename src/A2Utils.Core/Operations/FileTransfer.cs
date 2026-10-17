@@ -4,6 +4,7 @@
 using System.Security.Cryptography;
 using System.Text.Json;
 using A2Utils.Core.Backends;
+using A2Utils.Core.Programs;
 
 namespace A2Utils.Core.Operations;
 
@@ -16,6 +17,10 @@ public sealed record ExtractionManifest(int SchemaVersion, string FileSystem,
 /// <summary>Transfers stored file bytes and metadata without text or BASIC conversion.</summary>
 public static class FileTransfer
 {
+    private const int MaximumManifestBytes = 32 * 1024 * 1024;
+    private const int MaximumEntries = 65535;
+    private const int MaximumPayloadBytes = 32 * 1024 * 1024;
+    private const int MaximumCombinedPayloadBytes = 128 * 1024 * 1024;
     public const string ManifestName = "a2-manifest.json";
     public static JsonSerializerOptions JsonOptions { get; } = new()
     {
@@ -42,6 +47,7 @@ public static class FileTransfer
         try
         {
             List<ExtractedFile> files = [];
+            long payloadBytes = 0;
             List<DiskEntry> selected = session.List(imagePath, recursive: true).ToList();
             if (session.Info.FileSystem == "prodos" && !string.IsNullOrEmpty(imagePath))
             {
@@ -62,6 +68,8 @@ public static class FileTransfer
             foreach (DiskEntry entry in selected)
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                if (files.Count == MaximumEntries)
+                    throw new DiskException("transfer.too_large", "Extraction supports at most 65,535 entries.", 3);
                 if (entry.IsDirectory)
                 {
                     files.Add(new(entry, null, null, []));
@@ -72,7 +80,10 @@ public static class FileTransfer
                 {
                     throw new DiskException("unsupported_fork", $"Cannot preserve resource forks: {entry.Path}", 3);
                 }
+                if (entry.StoredLength > MaximumCombinedPayloadBytes - payloadBytes)
+                    throw new DiskException("transfer.too_large", "Extracted payloads exceed the 128 MiB restore limit.", 3);
                 byte[] bytes = session.ReadFile(entry.Path, raw: true);
+                payloadBytes += bytes.Length;
                 // A numeric prefix avoids reserved names and case collisions on every host.
                 string name = $"{files.Count + 1:D4}_{SafeName(entry.Name)}.a2raw";
                 File.WriteAllBytes(Path.Combine(temporary, name), bytes);
@@ -81,8 +92,10 @@ public static class FileTransfer
             }
 
             ExtractionManifest manifest = new(1, session.Info.FileSystem, files);
-            File.WriteAllText(Path.Combine(temporary, ManifestName),
-                JsonSerializer.Serialize(manifest, JsonOptions));
+            byte[] manifestBytes = JsonSerializer.SerializeToUtf8Bytes(manifest, JsonOptions);
+            if (manifestBytes.Length > MaximumManifestBytes)
+                throw new DiskException("transfer.too_large", "The extraction manifest exceeds the 32 MiB restore limit.", 3);
+            File.WriteAllBytes(Path.Combine(temporary, ManifestName), manifestBytes);
             cancellationToken.ThrowIfCancellationRequested();
             RejectLinks(target);
             Directory.Move(temporary, target);
@@ -107,7 +120,7 @@ public static class FileTransfer
         try
         {
             manifest = JsonSerializer.Deserialize<ExtractionManifest>(
-                File.ReadAllText(manifestFile), JsonOptions)
+                ProgramFiles.DecodeText(ProgramFiles.ReadBytes(manifestFile, MaximumManifestBytes, cancellationToken)), JsonOptions)
                 ?? throw new JsonException("The manifest is empty.");
         }
         catch (JsonException ex)
@@ -115,9 +128,9 @@ public static class FileTransfer
             throw new DiskException("invalid_manifest", ex.Message, 2, ex);
         }
 
-        if (manifest.SchemaVersion != 1 || manifest.Entries is null)
+        if (manifest.SchemaVersion != 1 || manifest.Entries is null || manifest.Entries.Count > MaximumEntries)
         {
-            throw new DiskException("invalid_manifest", "Unsupported or incomplete manifest.", 2);
+            throw new DiskException("invalid_manifest", "Expected a version 1 manifest with at most 65,535 entries.", 2);
         }
         if (!string.Equals(manifest.FileSystem, session.Info.FileSystem, StringComparison.Ordinal))
         {
@@ -126,6 +139,7 @@ public static class FileTransfer
 
         string parent = Path.GetDirectoryName(manifestFile)!;
         List<(ExtractedFile File, byte[] Bytes)> payloads = [];
+        int payloadBytes = 0;
         HashSet<string> paths = new(manifest.FileSystem == "dos33" ? StringComparer.Ordinal : StringComparer.OrdinalIgnoreCase);
         foreach (ExtractedFile file in manifest.Entries)
         {
@@ -152,7 +166,9 @@ public static class FileTransfer
             string payloadPath = Path.Combine(parent, file.HostFile);
             RejectLinks(payloadPath);
             if (outputPath is not null) ImageTransactions.EnsureDistinctPaths(payloadPath, outputPath);
-            byte[] data = File.ReadAllBytes(payloadPath);
+            byte[] data = ProgramFiles.ReadBytes(payloadPath,
+                Math.Min(MaximumPayloadBytes, MaximumCombinedPayloadBytes - payloadBytes), cancellationToken);
+            payloadBytes += data.Length;
             if (!string.Equals(Convert.ToHexString(SHA256.HashData(data)), file.Sha256,
                 StringComparison.OrdinalIgnoreCase))
             {

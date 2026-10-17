@@ -30,6 +30,25 @@ public static partial class ProjectBuilder
         return BuildCore(resolved, overwrite, checkOnly, cancellationToken, preflight);
     }
 
+    internal static StagedProjectBuild Stage(ResolvedProjectManifest resolved,
+        bool overwrite = false, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(resolved);
+        ValidatePreflightDestination(resolved.OutputPath, overwrite);
+        StagedProjectBuild staged = new(resolved.OutputPath, overwrite, cancellationToken);
+        try
+        {
+            _ = BuildCore(resolved, overwrite, false, cancellationToken, true,
+                stagedBuild: staged);
+            return staged;
+        }
+        catch
+        {
+            staged.Dispose();
+            throw;
+        }
+    }
+
     internal static ProjectBuildResult BuildVerified(string manifestPath, string? outputPath,
         bool overwrite, ProjectBuildResult expected, CancellationToken cancellationToken,
         Action? validateExternalInputs = null)
@@ -67,7 +86,8 @@ public static partial class ProjectBuilder
 
     private static ProjectBuildResult BuildCore(ResolvedProjectManifest resolved,
         bool overwrite, bool checkOnly, CancellationToken cancellationToken, bool preflight,
-        ProjectBuildResult? expectedBuild = null, Action? validateExternalInputs = null)
+        ProjectBuildResult? expectedBuild = null, Action? validateExternalInputs = null,
+        StagedProjectBuild? stagedBuild = null)
     {
         if (checkOnly && preflight) throw Error("check_mode", "Choose either source checks or complete build preflight.");
         string manifestFile = resolved.ManifestPath;
@@ -314,7 +334,11 @@ public static partial class ProjectBuilder
         if (!checkOnly)
         {
             ImageTransactions.ValidatePath(output);
-            if (preflight)
+            if (stagedBuild is not null)
+            {
+                BuildImage(stagedBuild.ImagePath, false);
+            }
+            else if (preflight)
             {
                 ValidatePreflightDestination(output, overwrite);
                 // Resolve the trusted temporary root so the macOS /var alias does not
@@ -338,7 +362,7 @@ public static partial class ProjectBuilder
                 BuildImage(output, overwrite);
             }
         }
-        return new(output, imageHash, profile.Name, cpu, fs, boot is not null ? "self-booting-unverified"
+        ProjectBuildResult result = new(output, imageHash, profile.Name, cpu, fs, boot is not null ? "self-booting-unverified"
             : template is null ? "data-volume" : "template-preserved-unverified",
             typeof(ProjectBuilder).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "unknown",
             manifest.Timestamp, inputHashes.OrderBy(pair => pair.Key, StringComparer.Ordinal).Select(pair => new BuildInput(pair.Key, pair.Value)).ToArray(),
@@ -351,6 +375,8 @@ public static partial class ProjectBuilder
             Assets = generatedAssets.Reports,
             Boot = boot?.Report
         };
+        stagedBuild?.Initialize(result, CheckInputs);
+        return result;
 
         void BuildImage(string destination, bool replaceOutput)
         {
@@ -388,6 +414,10 @@ public static partial class ProjectBuilder
             foreach (string generatedPath in generatedAssets.Outputs.Keys)
                 if (File.Exists(generatedPath) || Directory.Exists(generatedPath))
                     throw Error("asset_collision", "A generated asset path appeared while building: " + generatedPath, 6);
+            if (manifest.Files.Any(file => file.Kind == "cc65") &&
+                Cc65Compiler.EnumerateInputPaths(manifest.Cc65!, root, cancellationToken)
+                    .Any(path => !inputHashes.ContainsKey(path)))
+                throw Error("source_changed", "Compiler input paths changed while building.", 6);
             if (expectedBuild is not null && (inputHashes.Count != expectedBuild.Inputs.Count || expectedBuild.Inputs.Any(input =>
                 !inputHashes.TryGetValue(input.Path, out string? hash) || hash != input.Sha256)))
                 throw Error("build_changed", "Project inputs changed after preflight; the output was not committed.", 6);
@@ -436,7 +466,8 @@ public static partial class ProjectBuilder
                     else
                     {
                         session.Replace(existing.Path, file.Bytes);
-                        session.SetAttributes(existing.Path, type: file.Info.Type, auxType: file.Info.AuxType);
+                        session.SetAttributes(existing.Path, type: file.Info.Type,
+                            auxType: fs == "prodos" || TypesEqual(file.Info.Type, "BIN") ? file.Info.AuxType : null);
                     }
                 }
                 else session.Add(file.Info.Path, file.Bytes, file.Info.Type, file.Info.AuxType);

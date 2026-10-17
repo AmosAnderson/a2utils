@@ -59,6 +59,8 @@ that conflicts with a 2IMG header is refused. Unknown filesystems support
 limited `info` inspection and explicit-order container conversion, not file
 operations. `info` opens a read-only session, so JSON `isReadOnly` describes
 that session; `imageWriteProtected` separately reports container protection.
+Read-only inspection accepts symbolic links to regular image files and applies
+the image-size limit to the target. Write paths reject linked inputs and outputs.
 
 ## Image paths and names
 
@@ -230,6 +232,13 @@ outside allocated extents must be zero. Payload paths cannot escape to another
 directory or traverse links. Editing a payload without a matching manifest
 fails hash validation; use logical export/add/replace for content editing.
 
+Extraction and restore support up to 65,535 entries, a 32 MiB UTF-8 manifest,
+32 MiB per payload, and 128 MiB of combined stored payloads. Sparse holes count
+toward the stored payload limit. Select a smaller subtree or keep a whole-image
+backup for larger sets. Manifests, payloads, and image inputs must be regular host
+files; pipes, sockets, and devices are refused before opening them. Image
+containers are limited to 34 MiB including wrapper metadata.
+
 Restore creates the recorded paths without merging existing entries; an empty
 target image of sufficient capacity is the easiest destination. The manifest
 does not store the volume name/number, boot code, original sector placement,
@@ -335,6 +344,11 @@ a2 disk rename copy-target.do HELLO.COPY DEMO --in-place
 a2 disk attr copy-target.do DEMO --lock --in-place
 ```
 
+Attribute changes that the filesystem cannot store are refused. Directories
+keep the DIR type, data files cannot become DIR, and DOS auxiliary values apply
+only to binary load addresses. A volume root has no auxiliary field; a DOS
+root also has no file lock or type attributes.
+
 `attr` with no changes is read-only. To change a DOS binary load address after
 import, use its `--aux-type` option; add/import use `--load-address` instead.
 Locking clears write/rename/delete access permissions; unlocking enables those
@@ -376,6 +390,32 @@ Conversion requires a separate output path. Existing output files need
 `--overwrite`; that mode does not create an in-place backup of the output.
 
 ## Write transactions and backups
+
+Library callers can use `DiskEditor.Edit` to apply several changes in one
+transaction. It owns the staging file and writable session, closes and reopens
+the candidate, verifies the filesystem and image layout, then commits. An
+optional validation callback receives the reopened read-only session and can
+check the expected file contents or metadata; throwing rejects the candidate.
+For example:
+
+```csharp
+using A2Utils.Core;
+using A2Utils.Core.Operations;
+
+byte[] payload = [0xa9, 0x01, 0x60];
+ImageWriteResult result = DiskEditor.Edit("work.do",
+    disk => disk.Add("DEMO", payload, "BIN", 0x2000),
+    outputPath: "updated.do",
+    validate: disk =>
+    {
+        if (!disk.ReadFile("DEMO").AsSpan().SequenceEqual(payload))
+            throw new DiskException("app.validation", "DEMO does not match the expected bytes.");
+    });
+```
+
+Use `inPlace: true` instead of `outputPath` to receive an original-image backup
+in `result.BackupPath`. Create the output parent directory first. Callbacks
+must finish their work synchronously and must not retain or dispose sessions.
 
 All CLI image mutations require one destination policy:
 

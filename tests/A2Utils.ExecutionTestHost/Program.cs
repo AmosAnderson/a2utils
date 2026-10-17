@@ -44,6 +44,8 @@ if (args.Contains("-t"))
 {
     string main = args.Last(path => Path.GetExtension(path).ToLowerInvariant() is ".c" or ".s" or ".asm" or ".a65");
     string source = File.ReadAllText(main);
+    string? compileLog = source.Split('\n').FirstOrDefault(line => line.StartsWith("// A2_COMPILER_LOG ", StringComparison.Ordinal))?[19..].Trim();
+    if (compileLog is not null) File.AppendAllText(compileLog, "compile\n");
     if (Path.GetExtension(main).Equals(".c", StringComparison.OrdinalIgnoreCase))
         File.WriteAllText(Path.ChangeExtension(main, ".s"), "compiler intermediate assembly");
     File.WriteAllText(Path.ChangeExtension(main, ".o"), "compiler intermediate object");
@@ -85,6 +87,8 @@ if (args.Contains("-t"))
     BinaryPrimitives.WriteUInt16BigEndian(appleSingle.AsSpan(52), 6);
     BinaryPrimitives.WriteUInt32BigEndian(appleSingle.AsSpan(54), 0x0803);
     appleSingle[58] = 0x60;
+    string? externalInput = source.Split('\n').FirstOrDefault(line => line.StartsWith("// A2_EXTERNAL_INPUT ", StringComparison.Ordinal))?[21..].Trim();
+    if (externalInput is not null) appleSingle[59] = byte.Parse(File.ReadAllText(externalInput), System.Globalization.CultureInfo.InvariantCulture);
     if (source.Contains("A2_FAKE_INVALID")) appleSingle[0] = 0xff;
     File.WriteAllBytes(binary, appleSingle);
     string mapText = "Map fixture for " + main;

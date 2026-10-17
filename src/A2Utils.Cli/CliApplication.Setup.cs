@@ -38,16 +38,35 @@ public sealed partial class CliApplication
         Option<string> language = new("--language") { DefaultValueFactory = _ => "asm", Description = "asm, basic, or c." };
         Option<string?> profile = new("--environment") { Description = "Existing local environment profile; otherwise create an editable profile." };
         Option<bool> bareMetal = new("--bare-metal") { Description = "Create an original assembly boot disk that does not require an OS template." };
+        Option<string> engine = new("--engine") { DefaultValueFactory = _ => "mame", Description = "mame for a full-machine starter, or cpu for an assembly routine needing no external tools. cpu requires --language asm and cannot use --environment or --bare-metal." };
         init.Arguments.Add(directory);
         init.Options.Add(language);
         init.Options.Add(profile);
         init.Options.Add(bareMetal);
+        init.Options.Add(engine);
         init.SetAction(parse =>
         {
             ProjectStarterResult result = ProjectStarter.Create(parse.GetValue(directory)!, parse.GetValue(language)!, parse.GetValue(profile),
-                _cancellationToken, parse.GetValue(bareMetal));
-            return Result("init", result, $"Created {result.Language} project at {result.Directory}"
-                + (result.NeedsEnvironmentConfiguration ? "\nCheck and configure the environment profile before building or running its test." : ""));
+                _cancellationToken, parse.GetValue(bareMetal), parse.GetValue(engine)!);
+            string manifestPath = QuoteCommandPath(Path.Combine(result.Directory, "project.a2.json"));
+            List<string> nextCommands = [];
+            if (parse.GetValue(engine) == "mame")
+                nextCommands.Add("a2 env check " + QuoteCommandPath(parse.GetValue(profile) is { } environmentPath
+                    ? Path.GetFullPath(environmentPath) : Path.Combine(result.Directory, "environment.json")));
+            nextCommands.Add($"a2 build {manifestPath} --check");
+            nextCommands.Add($"a2 build {manifestPath} --test");
+            return Result("init", new
+            {
+                result.Directory,
+                result.Language,
+                result.NeedsEnvironmentConfiguration,
+                result.Files,
+                engine = parse.GetValue(engine),
+                nextCommands
+            },
+                $"Created {result.Language} project at {result.Directory}"
+                + (result.NeedsEnvironmentConfiguration ? "\nConfigure the environment profile's local paths first." : "")
+                + "\nNext commands:\n" + string.Join(Environment.NewLine, nextCommands));
         });
         root.Subcommands.Add(init);
     }

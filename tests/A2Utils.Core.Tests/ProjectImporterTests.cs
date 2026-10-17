@@ -11,6 +11,41 @@ namespace A2Utils.Core.Tests;
 public sealed class ProjectImporterTests
 {
     [Theory]
+    [InlineData("prodos", false)]
+    [InlineData("prodos", true)]
+    [InlineData("dos33", false)]
+    [InlineData("dos33", true)]
+    public void Import_BinaryOutsideMainRam_PreservesReferenceAndCreatesBuildableProject(string fileSystem, bool disassemble)
+    {
+        using FixtureWorkspace workspace = new();
+        string source = workspace.NewPath("source.img");
+        byte[] payload = [0x60, 0x2a];
+        DiskSession.Create(source, fileSystem);
+        using (DiskSession disk = DiskSession.Open(source, inputFs: fileSystem, writable: true))
+        {
+            disk.Add("BANKED", payload, "BIN", 0xd000);
+            disk.Flush();
+        }
+        byte[] original = File.ReadAllBytes(source);
+
+        ProjectImportResult imported = ProjectImporter.Import(source, workspace.NewPath("imported"),
+            disassembleBinaries: disassemble, inputFileSystem: fileSystem);
+        ProjectBuildResult built = ProjectBuilder.Build(imported.ProjectPath);
+
+        ImportedProjectFile file = Assert.Single(imported.Files);
+        Assert.False(file.Editable);
+        Assert.StartsWith("reference/", file.SourcePath, StringComparison.Ordinal);
+        Assert.Contains("load range", file.Reason, StringComparison.Ordinal);
+        Assert.NotEmpty(imported.Diagnostics);
+        Assert.Equal(payload, File.ReadAllBytes(Path.Combine(imported.Directory, file.SourcePath)));
+        Assert.Equal(original, File.ReadAllBytes(source));
+        Assert.Equal(original, File.ReadAllBytes(built.OutputPath));
+        using DiskSession rebuilt = DiskSession.Open(built.OutputPath, inputFs: fileSystem);
+        Assert.Equal(0xd000, rebuilt.GetEntry("BANKED").AuxType);
+        Assert.Equal(payload, rebuilt.ReadFile("BANKED"));
+    }
+
+    [Theory]
     [InlineData(0x0801)]
     [InlineData(0x1001)]
     public void Import_BasicWithExistingLineReferences_PreservesOriginAndPayload(int origin)

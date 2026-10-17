@@ -113,6 +113,7 @@ public sealed partial class CliApplication
         AddCc65Commands(root);
         AddSetupCommands(root);
         AddMcpCommands(root);
+        AddHostOutputAliases(root, "a2");
         return root;
     }
 
@@ -269,7 +270,6 @@ public sealed partial class CliApplication
             {
                 ImageTransactions.EnsureDistinctPaths(hostFile, destination);
             }
-            byte[] bytes = File.ReadAllBytes(hostFile);
             return Mutate("add", parse, image, write, session =>
             {
                 if (session.Info.FileSystem == "dos33" && IsDosBinaryType(fileType)
@@ -286,6 +286,7 @@ public sealed partial class CliApplication
                 {
                     throw new DiskException("invalid_arguments", "--load-address requires a DOS binary file type.", 2);
                 }
+                byte[] bytes = ProgramFiles.ReadBytes(hostFile, checked((int)session.Info.SizeBytes), _cancellationToken);
                 byte[] payload = contentFormat == "text" ? EncodeText(bytes, session, fileType) : bytes;
                 session.Add(parse.GetValue(name)!, payload, fileType,
                     ParseUShort(parse.GetValue(address) ?? parse.GetValue(auxiliary) ?? "0"));
@@ -342,7 +343,8 @@ public sealed partial class CliApplication
                         {
                             ImageTransactions.EnsureDistinctPaths(parse.GetValue(value)!, destination);
                         }
-                        byte[] payload = File.ReadAllBytes(parse.GetValue(value)!);
+                        byte[] payload = ProgramFiles.ReadBytes(parse.GetValue(value)!,
+                            checked((int)session.Info.SizeBytes), _cancellationToken);
                         if (contentFormat == "text")
                         {
                             payload = EncodeText(payload, session, session.GetEntry(entryPath).Type);
@@ -430,20 +432,9 @@ public sealed partial class CliApplication
     private int Mutate(string command, ParseResult parse, Argument<string> image, WriteOptions write,
         Action<DiskSession> operation)
     {
-        string input = parse.GetValue(image)!;
-        string order;
-        string fs;
-        using (DiskSession original = Open(input))
-        {
-            order = original.Info.Order;
-            fs = original.Info.FileSystem;
-        }
-        ImageWriteResult result = ImageTransactions.Write(input, parse.GetValue(write.Output),
-            parse.GetValue(write.InPlace), parse.GetValue(write.Overwrite), temporary =>
-            {
-                using DiskSession session = DiskSession.Open(temporary, order, fs, writable: true);
-                operation(session);
-            }, temporary => ValidateImage(temporary, order, fs), _cancellationToken);
+        ImageWriteResult result = DiskEditor.Edit(parse.GetValue(image)!, operation,
+            parse.GetValue(write.Output), parse.GetValue(write.InPlace), parse.GetValue(write.Overwrite),
+            parse.GetValue(_inputOrder), parse.GetValue(_inputFs), cancellationToken: _cancellationToken);
         return Result(command, result, $"Wrote {result.OutputPath}"
             + (result.BackupPath is not null ? $" (backup: {result.BackupPath})" : ""));
     }

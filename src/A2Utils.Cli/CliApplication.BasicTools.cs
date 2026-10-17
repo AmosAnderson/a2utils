@@ -19,12 +19,8 @@ public sealed partial class CliApplication
         {
             string input = parse.GetValue(checkInput)!;
             BasicCheckResult result = ApplesoftTools.Check(ReadProgramText(input), input, _cancellationToken);
+            EmitProgramDiagnostics(result.Diagnostics);
             Result("basic.check", result, result.Valid ? "BASIC checks passed." : "BASIC checks found errors.");
-            if (!parse.GetValue(_json))
-            {
-                foreach (var diagnostic in result.Diagnostics)
-                    _error.WriteLine($"{diagnostic.Code}: {diagnostic.Message} (source line {diagnostic.Line})");
-            }
             return result.Valid ? 0 : 2;
         });
         group.Subcommands.Add(check);
@@ -51,6 +47,7 @@ public sealed partial class CliApplication
                         throw new DiskException("program.validation_failed", "Staged BASIC source differs from the expected contents.", 4);
                     ApplesoftBasic.Compile(ProgramUtf8.GetString(File.ReadAllBytes(temporary)), cancellationToken: _cancellationToken);
                 }, _cancellationToken);
+            EmitProgramDiagnostics(result.Diagnostics);
             return Result("basic.renumber", new { written.OutputPath, result.Mapping, result.Diagnostics },
                 $"Renumbered {result.Mapping.Count} lines to {written.OutputPath}");
         });
@@ -83,6 +80,7 @@ public sealed partial class CliApplication
                         throw new DiskException("program.validation_failed", "Staged BASIC source differs from the expected contents.", 4);
                     ApplesoftBasic.Compile(ProgramUtf8.GetString(staged), cancellationToken: _cancellationToken);
                 }, _cancellationToken);
+            EmitProgramDiagnostics(result.Diagnostics);
             return Result("basic.prepare", new { written.OutputPath, result.Mapping, result.Diagnostics },
                 $"Prepared {result.Mapping.Count} BASIC lines in {written.OutputPath}");
         });

@@ -15,9 +15,9 @@ stdout and stderr separate when collecting evidence. The
 | Compatible SDK cannot be found | Run `dotnet --list-sdks` from the repository root; the pin is 10.0.400 with patch roll-forward, not unrestricted .NET 10 roll-forward |
 | Restore fails in locked mode | Check access to the source in `NuGet.Config`; if dependencies were intentionally changed, follow the lockfile workflow in the development guide |
 | `a2` is not recognized | Invoke `./artifacts/tools/a2.exe` on Windows or `./artifacts/tools/a2` on Unix, or define the session function in getting started |
-| An old executable lacks current commands | Check `a2 --version`, rebuild the local package, and update the repository-local tool to 0.6.1-dev |
+| An old executable lacks current commands | Check `a2 --version`, rebuild the local package, and update the repository-local tool to 0.6.2-dev |
 | `Package.ps1` fails on unsupported PowerShell features | Run it with PowerShell 7 (`pwsh`) |
-| Missing `/usr/bin/stat` | Restore that system utility for Linux/macOS host-file checks; program input and directory import require it |
+| Missing `/usr/bin/stat` | Restore that system utility for Linux/macOS regular-file checks; disk images, program inputs, and directory imports require it |
 | Published executable cannot start on another computer | Use the complete self-contained package for that computer's OS/architecture, including runtime files |
 
 Installation commands are in [getting started](getting-started.md), with
@@ -280,16 +280,17 @@ retain it after a failed run. Inspect `result.json`, the `version.*.txt` and
 A single run can reject invalid JSON or
 specification data or an existing artifact path before creating its artifact
 directory. MAME runs can also reject a missing disk or ROM directory at this stage.
-A suite parses every case before
-creating its root, but checks external disk/ROM paths per case, so its root and
-earlier case evidence can exist when a later case is rejected. Because an existing
-artifact directory is never reused, choose a new `--artifacts` path for the next run,
-or pass `--run-subdirectory` with an existing parent to create a unique child.
+A suite parses every case definition, selects cases, then loads and validates
+only the selected cases before creating its root. It checks external disk/ROM
+paths per case, so its root and earlier case evidence can exist when a later case
+is rejected. Omit `--artifacts` to create a unique directory automatically for
+each run. Explicit artifact directories are never reused: choose a new path or
+pass `--run-subdirectory` with an existing parent to create a unique child.
 
 | Diagnostic or result | Cause and next step |
 | --- | --- |
 | `execution.invalid_spec` | The JSON is malformed, has an unknown/duplicate property, omits fields required by its engine, or violates an assertion/time/range limit. Compare it with `a2 schema execution --json`; paths resolve relative to the specification file. |
-| `execution.invalid_suite` | The suite is not version 1 with 1–128 specification paths, or a case lacks an assertion, bounded completion/debug/routine/cycle condition, or mounted-disk verification. Use `a2 schema execution-suite --json`; all cases are parsed before any starts. |
+| `execution.invalid_suite` | The suite is not version 1 with 1–128 specification paths, or a selected case lacks an assertion, bounded completion/debug/routine/cycle condition, or mounted-disk verification. Use `a2 schema execution-suite --json`; all definitions are parsed and selected cases are validated before any starts. |
 | `execution.artifacts_exist` | `--artifacts` must name a new file-system entry. Pick a new directory; A2Utils does not merge with or erase prior evidence. |
 | `execution.filter_empty` | No suite case matched the supplied `--filter` values or their intersection with `--rerun-failed`. Use `--list` to inspect stable names and paths, then adjust the case-insensitive glob. |
 | `execution.jobs` | `--jobs` must be an integer from 1 through 16. Lower it if emulator or host resources are constrained. |

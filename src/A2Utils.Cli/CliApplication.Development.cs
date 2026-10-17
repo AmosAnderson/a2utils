@@ -14,14 +14,14 @@ public sealed partial class CliApplication
     private void AddDevelopmentCommands(RootCommand root)
     {
         Command build = new("build", "Compile, check, preflight, or build a project manifest.");
-        Argument<string> project = new("PROJECT");
+        Argument<string?> project = new("PROJECT") { Arity = ArgumentArity.ZeroOrOne, Description = "Project manifest; defaults to project.a2.json or the only *.a2.json in the current directory." };
         Option<string?> output = new("--to") { Description = "Override the manifest output path (relative to the current directory)." };
         Option<bool> overwrite = new("--overwrite") { Description = "Replace the existing output after the complete build validates." };
         Option<bool> check = new("--check") { Description = "Compile and check sources and memory without writing the output image." };
         Option<bool> preflight = new("--preflight") { Description = "Build and validate a disposable image; report changes and capacity without committing output." };
         Option<bool> test = new("--test") { Description = "Build and run the manifest's build-bound execution suite." };
         Option<string?> cache = new("--cache") { Description = "Use DIRECTORY as an opt-in content-addressed cache for normal builds." };
-        Option<string?> artifacts = new("--artifacts") { Description = "Evidence directory required with --test; must be new unless --run-subdirectory treats it as an existing parent." };
+        Option<string?> artifacts = new("--artifacts") { Description = "With --test, evidence directory; defaults to a unique artifacts/runs/run-* directory beside PROJECT. Explicit paths must be new unless --run-subdirectory is used." };
         Option<string[]> testFilters = new("--filter")
         {
             Description = "With --test, select suite cases by name/path glob; may be repeated.",
@@ -46,28 +46,31 @@ public sealed partial class CliApplication
                 throw new DiskException("project.cache", "--cache requires a non-empty directory.", 2);
             if (cacheDirectory is not null && (parse.GetValue(check) || parse.GetValue(preflight) || parse.GetValue(test)))
                 throw new DiskException("project.cache", "--cache is available only for normal builds; do not combine it with --check, --preflight, or --test.", 2);
-            if (parse.GetValue(test) != !string.IsNullOrWhiteSpace(parse.GetValue(artifacts)))
-                throw new DiskException("project.artifacts", "--test requires --artifacts; --artifacts is only used with --test.", 2);
+            if (!parse.GetValue(test) && parse.GetValue(artifacts) is not null)
+                throw new DiskException("project.artifacts", "--artifacts is only used with --test.", 2);
             bool hasSuiteOptions = parse.GetValue(testFilters)?.Length > 0 || parse.GetValue(testJobs) is not null
                 || parse.GetValue(testRerunFailed) is not null || parse.GetValue(testProgress) || parse.GetValue(testRunSubdirectory);
             if (!parse.GetValue(test) && hasSuiteOptions)
                 throw new DiskException("project.test_options", "--filter, --jobs, --rerun-failed, --progress, and --run-subdirectory require --test.", 2);
             string? destination = parse.GetValue(output) is { } path ? Path.GetFullPath(path) : null;
+            string projectPath = ResolveProjectPath(parse.GetValue(project));
             if (parse.GetValue(test))
             {
+                string artifactPath = ResolveArtifactPath(projectPath, parse.GetValue(artifacts));
                 ExecutionSuiteRunOptions suiteOptions = CreateSuiteOptions(parse.GetValue(testFilters), parse.GetValue(testJobs),
-                    parse.GetValue(testRerunFailed), parse.GetValue(testProgress), parse.GetValue(testRunSubdirectory));
-                ProjectWorkflowResult workflow = ProjectWorkflow.Run(parse.GetValue(project)!, parse.GetValue(artifacts)!,
+                    parse.GetValue(testRerunFailed), parse.GetValue(testProgress),
+                    parse.GetValue(artifacts) is not null && parse.GetValue(testRunSubdirectory));
+                ProjectWorkflowResult workflow = ProjectWorkflow.Run(projectPath, artifactPath,
                     destination, parse.GetValue(overwrite), suiteOptions, _cancellationToken);
                 EmitProgramDiagnostics(workflow.Build.Diagnostics);
                 Result("build.test", workflow, $"Built {workflow.Build.OutputPath}; {workflow.Tests.Counts.Passed}/{workflow.Tests.Counts.Planned} tests passed.\nArtifacts: {workflow.ArtifactDirectory}");
                 return workflow.Cancelled ? 6 : workflow.Passed ? 0 : 1;
             }
             ProjectBuildResult result = cacheDirectory is null
-                ? ProjectBuilder.Build(parse.GetValue(project)!, destination,
+                ? ProjectBuilder.Build(projectPath, destination,
                     parse.GetValue(overwrite), parse.GetValue(check), _cancellationToken,
                     preflight: parse.GetValue(preflight))
-                : ProjectBuildCache.Build(parse.GetValue(project)!, Path.GetFullPath(cacheDirectory),
+                : ProjectBuildCache.Build(projectPath, Path.GetFullPath(cacheDirectory),
                     destination, parse.GetValue(overwrite), _cancellationToken);
             EmitProgramDiagnostics(result.Diagnostics);
             return Result("build", result, parse.GetValue(check) ? $"Checked {result.Files.Count} files for {result.Target}."
@@ -79,11 +82,11 @@ public sealed partial class CliApplication
         Command projectCommands = new("project", "Resolve manifests or adopt existing disk images as projects.");
         Command resolve = new("resolve", "Compile checks and return effective settings, dependencies, tools, memory, and disk plan without committing output.");
         resolve.Aliases.Add("inspect");
-        Argument<string> manifest = new("PROJECT") { Description = "Project manifest to resolve." };
+        Argument<string?> manifest = new("PROJECT") { Arity = ArgumentArity.ZeroOrOne, Description = "Project manifest; defaults to project.a2.json or the only *.a2.json in the current directory." };
         resolve.Arguments.Add(manifest);
         resolve.SetAction(parse =>
         {
-            ProjectResolutionResult result = ProjectResolver.Inspect(parse.GetValue(manifest)!,
+            ProjectResolutionResult result = ProjectResolver.Inspect(ResolveProjectPath(parse.GetValue(manifest)),
                 _cancellationToken);
             EmitProgramDiagnostics(result.Diagnostics);
             return Result("project.resolve", result,
@@ -314,6 +317,7 @@ public sealed partial class CliApplication
             (_, "--container") => ["raw", "2mg"],
             ("a2 build", _) when option is "--check" or "--preflight" or "--test" => [],
             ("a2 init", "--language") => ["asm", "basic", "c"],
+            ("a2 init", "--engine") => ["mame", "cpu"],
             ("a2 project import", "--target") => ["apple2plus", "apple2e", "apple2enh", "apple2c"],
             ("a2 cc compile", "--target") => ["apple2", "apple2enh"],
             ("a2 asm compile" or "a2 asm decompile" or "a2 asm listing" or "a2 asm map", "--cpu") => ["6502", "65c02", "w65c02"],
@@ -335,13 +339,13 @@ public sealed partial class CliApplication
         {
             ("a2 build", "--check") => (["--preflight", "--test", "--cache"], []),
             ("a2 build", "--preflight") => (["--check", "--test", "--cache"], []),
-            ("a2 build", "--test") => (["--check", "--preflight", "--cache"], ["--artifacts"]),
+            ("a2 build", "--test") => (["--check", "--preflight", "--cache"], []),
             ("a2 build", "--cache") => (["--check", "--preflight", "--test"], []),
             ("a2 build", "--artifacts") => ([], ["--test"]),
             ("a2 build", "--filter" or "--jobs" or "--rerun-failed" or "--progress" or "--run-subdirectory")
                 => ([], ["--test"]),
             ("a2 test", "--list") => (["--progress", "--run-subdirectory"], []),
-            ("a2 test", "--progress" or "--run-subdirectory") => (["--list"], ["--artifacts"]),
+            ("a2 test", "--progress" or "--run-subdirectory") => (["--list"], []),
             ("a2 disk create", "--size") => (["--blocks"], []),
             ("a2 disk create", "--blocks") => (["--size"], []),
             ("a2 disk attr", "--lock") => (["--unlock"], []),

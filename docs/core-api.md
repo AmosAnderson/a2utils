@@ -254,6 +254,11 @@ return limited `DiskInfo` for a supported contiguous image whose filesystem is
 unknown. A raw 140 KiB image with unknown order reports `unknown` unless an
 input order is supplied.
 
+Both methods require a regular host file and reject containers larger than
+34 MiB before reading image data. Read-only access can follow a symbolic link to
+a regular image, applying the size limit to its target. Pipes, sockets, and
+devices are refused. Transactional write paths reject symbolic links separately.
+
 `Open` requires one unambiguous DOS 3.3 or ProDOS filesystem. `inputOrder`
 accepts `dos` or `prodos`; `inputFs` accepts `dos33` or `prodos`. These select an
 interpretation and never convert bytes. A conflicting 2IMG declaration is
@@ -331,6 +336,9 @@ All instance mutation methods require a writable, safe session:
 - `SetAttributes` changes only supplied values. Locking clears write, rename,
   and destroy permission bits; unlocking sets them. Type/auxiliary changes need
   write permission unless the same call explicitly unlocks with `locked: false`.
+  Directory types cannot be changed, regular files cannot become `DIR`, and
+  volume-root auxiliary types are unsupported. DOS auxiliary types apply only to
+  binary files; unsupported requests fail instead of silently succeeding.
 - `SetTimestamps` assigns creation and modification fields as supported by the
   open filesystem and is mainly used for reproducible staged project builds.
 - `ReadBootSectors` reads 1..16 complete 256-byte track-zero sectors in DOS
@@ -387,7 +395,41 @@ public sealed record ImageWriteResult(string OutputPath, string? BackupPath);
 `OutputPath` is the committed absolute destination. `BackupPath` is non-null
 only for a successful in-place `ImageTransactions.Write`.
 
+### `DiskEditor`
+
+```csharp
+public static class DiskEditor
+{
+    public static ImageWriteResult Edit(
+        string inputPath,
+        Action<DiskSession> edit,
+        string? outputPath = null,
+        bool inPlace = false,
+        bool overwrite = false,
+        string? inputOrder = null,
+        string? inputFileSystem = null,
+        Action<DiskSession>? validate = null,
+        CancellationToken cancellationToken = default);
+}
+```
+
+Edits an existing image transactionally. Choose a separate `outputPath` or
+`inPlace: true`; in-place success returns a unique backup path. The edit callback
+receives a writable staging session. After it returns, the API disposes that
+session and reopens the candidate read-only to verify structure and format
+identity, then calls the optional validator for application-specific content
+assertions. Any callback exception, failed validation, cancellation, or detected
+source/destination change prevents replacement. Existing outputs require
+`overwrite: true`. Create the output parent first.
+
+The callbacks must not dispose or retain their session. Additional input files
+used by an edit remain the caller's responsibility; protect them against output
+aliases with `ImageTransactions.EnsureDistinctPaths`.
+
 ### `ImageTransactions`
+
+For editing existing disk images, prefer the higher-level `DiskEditor` above.
+`ImageTransactions` remains useful for other host files and custom image workflows.
 
 ```csharp
 public static class ImageTransactions
@@ -708,6 +750,10 @@ metadata. `outputPath` does not select an output; it is an optional host path
 used only to reject aliases with the manifest or payload files. The caller must
 open a writable staging session and supply transaction/rollback.
 
+Transfers are bounded to 65,535 entries, a 32 MiB manifest, 32 MiB per payload,
+and 128 MiB of combined payloads. Restore requires regular manifest/payload files
+and honors cancellation while reading them.
+
 See [the manifest reference](disk-images.md#extract-and-restore-a-manifest) for
 the JSON fields and preservation boundary. Failures use codes including
 `destination_exists`, `linked_path`, `unsupported_fork`, `invalid_manifest`,
@@ -725,12 +771,14 @@ public static class HostFiles
 }
 ```
 
-On Linux and macOS, invokes `/usr/bin/stat` with a ten-second internal timeout
-to reject pipes, sockets, devices, and other nonregular inputs before a caller
-could block opening them. On Windows this helper returns immediately; callers
-apply normal attributes and stream checks. Supported Unix failures include
+Checks file attributes on all platforms and rejects directories and devices.
+On Linux and macOS, additionally invokes `/usr/bin/stat` with a ten-second
+internal timeout to reject pipes, sockets, and other nonregular inputs before a
+caller could block opening them. Supported Unix failures include
 `unsupported_host_entry`, `import_host_inspection_timeout`, and
 `unsupported_host_platform`; missing `stat` raises `IOException`.
+The check follows symbolic links; write callers enforce the transaction link
+policy before calling it.
 
 ## Program files and diagnostics
 
@@ -1815,6 +1863,12 @@ transactionally restoring it to the requested output. It rechecks inputs during
 the restore and sets `ProjectBuildResult.CacheHit` to `true`; a normal build or
 cache miss reports `false`.
 
+cc65 projects without `toolchainRoot` build successfully but never consume or
+populate cache entries, because inherited external headers/libraries are not fully
+fingerprinted. Cache misses compile once and retain the validated staged image
+until commit, rechecking input hashes, added compiler inputs, output state, and
+generated-path collisions before replacement.
+
 The output must be outside the cache directory. Cache metadata and images are
 bounded to 1,024 entries per normalized manifest path, 8 MiB per metadata entry,
 34 MiB per image, and 8,192 inputs of at most 64 MiB each and 512 MiB combined.
@@ -1844,8 +1898,9 @@ public static class ProjectWorkflow
 }
 ```
 
-`Run` requires manifest execution settings. It preflights, validates suite inputs
-and symbols, builds with input/image hash guards before commit, and runs each
+`Run` requires manifest execution settings. It compiles and validates one staged
+image, validates selected suite inputs and symbols, rechecks input/image and
+destination evidence before committing that image, and runs each selected
 case with the selected mount pinned to the build. Other disks are also pinned.
 The artifact directory must be new unless `suiteOptions.CreateRunSubdirectory`
 creates a unique child beneath the supplied parent. Invalid manifest/suite fields,
@@ -2112,10 +2167,12 @@ public static class ExecutionSuiteRunner
 
 `Load` accepts schema version 1 with 1..128 nonblank test paths and resolves
 them relative to the suite file. Invalid JSON or suite shape uses
-`execution.invalid_suite`. `Plan` loads and intrinsically validates every case,
+`execution.invalid_suite`. `Plan` parses case definitions for names and paths,
 applies up to 32 case-insensitive name/path filters of at most 256 characters,
 and can select failures from an earlier `suite-result.json` without creating
-artifacts. `Run` and `RunAsync` use stable suite indexes for case identities and
+artifacts. Environment profiles/locks and intrinsic validation are applied only
+to selected cases. Excluded cases still need readable definition JSON, but their
+external inputs need not be installed. `Run` and `RunAsync` use stable suite indexes for case identities and
 artifact directory names, run sequentially by default, and accept `Jobs` from
 1 through 16 for bounded parallel execution. They can flush ordered progress
 events and create a unique child beneath an artifact parent. Cancellation stops
@@ -2360,6 +2417,14 @@ public sealed record ProjectStarterResult(
     string Directory, string Language, bool NeedsEnvironmentConfiguration,
     IReadOnlyList<string> Files);
 
+public static class ProjectStarter
+{
+    public static ProjectStarterResult Create(
+        string directory, string language = "asm", string? environmentProfile = null,
+        CancellationToken cancellationToken = default, bool bareMetal = false,
+        string engine = "mame");
+}
+
 public sealed record PreparedRoutine(
     int Origin, int EntryPoint, byte[] Bytes,
     IReadOnlyDictionary<string, string> InputHashes,
@@ -2385,7 +2450,7 @@ public sealed record ProjectAssetCompilation(
 | `Setup.DevelopmentEnvironment.CheckAsync`, `CreateLock`, `ValidateLock` | Check tool readiness and pin/verify file identities and directory membership |
 | `Setup.DevelopmentEnvironment.Apply` | Fill project or execution defaults from a profile |
 | `Setup.DevelopmentEnvironment.ValidateExecutionLock`, `ValidateProjectLock` | Validate both lock content and the effective inputs used by a run/build |
-| `Setup.ProjectStarter.Create` | Stage a BASIC/assembly/C starter or an assembly bare-metal boot project into a new directory |
+| `Setup.ProjectStarter.Create` | Stage a BASIC/assembly/C starter, assembly boot project, or CPU-only assembly routine into a new directory |
 | `Execution.ExecutionStep`, `ExecutionCondition`, `GameInput` | Describe ordered waits, assertions, keyboard/game input, delays, and checkpoints |
 | `Execution.ExecutionRunner.ConditionMatches` | Compare captured memory/register/text evidence with a condition |
 | `Execution.RoutineHarness.Assemble`, `Prepare`, `ValidateInputs` | Read/assemble a routine, retain payload/source evidence, and revalidate dependencies |
@@ -2397,6 +2462,11 @@ public sealed record ProjectAssetCompilation(
 | `Projects.Cc65Feedback.ParseLabels`, `ParseSegments`, `ParseDiagnostics`, `ParseDebugMap` | Normalize compiler/linker feedback and ld65 source mappings for callers |
 | `Projects.Cc65LinkerConfiguration.Validate` | Validate the supported single-output linker configuration subset |
 | `Basic.ApplesoftTools.RuntimeDiagnostics` | Recognize captured Applesoft errors, optionally mapping through a build's line maps |
+
+`ProjectStarter.Create(engine: "cpu")` creates an assembly routine and test that
+need no external tools or environment profile. This mode rejects BASIC/C,
+`bareMetal`, and `environmentProfile`. The default `mame` preserves the existing
+full-machine starter behavior. All modes require a new destination directory.
 
 `ExecutionResult` adds `Steps`, `Checkpoints`, `Cycles`, `Audio`,
 `ScreenshotComparison`, and environment fingerprint evidence. Project results

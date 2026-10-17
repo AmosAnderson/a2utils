@@ -41,10 +41,16 @@ public static class HostFiles
 
     /// <summary>
     /// Rejects Unix pipes, sockets, devices, and other nonregular entries before opening them.
-    /// Windows callers use their existing file-attribute and stream checks.
+    /// Symbolic links are followed; callers enforce any separate write-path link policy.
+    /// Windows uses file attributes; Unix additionally checks the native file mode.
     /// </summary>
     public static void EnsureRegularFile(string path, CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+        path = Path.GetFullPath(path);
+        FileAttributes attributes = File.GetAttributes(path);
+        if ((attributes & (FileAttributes.Directory | FileAttributes.Device)) != 0)
+            throw new DiskException("unsupported_host_entry", "Only regular host files are supported.");
         if (OperatingSystem.IsWindows())
         {
             return;
@@ -55,7 +61,7 @@ public static class HostFiles
         bool mac = OperatingSystem.IsMacOS();
         if (!mac && !OperatingSystem.IsLinux())
         {
-            throw new DiskException("unsupported_host_platform", "Directory import supports Windows, Linux, and macOS hosts.", 3);
+            throw new DiskException("unsupported_host_platform", "Host file access supports Windows, Linux, and macOS hosts.", 3);
         }
         ProcessStartInfo start = new("/usr/bin/stat")
         {
@@ -64,6 +70,7 @@ public static class HostFiles
             RedirectStandardError = true,
             CreateNoWindow = true
         };
+        start.ArgumentList.Add("-L");
         start.ArgumentList.Add(mac ? "-f" : "-c");
         start.ArgumentList.Add(mac ? "%p" : "%f");
         if (!mac)
@@ -106,12 +113,12 @@ public static class HostFiles
             uint mode = mac ? Convert.ToUInt32(modeText, 8) : uint.Parse(modeText, NumberStyles.HexNumber, CultureInfo.InvariantCulture);
             if ((mode & 0xF000) != 0x8000)
             {
-                throw new DiskException("unsupported_host_entry", "Import accepts regular host files only; pipes, sockets, and devices are refused.");
+                throw new DiskException("unsupported_host_entry", "Only regular host files are supported; pipes, sockets, and devices are refused.");
             }
         }
         catch (System.ComponentModel.Win32Exception exception)
         {
-            throw new IOException("Directory import requires the standard /usr/bin/stat utility on Unix hosts.", exception);
+            throw new IOException("Host file inspection requires the standard /usr/bin/stat utility on Unix hosts.", exception);
         }
     }
 }

@@ -11,6 +11,34 @@ namespace A2Utils.Core.Tests;
 
 public sealed class ProjectWorkflowTests : IDisposable
 {
+    [Fact]
+    public void Run_CompilerProject_CompilesOnceBeforeRunningTests()
+    {
+        string log = At("compiler-invocations.txt");
+        File.WriteAllText(At("main.c"), $"// A2_COMPILER_LOG {log}\nint main(void) {{ return 0; }}\n");
+        File.WriteAllText(At("routine.asm"), "rts\n");
+        Write(At("project.json"), new ProjectManifest
+        {
+            Output = "built.po",
+            Cc65 = new() { Compiler = TestPaths.ExecutionHost() },
+            Files = [new() { Source = "main.c", Path = "MAIN", Kind = "cc65" }],
+            Execution = new("suite.json")
+        });
+        Write(At("case.json"), new ExecutionSpec
+        {
+            Engine = "cpu",
+            Machine = "apple2e",
+            Routine = new() { Source = "routine.asm" }
+        });
+        Write(At("suite.json"), new ExecutionSuite { Tests = ["case.json"] });
+
+        ProjectWorkflowResult result = ProjectWorkflow.Run(At("project.json"), At("single-compile-evidence"));
+
+        Assert.True(result.Passed);
+        Assert.False(result.Build.Preflight);
+        Assert.Single(File.ReadAllLines(log));
+    }
+
     private readonly string _directory = Path.Combine(TestPaths.TemporaryRoot, "a2-project-test-" + Guid.NewGuid().ToString("N"));
 
     public ProjectWorkflowTests() => Directory.CreateDirectory(_directory);
@@ -115,7 +143,7 @@ public sealed class ProjectWorkflowTests : IDisposable
     }
 
     [Fact]
-    public void Run_FilterExcludesInvalidCase_StillRefusesBeforeReplacingOutput()
+    public void Run_FilterExcludesInvalidCase_ValidatesOnlySelectedCase()
     {
         Setup();
         ExecutionSpec first = ExecutionSpec.Load(At("case.json")) with
@@ -129,13 +157,22 @@ public sealed class ProjectWorkflowTests : IDisposable
         Write(At("suite.json"), new ExecutionSuite { Tests = ["case.json", "case-two.json"] });
         File.WriteAllBytes(At("build.po"), [1, 2, 3]);
 
-        DiskException error = Assert.Throws<DiskException>(() => ProjectWorkflow.Run(
+        ProjectWorkflowResult result = ProjectWorkflow.Run(
             At("project.json"), At("filtered-evidence"), null, true,
-            new ExecutionSuiteRunOptions { Filters = ["name:selected"] }));
+            new ExecutionSuiteRunOptions { Filters = ["name:selected"] });
 
+        Assert.True(result.Passed);
+        Assert.Equal("excluded", result.Tests.Cases[0].Status);
+        Assert.Equal("passed", result.Tests.Cases[1].Status);
+        Assert.False(Directory.Exists(At("filtered-evidence/case-001")));
+
+        byte[] built = File.ReadAllBytes(At("build.po"));
+        DiskException error = Assert.Throws<DiskException>(() => ProjectWorkflow.Run(
+            At("project.json"), At("invalid-evidence"), null, true,
+            new ExecutionSuiteRunOptions { Filters = ["name:invalid"] }));
         Assert.Equal("execution.machine", error.Code);
-        Assert.Equal(new byte[] { 1, 2, 3 }, File.ReadAllBytes(At("build.po")));
-        Assert.False(Directory.Exists(At("filtered-evidence")));
+        Assert.Equal(built, File.ReadAllBytes(At("build.po")));
+        Assert.False(Directory.Exists(At("invalid-evidence")));
     }
 
     [Fact]

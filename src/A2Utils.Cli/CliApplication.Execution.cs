@@ -15,16 +15,18 @@ public sealed partial class CliApplication
     {
         Command runCommand = new("run", "Run a versioned Apple II execution specification through its configured engine.");
         Argument<string> runSpec = new("SPEC");
-        Option<string> runArtifacts = new("--artifacts")
+        Option<string?> runArtifacts = new("--artifacts")
         {
-            Required = true,
-            Description = "New output directory for isolated disks, observations and results."
+            Description = "Evidence directory; defaults to a unique artifacts/runs/run-* directory beside SPEC. Explicit paths must be new unless --run-subdirectory is used."
         };
+        Option<bool> runSubdirectoryOption = new("--run-subdirectory") { Description = "Create a unique run-* child beneath an explicit --artifacts parent." };
         runCommand.Arguments.Add(runSpec);
         runCommand.Options.Add(runArtifacts);
+        runCommand.Options.Add(runSubdirectoryOption);
         runCommand.SetAction(parse =>
         {
-            string directory = Path.GetFullPath(parse.GetValue(runArtifacts)!);
+            string directory = ResolveArtifactPath(parse.GetValue(runSpec)!, parse.GetValue(runArtifacts),
+                parse.GetValue(runSubdirectoryOption));
             ImageTransactions.ValidatePath(directory);
             ExecutionResult run = ExecutionRunner.Run(ExecutionSpec.Load(parse.GetValue(runSpec)!), directory, _cancellationToken);
             Result("run", run, $"{run.Name}: {(run.Passed ? "passed" : "failed")} ({run.StopReason})\nArtifacts: {run.ArtifactDirectory}");
@@ -36,7 +38,7 @@ public sealed partial class CliApplication
         Argument<string> suite = new("SUITE");
         Option<string?> suiteArtifacts = new("--artifacts")
         {
-            Description = "New suite directory, or a parent directory with --run-subdirectory. Required unless --list is used."
+            Description = "Evidence directory; defaults to a unique artifacts/runs/run-* directory beside SUITE. Explicit paths must be new unless --run-subdirectory is used."
         };
         Option<bool> list = new("--list") { Description = "List discovered and selected cases without creating artifacts or running them." };
         Option<string[]> filters = new("--filter")
@@ -71,10 +73,9 @@ public sealed partial class CliApplication
                     $"{item.Id} {(item.Selected ? "selected" : "excluded"),-8} {item.Name} ({item.Path})"));
                 return Result("test.list", plan, text + $"\n{plan.Planned}/{plan.Discovered} cases selected.");
             }
-            string? requestedArtifacts = parse.GetValue(suiteArtifacts);
-            if (string.IsNullOrWhiteSpace(requestedArtifacts))
-                throw new DiskException("execution.artifacts_required", "test requires --artifacts unless --list is used.", 2);
-            ExecutionSuiteResult summary = ExecutionSuiteRunner.Run(parse.GetValue(suite)!, requestedArtifacts,
+            string artifactPath = ResolveArtifactPath(parse.GetValue(suite)!, parse.GetValue(suiteArtifacts));
+            if (parse.GetValue(suiteArtifacts) is null) options = options with { CreateRunSubdirectory = false };
+            ExecutionSuiteResult summary = ExecutionSuiteRunner.Run(parse.GetValue(suite)!, artifactPath,
                 options, _cancellationToken);
             ExecutionSuiteCounts counts = summary.Counts;
             Result("test", summary, $"{counts.Passed}/{counts.Planned} execution tests passed; " +

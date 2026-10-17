@@ -36,6 +36,13 @@ public static class DiskDiff
         string? beforeOrder = null, string? beforeFileSystem = null,
         string? afterOrder = null, string? afterFileSystem = null,
         CancellationToken cancellationToken = default)
+        => CompareCore(beforePath, afterPath, beforeOrder, beforeFileSystem,
+            afterOrder, afterFileSystem, cancellationToken);
+
+    internal static DiskDifference CompareCore(string beforePath, string afterPath,
+        string? beforeOrder = null, string? beforeFileSystem = null,
+        string? afterOrder = null, string? afterFileSystem = null,
+        CancellationToken cancellationToken = default, Action? snapshotsCaptured = null)
     {
         string beforeFull = Path.GetFullPath(beforePath);
         string afterFull = Path.GetFullPath(afterPath);
@@ -50,6 +57,7 @@ public static class DiskDiff
         {
             WriteSnapshot(beforeSnapshot, beforeBytes, cancellationToken);
             WriteSnapshot(afterSnapshot, afterBytes, cancellationToken);
+            snapshotsCaptured?.Invoke();
             using DiskSession before = DiskSession.Open(beforeSnapshot, beforeOrder, beforeFileSystem);
             using DiskSession after = DiskSession.Open(afterSnapshot, afterOrder, afterFileSystem);
             DiskInfo beforeInfo = before.Info with { Path = beforeFull };

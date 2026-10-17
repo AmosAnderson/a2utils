@@ -44,21 +44,22 @@ public static class ProjectBuildCache
         PrepareDirectory(entries);
         PrepareDirectory(objects);
 
+        bool cacheable = !resolved.Manifest.Files.Any(file => file.Kind == "cc65")
+            || resolved.Manifest.Cc65?.ToolchainRoot is not null;
         Dictionary<string, InputObservation> observed = new(PathComparer);
-        ProjectBuildResult? hit = TryRestore(resolved, destination, cache, entries,
-            objects, overwrite, observed, cancellationToken);
+        ProjectBuildResult? hit = cacheable ? TryRestore(resolved, destination, cache, entries,
+            objects, overwrite, observed, cancellationToken) : null;
         if (hit is not null) return hit;
 
-        ProjectBuildResult preview = ProjectBuilder.BuildResolved(resolved, overwrite,
-            cancellationToken: cancellationToken, preflight: true);
+        using StagedProjectBuild staged = ProjectBuilder.Stage(resolved, overwrite, cancellationToken);
+        ProjectBuildResult preview = staged.Preview;
         EnsureOutsideCache(preview.OutputPath, cache);
         EnsureInputsOutsideCache(preview.Inputs, cache);
         ImageTransactions.EnsureDistinctPaths(resolved.ManifestPath, preview.OutputPath);
-        ProjectBuildResult built = ProjectBuilder.BuildVerified(resolved,
-            overwrite, preview, cancellationToken);
+        ProjectBuildResult built = staged.Commit();
         if (!built.ToolVersion.Equals(CurrentToolVersion, StringComparison.Ordinal))
             throw Error("version", "The completed build did not report the current tool version.", 6);
-        if (!InputsMatch(built.Inputs, null, cancellationToken))
+        if (!cacheable || !InputsMatch(built.Inputs, null, cancellationToken))
             return built with { CacheHit = false };
 
         string contentKey = ComputeContentKey(resolved.ManifestPath, built);

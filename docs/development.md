@@ -14,8 +14,9 @@ index; this guide focuses on architecture, safe integration patterns, and builds
 Use the SDK selected by [global.json](../global.json): .NET SDK **10.0.400**,
 with patch roll-forward enabled. All projects target `net10.0`; this is modern
 .NET, not the older Windows-only .NET Framework. PowerShell 7 (`pwsh`) is needed
-for the packaging script and fixture generator. Unix directory imports and
-host program inputs use `/usr/bin/stat` to reject nonregular files before reading them.
+for the packaging script and fixture generator. On Linux/macOS, disk images,
+directory imports, and host program inputs use `/usr/bin/stat` to reject
+nonregular files before reading them.
 
 See [external dependency setup](setup.md) for installation sources, compiler and
 emulator setup, ROM audits, OS templates, and optional real-machine test variables.
@@ -215,26 +216,14 @@ using (DiskSession source = DiskSession.Open(input))
     Console.WriteLine($"Read {originalProgram.Length} payload bytes.");
 }
 
-ImageWriteResult result = ImageTransactions.Write(
+ImageWriteResult result = DiskEditor.Edit(
     inputPath: input,
     outputPath: output,
-    inPlace: false,
-    overwrite: false,
-    editTemporary: temporary =>
+    inputOrder: order,
+    inputFileSystem: fileSystem,
+    edit: staged => staged.Add("DEMO", payload, type: "BIN", auxType: 0x2000),
+    validate: check =>
     {
-        using DiskSession staged = DiskSession.Open(
-            temporary, order, fileSystem, writable: true);
-        staged.Add("DEMO", payload, type: "BIN", auxType: 0x2000);
-        staged.Flush();
-    },
-    validate: temporary =>
-    {
-        using DiskSession check = DiskSession.Open(temporary, order, fileSystem);
-        if (check.Info.IsDubious || check.Verify().Any(diagnostic =>
-            diagnostic.Severity.Equals("error", StringComparison.OrdinalIgnoreCase)))
-        {
-            throw new DiskException("sample.validation", "Staged image failed validation.", 4);
-        }
         DiskEntry added = check.GetEntry("DEMO");
         if (added.FileType != 0x06 || added.AuxType != 0x2000 ||
             !check.ReadFile("DEMO").AsSpan().SequenceEqual(payload))
@@ -260,13 +249,18 @@ file. A default session is read-only. `Info.IsReadOnly` describes that session;
 session therefore does not prove that the underlying image is write-protected.
 
 DiskArc can modify its supplied stream before an operation fails. Opening an
-original image with `writable: true` bypasses host rollback protection. Always
-open writable sessions on the temporary path supplied by `ImageTransactions`:
+original image with `writable: true` bypasses host rollback protection. Prefer
+`DiskEditor.Edit`: it owns staging, writable-session disposal, reopened structural
+and format validation, the optional requested-content check, backups, and commit.
+Multiple edits in its callback commit together or are discarded together.
+
+The lower-level `ImageTransactions` API remains available for custom workflows:
 
 1. `Write` copies the input to a temporary sibling of the destination.
 2. The edit callback modifies that temporary image and disposes its session.
 3. The validation callback reopens the result and checks structure and intended
-   content. Although optional in the API, supply it for application writes.
+   content. `DiskEditor` supplies structural checks automatically; its optional
+   validator lets the caller assert the intended content.
 4. The transaction flushes data and checks source/destination fingerprints for
    concurrent changes before replacing the destination entry.
 5. In-place writes return a uniquely named `.bak` path; output-copy writes leave
@@ -403,7 +397,7 @@ dotnet run --project third_party/evaluation/DiskEngineProbe.csproj -c Release
 
 ## Packaging and local installation
 
-The shared version is currently `0.6.1-dev` in
+The shared version is currently `0.6.2-dev` in
 [Directory.Build.props](../Directory.Build.props). When changing it, also update
 versioned local installation examples. Release builds take their version from
 the Git tag instead. The CLI package ID is `A2Utils.Tool`; its command is `a2`.
@@ -413,7 +407,7 @@ From the repository root:
 ```sh
 pwsh -File eng/Package.ps1
 pwsh -File eng/Package.ps1 -Runtime win-x64 -SkipTests
-pwsh -File eng/Package.ps1 -Runtime win-x64 -Version 0.6.1-dev -SkipTests
+pwsh -File eng/Package.ps1 -Runtime win-x64 -Version 0.6.2-dev -SkipTests
 ```
 
 The default runtime is the host's runtime identifier. Accepted explicit values
@@ -424,10 +418,17 @@ execution on that platform. Unix archives also require `tar` on the build host.
 
 | Artifact | Location and requirements |
 | --- | --- |
-| .NET tool package | `artifacts/packages/A2Utils.Tool.0.6.1-dev.nupkg`; running the installed tool requires the .NET 10 runtime |
+| .NET tool package | `artifacts/packages/A2Utils.Tool.0.6.2-dev.nupkg`; running the installed tool requires the .NET 10 runtime |
 | Self-contained files | `artifacts/publish/<RID>/`; includes the runtime and uses `a2.exe` on Windows or `a2` on Unix |
 | Windows archive | `artifacts/a2utils-<RID>.zip` |
 | Linux/macOS archive | `artifacts/a2utils-<RID>.tar.gz` |
+
+Every package publishes into a fresh staging directory. Once publishing,
+license collection, and archive creation succeed, the script replaces the
+platform output directory and archive. Files left by earlier packages cannot
+enter a new archive; failed publishing or notice collection preserves prior
+outputs. `eng/Test-Release.ps1` also runs offline packaging checks for ZIP and
+tar archives, stale-file removal, retries, and failure preservation.
 
 The script copies dependency notices, adds runtime notices to self-contained
 output, creates the archive, and prints its SHA-256 hash. Keep accompanying
@@ -443,7 +444,7 @@ version. Omitting this option preserves the local artifact names above.
 Install the tool into this checkout:
 
 ```sh
-dotnet tool install A2Utils.Tool --version 0.6.1-dev --add-source artifacts/packages --tool-path artifacts/tools --configfile NuGet.Config
+dotnet tool install A2Utils.Tool --version 0.6.2-dev --add-source artifacts/packages --tool-path artifacts/tools --configfile NuGet.Config
 ```
 
 Use `dotnet tool update` with the same arguments when upgrading an existing
@@ -464,17 +465,17 @@ and lightweight tags work; tags on unmerged branches are rejected. Numeric
 version identifiers cannot have leading zeroes; build metadata is unsupported.
 
 To release a reviewed commit, update your checkout and push a new version tag.
-For example, to validate the current 0.5 line as a prerelease:
+For example, to validate a 0.6.2 release candidate:
 
 ```sh
 git switch main
 git pull --ff-only origin main
-git tag -a v0.5.0-rc.1 -m "Release 0.5.0-rc.1"
-git push origin v0.5.0-rc.1
+git tag -a v0.6.2-rc.1 -m "Release 0.6.2-rc.1"
+git push origin v0.6.2-rc.1
 ```
 
 The tag supplies the package and binary version; editing `Directory.Build.props`
-is unnecessary. Use a prerelease tag such as `v0.5.0-rc.1` to mark the GitHub
+is unnecessary. Use a prerelease tag such as `v0.6.2-rc.1` to mark the GitHub
 Release as a prerelease. Push one release tag at a time and keep existing
 release tags unchanged.
 

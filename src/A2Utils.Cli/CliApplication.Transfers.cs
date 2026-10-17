@@ -118,7 +118,8 @@ public sealed partial class CliApplication
         Command command = new("import", "Import the contents of a host directory in one image transaction.");
         Argument<string> image = new("IMAGE");
         Argument<string> hostDirectory = new("HOSTDIRECTORY");
-        Option<string> destination = new("--to") { DefaultValueFactory = _ => "/", Description = "Existing image directory; defaults to volume root." };
+        Option<string> destination = new("--to") { DefaultValueFactory = _ => "/", Description = "Directory inside the image (alias --into), not a host output path; defaults to volume root. Use --output for the host image." };
+        destination.Aliases.Add("--into");
         Option<string?> type = new("--type") { Description = "Type for every imported file; defaults to TXT with --format text." };
         Option<string> format = new("--format") { DefaultValueFactory = _ => "binary", Description = "binary payloads or UTF-8 text." };
         Option<bool> recursive = new("--recursive") { Description = "Include host subdirectories (ProDOS only)." };

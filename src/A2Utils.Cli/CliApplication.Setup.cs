@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 
 using System.CommandLine;
+using A2Utils.Core;
 using A2Utils.Core.Setup;
 
 namespace A2Utils.Cli;
@@ -14,11 +15,23 @@ public sealed partial class CliApplication
         root.Subcommands.Add(environment);
         Command check = new("check", "Check configured tools, pinned MAME version, ROMs and the OS template.");
         Argument<string> checkProfile = new("PROFILE");
+        Option<bool> smoke = new("--smoke") { Description = "Build and execute an original mailbox program using the configured template; retain immutable evidence." };
+        Option<string?> artifacts = new("--artifacts") { Description = "New smoke evidence directory; defaults to a unique artifacts/environment-checks/run-* directory beside PROFILE." };
         check.Arguments.Add(checkProfile);
+        check.Options.Add(smoke);
+        check.Options.Add(artifacts);
         check.SetAction(parse =>
         {
-            EnvironmentCheckResult result = DevelopmentEnvironment.CheckAsync(DevelopmentEnvironmentProfile.Load(parse.GetValue(checkProfile)!), _cancellationToken).GetAwaiter().GetResult();
-            Result("env.check", result, string.Join(Environment.NewLine, result.Checks.Select(item => $"{(item.Passed ? "OK" : "FAIL")} {item.Code}: {item.Message}")));
+            string profilePath = Path.GetFullPath(parse.GetValue(checkProfile)!);
+            if (!parse.GetValue(smoke) && parse.GetValue(artifacts) is not null)
+                throw new DiskException("setup.smoke_options", "--artifacts requires --smoke.", 2);
+            string artifactPath = parse.GetValue(artifacts) ?? Path.Combine(Path.GetDirectoryName(profilePath)!,
+                "artifacts", "environment-checks", "run-" + DateTime.UtcNow.ToString("yyyyMMdd-HHmmss") + "-" + Guid.NewGuid().ToString("N"));
+            EnvironmentCheckResult result = parse.GetValue(smoke)
+                ? DevelopmentEnvironment.SmokeAsync(profilePath, artifactPath, _cancellationToken).GetAwaiter().GetResult()
+                : DevelopmentEnvironment.CheckAsync(DevelopmentEnvironmentProfile.Load(profilePath), _cancellationToken).GetAwaiter().GetResult();
+            Result("env.check", result, string.Join(Environment.NewLine, result.Checks.Select(item => $"{(item.Passed ? "OK" : "FAIL")} {item.Code}: {item.Message}"))
+                + (result.Smoke is { } evidence ? "\nEvidence: " + evidence.ArtifactDirectory : ""));
             return result.Ready ? 0 : 1;
         });
         environment.Subcommands.Add(check);

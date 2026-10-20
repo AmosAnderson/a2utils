@@ -155,7 +155,9 @@ public sealed partial class CliApplication
                     EmitDiagnostics(info.Diagnostics);
                     string free = info.FreeBytes is { } freeBytes ? $"{freeBytes:N0} bytes free" : "free space unknown";
                     return Result(name, info, $"{info.Container} | {info.Order} order | {info.FileSystem}\n"
-                        + $"Volume: {info.VolumeName} | {info.SizeBytes:N0} bytes | {free}");
+                        + $"Volume: {info.VolumeName} | {info.SizeBytes:N0} bytes | {free}\n"
+                        + string.Join(Environment.NewLine, info.Capabilities.Operations.Select(operation =>
+                            $"{operation.Operation}: {(operation.Supported ? "supported" : string.Join(", ", operation.Reasons))}")));
                 }
                 using DiskSession session = Open(parse.GetValue(image)!);
                 EmitDiagnostics(session.Info.Diagnostics);
@@ -457,8 +459,7 @@ public sealed partial class CliApplication
         {
             CliResultEnvelope envelope = new(1, command, data, _pendingDiagnostics)
             {
-                ResultSchemaId = command == "project.resolve"
-                    ? CliContractSchemas.ProjectResolution : CliContractSchemas.Result
+                ResultSchemaId = ResultSchemas.ForCommand(command)
             };
             _output.WriteLine(JsonSerializer.Serialize(envelope, FileTransfer.JsonOptions));
         }

@@ -5,11 +5,8 @@
   "type": "object",
   "additionalProperties": false,
   "properties": {
-    "schemaVersion": { "const": 1 },
-    "expectedSha256": {
-      "type": ["string", "null"],
-      "pattern": "^[A-Fa-f0-9]{64}$"
-    },
+    "schemaVersion": {"const": 1},
+    "expectedSha256": {"type": ["string", "null"], "pattern": "^[A-Fa-f0-9]{64}$"},
     "timestamp": {
       "type": "string",
       "pattern": "^(?:19[89][0-9]|20[0-3][0-9])-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12][0-9]|3[01])(?:T(?:[01][0-9]|2[0-3]):[0-5][0-9](?::00(?:\\.0{1,7})?)?Z?)?$",
@@ -23,98 +20,178 @@
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "action": { "enum": ["add", "replace", "delete", "rename", "mkdir", "attr"] },
-          "path": { "type": "string", "minLength": 1 },
-          "source": { "type": ["string", "null"], "minLength": 1 },
+          "action": {"enum": ["add", "replace", "delete", "rename", "mkdir", "attr", "copy", "move", "import", "restore"]},
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Destination entry for copy/move; existing destination directory for import; / for manifest restore."
+          },
+          "source": {
+            "type": ["string", "null"],
+            "minLength": 1,
+            "description": "Host payload, import directory, or extraction manifest, relative to this change-set file."
+          },
           "hex": {
             "type": ["string", "null"],
             "pattern": "^(?: *[A-Fa-f0-9] *[A-Fa-f0-9])* *$",
             "description": "Complete hexadecimal bytes with optional spaces; an empty string represents an empty payload."
           },
-          "expectedSourceSha256": {
+          "expectedSourceSha256": {"type": ["string", "null"], "pattern": "^[A-Fa-f0-9]{64}$"},
+          "type": {"type": ["string", "null"]},
+          "auxType": {"type": ["integer", "null"], "minimum": 0, "maximum": 65535},
+          "newName": {"type": ["string", "null"], "minLength": 1},
+          "recursive": {"type": "boolean", "default": false},
+          "parents": {"type": "boolean", "default": false},
+          "locked": {"type": ["boolean", "null"]},
+          "sourcePath": {
             "type": ["string", "null"],
-            "pattern": "^[A-Fa-f0-9]{64}$"
+            "minLength": 1,
+            "description": "Source entry in the staged image, or the explicit sourceImage for copy."
           },
-          "type": { "type": ["string", "null"] },
-          "auxType": { "type": ["integer", "null"], "minimum": 0, "maximum": 65535 },
-          "newName": { "type": ["string", "null"], "minLength": 1 },
-          "recursive": { "type": "boolean", "default": false },
-          "parents": { "type": "boolean", "default": false },
-          "locked": { "type": ["boolean", "null"] }
+          "sourceImage": {
+            "type": ["string", "null"],
+            "minLength": 1,
+            "description": "External image for same-filesystem copy. Omit to copy within the staged image."
+          },
+          "sourceOrder": {"type": ["string", "null"], "minLength": 1},
+          "sourceFileSystem": {"type": ["string", "null"], "minLength": 1},
+          "format": {"enum": ["binary", "text", null]}
         },
         "required": ["action", "path"],
         "allOf": [
           {
-            "if": { "properties": { "action": { "enum": ["add", "replace"] } } },
+            "if": {"properties": {"action": {"enum": ["add", "replace"]}}},
             "then": {
               "oneOf": [
-                { "required": ["source"], "properties": { "source": { "type": "string" }, "hex": { "type": "null" } } },
-                { "required": ["hex"], "properties": { "hex": { "type": "string" }, "source": { "type": "null" } } }
+                {"required": ["source"], "properties": {"source": {"type": "string"}, "hex": {"type": "null"}}},
+                {"required": ["hex"], "properties": {"hex": {"type": "string"}, "source": {"type": "null"}}}
               ]
             }
           },
           {
-            "if": { "properties": { "action": { "const": "add" } } },
-            "then": {
-              "required": ["type"],
-              "properties": { "type": { "type": "string", "minLength": 1 } }
-            }
+            "if": {"properties": {"action": {"enum": ["add"]}}},
+            "then": {"required": ["type"], "properties": {"type": {"type": "string", "minLength": 1}}}
           },
           {
-            "if": { "properties": { "action": { "const": "rename" } } },
-            "then": {
-              "required": ["newName"],
-              "properties": { "newName": { "type": "string", "minLength": 1 } }
-            }
+            "if": {"properties": {"action": {"enum": ["rename"]}}},
+            "then": {"required": ["newName"], "properties": {"newName": {"type": "string", "minLength": 1}}}
           },
           {
-            "if": { "properties": { "action": { "enum": ["delete", "rename", "mkdir", "attr"] } } },
-            "then": {
-              "properties": {
-                "source": { "type": "null" },
-                "hex": { "type": "null" },
-                "expectedSourceSha256": { "type": "null" }
-              }
-            }
+            "if": {"properties": {"action": {"enum": ["copy", "move"]}}},
+            "then": {"required": ["sourcePath"], "properties": {"sourcePath": {"type": "string", "minLength": 1}}}
           },
           {
-            "if": { "properties": { "action": { "enum": ["replace", "delete", "rename", "mkdir"] } } },
-            "then": {
-              "properties": {
-                "type": { "type": "null" },
-                "auxType": { "type": "null" }
-              }
-            }
+            "if": {"properties": {"action": {"enum": ["import", "restore"]}}},
+            "then": {"required": ["source"], "properties": {"source": {"type": "string", "minLength": 1}}}
+          },
+          {"if": {"properties": {"action": {"enum": ["restore"]}}}, "then": {"properties": {"path": {"const": "/"}}}},
+          {
+            "if": {"properties": {"action": {"enum": ["delete", "rename", "mkdir", "attr", "copy", "move"]}}},
+            "then": {"properties": {"source": {"type": "null"}}}
           },
           {
-            "if": { "properties": { "action": { "enum": ["add", "replace", "delete", "mkdir", "attr"] } } },
-            "then": { "properties": { "newName": { "type": "null" } } }
+            "if": {"properties": {"action": {"enum": ["delete", "rename", "mkdir", "attr", "copy", "move", "import", "restore"]}}},
+            "then": {"properties": {"hex": {"type": "null"}}}
           },
           {
-            "if": { "properties": { "action": { "enum": ["add", "replace", "rename", "mkdir", "attr"] } } },
-            "then": { "properties": { "recursive": { "const": false } } }
+            "if": {"properties": {"action": {"enum": ["replace", "delete", "rename", "mkdir", "copy", "move", "restore"]}}},
+            "then": {"properties": {"type": {"type": "null"}}}
           },
           {
-            "if": { "properties": { "action": { "enum": ["replace", "delete", "rename", "attr"] } } },
-            "then": { "properties": { "parents": { "const": false } } }
+            "if": {"properties": {"action": {"enum": ["replace", "delete", "rename", "mkdir", "copy", "move", "restore"]}}},
+            "then": {"properties": {"auxType": {"type": "null"}}}
           },
           {
-            "if": { "properties": { "action": { "enum": ["add", "replace", "delete", "rename", "mkdir"] } } },
-            "then": { "properties": { "locked": { "type": "null" } } }
+            "if": {
+              "properties": {"action": {"enum": ["add", "replace", "delete", "mkdir", "attr", "copy", "move", "import", "restore"]}}
+            },
+            "then": {"properties": {"newName": {"type": "null"}}}
           },
           {
-            "if": { "properties": { "action": { "const": "attr" } } },
+            "if": {"properties": {"action": {"enum": ["add", "replace", "rename", "mkdir", "attr", "move", "restore"]}}},
+            "then": {"properties": {"recursive": {"const": false}}}
+          },
+          {
+            "if": {
+              "properties": {"action": {"enum": ["replace", "delete", "rename", "attr", "copy", "move", "import", "restore"]}}
+            },
+            "then": {"properties": {"parents": {"const": false}}}
+          },
+          {
+            "if": {
+              "properties": {"action": {"enum": ["add", "replace", "delete", "rename", "mkdir", "copy", "move", "import", "restore"]}}
+            },
+            "then": {"properties": {"locked": {"type": "null"}}}
+          },
+          {
+            "if": {
+              "properties": {"action": {"enum": ["add", "replace", "delete", "rename", "mkdir", "attr", "import", "restore"]}}
+            },
+            "then": {"properties": {"sourcePath": {"type": "null"}}}
+          },
+          {
+            "if": {
+              "properties": {"action": {"enum": ["add", "replace", "delete", "rename", "mkdir", "attr", "move", "import", "restore"]}}
+            },
+            "then": {"properties": {"sourceImage": {"type": "null"}}}
+          },
+          {
+            "if": {
+              "properties": {"action": {"enum": ["add", "replace", "delete", "rename", "mkdir", "attr", "move", "import", "restore"]}}
+            },
+            "then": {"properties": {"sourceOrder": {"type": "null"}}}
+          },
+          {
+            "if": {
+              "properties": {"action": {"enum": ["add", "replace", "delete", "rename", "mkdir", "attr", "move", "import", "restore"]}}
+            },
+            "then": {"properties": {"sourceFileSystem": {"type": "null"}}}
+          },
+          {
+            "if": {
+              "properties": {"action": {"enum": ["add", "replace", "delete", "rename", "mkdir", "attr", "copy", "move", "restore"]}}
+            },
+            "then": {"properties": {"format": {"type": "null"}}}
+          },
+          {
+            "if": {"properties": {"action": {"enum": ["delete", "rename", "mkdir", "attr", "move", "import"]}}},
+            "then": {"properties": {"expectedSourceSha256": {"type": "null"}}}
+          },
+          {
+            "if": {"properties": {"action": {"enum": ["attr"]}}},
             "then": {
               "anyOf": [
-                { "required": ["locked"], "properties": { "locked": { "type": "boolean" } } },
-                { "required": ["type"], "properties": { "type": { "type": "string", "minLength": 1 } } },
-                { "required": ["auxType"], "properties": { "auxType": { "type": "integer" } } }
+                {"required": ["locked"], "properties": {"locked": {"type": "boolean"}}},
+                {"required": ["type"], "properties": {"type": {"type": "string", "minLength": 1}}},
+                {"required": ["auxType"], "properties": {"auxType": {"type": "integer"}}}
               ]
             }
           },
           {
-            "if": { "properties": { "source": { "type": "null" } } },
-            "then": { "properties": { "expectedSourceSha256": { "type": "null" } } }
+            "if": {"required": ["expectedSourceSha256"], "properties": {"expectedSourceSha256": {"type": "string"}}},
+            "then": {
+              "anyOf": [
+                {"required": ["source"], "properties": {"source": {"type": "string"}}},
+                {"required": ["sourceImage"], "properties": {"sourceImage": {"type": "string"}}}
+              ]
+            }
+          },
+          {
+            "if": {"properties": {"sourceImage": {"type": "null"}}},
+            "then": {"properties": {"sourceOrder": {"type": "null"}, "sourceFileSystem": {"type": "null"}}}
+          },
+          {
+            "if": {"properties": {"action": {"enum": ["import"]}}},
+            "then": {
+              "if": {"required": ["format"], "properties": {"format": {"const": "text"}}},
+              "then": {
+                "properties": {
+                  "auxType": {"type": "null"},
+                  "type": {"type": ["string", "null"], "pattern": "^(?:[Tt]|[Tt][Xx][Tt]|0[xX]04)$"}
+                }
+              },
+              "else": {"required": ["type"], "properties": {"type": {"type": "string", "minLength": 1}}}
+            }
           }
         ]
       }

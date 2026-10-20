@@ -62,13 +62,16 @@ public sealed record DevelopmentEnvironmentProfile
 }
 
 public sealed record EnvironmentCheck(string Code, bool Passed, string Message);
-public sealed record EnvironmentCheckResult(int SchemaVersion, bool Ready, IReadOnlyList<EnvironmentCheck> Checks);
+public sealed record EnvironmentCheckResult(int SchemaVersion, bool Ready, IReadOnlyList<EnvironmentCheck> Checks)
+{
+    public EnvironmentSmokeEvidence? Smoke { get; init; }
+}
 public sealed record EnvironmentFingerprint(string Role, string Path, long Length, string Sha256);
 public sealed record DevelopmentEnvironmentLock(int SchemaVersion, string ProfilePath, string ProfileSha256,
     IReadOnlyList<EnvironmentFingerprint> Files);
 
 /// <summary>Local tool discovery checks and bounded, content-addressed environment locks.</summary>
-public static class DevelopmentEnvironment
+public static partial class DevelopmentEnvironment
 {
     private const int MaximumFiles = 16384;
     private const long MaximumFileBytes = 2L * 1024 * 1024 * 1024;

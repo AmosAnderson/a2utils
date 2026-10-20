@@ -209,6 +209,13 @@ public sealed partial class CliApplication
                 watchpoints = true,
                 boundedInstructionSteps = true,
                 instructionAddressHistory = true,
+                cpuDebugging = true,
+                cpuTraceTail = true,
+                imageCapabilities = true,
+                fileMigration = new { filesystems = new[] { "dos33", "prodos" }, types = new[] { "TXT", "BIN", "BAS" }, preflight = true },
+                diskPlanActions = new[] { "add", "replace", "delete", "rename", "mkdir", "attr", "copy", "move", "import", "restore" },
+                orderedStartup = true,
+                environmentSmoke = true,
                 graphicsMemoryAssertions = new
                 {
                     modes = new[] { "lores", "hires", "hires-color", "dhires-mono", "dhires-color" },
@@ -223,7 +230,7 @@ public sealed partial class CliApplication
             limitations = new[] { "Ordinary formatted disks are data volumes; a project boot declaration can write original track-zero boot code.",
                 "BASIC checks cover common source errors, not all runtime behavior.",
                 "Banked project files require an explicit loader; runtime bank switching is application-owned.",
-                "Debug history disassembles retained PCs using capture-time memory; it does not preserve historical banks or bytes.",
+                "MAME debug history disassembles retained PCs using capture-time memory; it does not preserve historical banks or bytes.",
                 "Native IIgs development is not supported." }
         }, "Use --json for the complete command and capability catalog."));
         root.Subcommands.Add(capabilities);
@@ -236,6 +243,11 @@ public sealed partial class CliApplication
             string requested = parse.GetValue(name)!;
             if (!SchemaNames.Contains(requested, StringComparer.Ordinal))
                 throw new DiskException("schema.unknown", "Schema must be one of: " + string.Join(", ", SchemaNames) + ".", 2);
+            if (ResultSchemas.Names.Contains(requested, StringComparer.Ordinal))
+            {
+                var generated = ResultSchemas.Create(requested);
+                return Result("schema", generated, generated.ToJsonString());
+            }
             string resource = typeof(CliApplication).Assembly.GetManifestResourceNames()
                 .Single(item => item.EndsWith($".{requested}.schema.json", StringComparison.Ordinal));
             using Stream stream = typeof(CliApplication).Assembly.GetManifestResourceStream(resource)!;
@@ -248,7 +260,7 @@ public sealed partial class CliApplication
     private static readonly string[] SchemaNames =
     [
         "project", "project-resolution", "diagnostic", "execution", "execution-suite",
-        "environment", "disk-change-set", "result", "error", "envelope"
+        "environment", "disk-change-set", "result", "error", "envelope", .. ResultSchemas.Names
     ];
 
     private static CliCommandCapability[] DescribeCommands(Command command, string prefix,
@@ -265,7 +277,7 @@ public sealed partial class CliApplication
                     .DistinctBy(option => option.Name, StringComparer.Ordinal)
                     .Select(option => DescribeOption(name, option)).ToArray(),
                 DescribeCommands(child, name, inheritedGlobals), SideEffects(name),
-                name == "a2 project resolve" ? CliContractSchemas.ProjectResolution : CliContractSchemas.Result,
+                ResultSchemas.ForCommand(name),
                 CliContractSchemas.Error);
         }).ToArray();
     }
@@ -323,6 +335,7 @@ public sealed partial class CliApplication
             ("a2 asm compile" or "a2 asm decompile" or "a2 asm listing" or "a2 asm map", "--cpu") => ["6502", "65c02", "w65c02"],
             ("a2 asm compile" or "a2 asm decompile" or "a2 basic compile" or "a2 basic decompile", "--format") => ["raw", "dos"],
             ("a2 disk export", "--format") => ["binary", "text"],
+            ("a2 disk migrate", "--text-mode") => ["preserve", "convert"],
             ("a2 disk add" or "a2 disk replace" or "a2 disk import", "--format") => ["binary", "text"],
             ("a2 graphics encode" or "a2 graphics decode", "--mode") => ["lores", "hires", "hires-color"],
             ("a2 graphics assets pack" or "a2 graphics assets unpack", "--bit-order") => ["lsb", "msb"],
@@ -352,10 +365,12 @@ public sealed partial class CliApplication
             ("a2 disk attr", "--unlock") => (["--lock"], []),
             ("a2 disk add" or "a2 disk replace" or "a2 disk delete" or "a2 disk rename"
                 or "a2 disk mkdir" or "a2 disk attr" or "a2 disk copy" or "a2 disk move"
-                or "a2 disk import" or "a2 disk apply", "--output") => (["--in-place"], []),
+                or "a2 disk import" or "a2 disk apply" or "a2 disk migrate", "--output") => (["--in-place"], []),
             ("a2 disk add" or "a2 disk replace" or "a2 disk delete" or "a2 disk rename"
                 or "a2 disk mkdir" or "a2 disk attr" or "a2 disk copy" or "a2 disk move"
-                or "a2 disk import" or "a2 disk apply", "--in-place") => (["--output"], []),
+                or "a2 disk import" or "a2 disk apply" or "a2 disk migrate", "--in-place") => (["--output"], []),
+            ("a2 disk migrate", "--preflight") => (["--output", "--in-place", "--overwrite", "--allow-metadata-loss", "--expect-plan-sha256"], []),
+            ("a2 env check", "--artifacts") => ([], ["--smoke"]),
             ("a2 asm decompile" or "a2 basic decompile", "--from-image") => (["--format"], []),
             ("a2 asm decompile" or "a2 basic decompile", "--format") => (["--from-image"], []),
             _ => ([], [])
@@ -379,9 +394,9 @@ public sealed partial class CliApplication
     {
         "--artifacts" => "output-directory",
         "--cache" => "cache-directory",
-        "--manifest" or "--from" or "--from-image" or "--environment" => "input-file",
+        "--manifest" or "--from" or "--from-image" or "--environment" or "--source" or "--linker-config" => "input-file",
         "--rerun-failed" => "input-file-or-directory",
-        "--project-root" => "input-directory",
+        "--project-root" or "--include" or "--toolchain-root" => "input-directory",
         "--compiler" => "executable",
         "--output" => "output-file",
         "--to" when command is "a2 disk extract" or "a2 project import" => "output-directory",
@@ -401,7 +416,7 @@ public sealed partial class CliApplication
         if (command is "a2 run" or "a2 test")
             return ["may-run-external-process", "may-create-artifacts"];
         if (command == "a2 build") return ["may-run-external-process", "may-write-disk-image", "may-create-artifacts"];
-        if (command == "a2 env check") return ["reads-host-files", "may-run-external-process"];
+        if (command == "a2 env check") return ["reads-host-files", "may-run-external-process", "may-create-artifacts"];
         if (command == "a2 env lock") return ["reads-host-files", "creates-host-file"];
         if (command == "a2 init") return ["creates-host-directory"];
         if (command == "a2 basic check") return ["reads-host-files"];
@@ -419,6 +434,7 @@ public sealed partial class CliApplication
             if (leaf is "add" or "replace" or "import")
                 return ["reads-disk-image", "reads-host-files", "writes-host-file-or-disk-image"];
             if (leaf == "copy") return ["reads-disk-images", "writes-host-file-or-disk-image"];
+            if (leaf == "migrate") return ["reads-disk-images", "may-write-disk-image", "uses-temporary-storage"];
             return ["reads-disk-image", "writes-host-file-or-disk-image"];
         }
         if (command == "a2 cc compile") return ["runs-external-process", "writes-host-file"];

@@ -35,7 +35,7 @@ public sealed class CpuExecutionWorkflowTests : IDisposable
         JsonElement data = json.RootElement.GetProperty("data");
         Assert.True(data.GetProperty("passed").GetBoolean());
         Assert.Equal("routine_return", data.GetProperty("stopReason").GetString());
-        Assert.Equal("cpu-1", data.GetProperty("emulatorVersion").GetString());
+        Assert.Equal(CpuExecutionEngine.Version, data.GetProperty("emulatorVersion").GetString());
         Assert.True(File.Exists(At("run/trace.tsv")));
     }
 

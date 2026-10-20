@@ -4,7 +4,9 @@ An execution specification can stop at an instruction breakpoint or CPU bus
 watchpoint, optionally execute a fixed number of additional instructions, and
 capture registers, memory, and recent instruction addresses. Debugging uses the
 pinned MAME 0.289 backend and works with its headless `none` debugger provider.
-The existing emulated and host deadlines still bound the run.
+The existing emulated and host deadlines still bound the run. The in-process
+CPU engine also supports these debug points for disk-free routines, as described
+below.
 
 ```json
 {
@@ -76,6 +78,40 @@ source file, line, and source text. Both inputs and derived evidence are capped 
 CPU project runs instead copy unique traced instruction PCs and the CPU trace's
 exact routine source columns into `source-locations.json`; those rows use the
 routine source path as `program` and `cpu` as the memory bank.
+
+## CPU routine debugging
+
+For an execution with `engine: "cpu"` and a `routine`, the same `debug`
+configuration stops before a breakpoint instruction or after an instruction
+that accesses a watchpoint. Numeric addresses work directly; `build --test`
+resolves existing project `program`/`symbol` references. CPU debug points require
+`afterSeconds: 0`: the routine engine has no machine clock or boot phase.
+
+The first matching point wins. A breakpoint's requested steps include the
+instruction at that breakpoint; a watchpoint's requested steps begin after the
+instruction that accessed memory. Other points are disabled after the trigger.
+Watchpoints cover logical reads and writes, including opcode/operand fetches
+and stack accesses. The routine engine has flat memory and does not model device
+side effects or hardware dummy bus accesses. For a read-modify-write instruction,
+`readWrite` records its first matching access, while `write` records the written
+value. The captured PC is the next instruction; `trigger.programCounter`
+identifies the instruction responsible for the access.
+
+A completed debug stop passes without requiring the routine to return. Its
+`cycles` evidence still reports elapsed instruction cycles. The routine's cycle
+budget and the host deadline bound the entire run, including stepping. Returning
+before the requested stop or running out of budget before completing the steps
+fails the execution. `debug.history` retains up to `historyInstructions` completed
+instructions, using the bytes fetched when they executed, so subsequent code
+modification does not change the recorded disassembly.
+
+With `trace: true`, CPU runs also write `trace-tail.tsv`, containing the last 256
+instruction rows with the same columns as `trace.tsv`. The tail continues to
+update after the full trace reaches its 16 MiB limit. Host timeouts and
+cancellation after execution starts retain the final registers, requested memory,
+cycle count, and trace tail. Their stop reasons remain `host_timeout` or
+`cancelled`; they do not become successful debug stops. Cancellation during
+preparation can finish before any CPU state exists.
 
 ## Adapter implementation and verification
 

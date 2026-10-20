@@ -1707,7 +1707,22 @@
             }
           },
           "debug": {
-            "type": "null"
+            "properties": {
+              "breakpoints": {
+                "items": {
+                  "properties": {
+                    "afterSeconds": { "const": 0 }
+                  }
+                }
+              },
+              "watchpoints": {
+                "items": {
+                  "properties": {
+                    "afterSeconds": { "const": 0 }
+                  }
+                }
+              }
+            }
           },
           "cycles": {
             "type": "null"

@@ -13,7 +13,10 @@ public sealed record DiskInfo(
     string Path, string Container, string Order, string FileSystem, long SizeBytes,
     long? FreeBytes, string VolumeName, int? VolumeNumber, bool IsReadOnly,
     bool IsDubious, IReadOnlyList<DiskDiagnostic> Diagnostics,
-    bool ImageWriteProtected = false);
+    bool ImageWriteProtected = false)
+{
+    public DiskCapabilities Capabilities { get; init; } = new([], []);
+}
 
 public sealed record DiskEntry(
     string Path, string Name, bool IsDirectory, string Type, byte FileType,

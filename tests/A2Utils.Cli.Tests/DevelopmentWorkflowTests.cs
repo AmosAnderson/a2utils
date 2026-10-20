@@ -43,7 +43,7 @@ public sealed class DevelopmentWorkflowTests : IDisposable
         Assert.Equal("cache-directory", cache.GetProperty("pathRole").GetString());
         Assert.Equal(new[] { "--check", "--preflight", "--test" },
             cache.GetProperty("conflictsWith").EnumerateArray().Select(value => value.GetString()));
-        Assert.Equal("urn:a2utils:schema:result:2", build.GetProperty("resultSchemaId").GetString());
+        Assert.Equal("urn:a2utils:schema:build-command-result:1", build.GetProperty("resultSchemaId").GetString());
         JsonElement help = data.GetProperty("globalOptions").EnumerateArray()
             .Single(option => option.GetProperty("name").GetString() == "--help");
         Assert.Equal("boolean", help.GetProperty("type").GetString());

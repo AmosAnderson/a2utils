@@ -41,7 +41,7 @@ public sealed class CpuExecutionTests : IDisposable
         Assert.Contains("W:$0300=$2A", trace);
         Assert.Contains(source + "\t1\tlda #$2a", trace);
         using JsonDocument resultJson = JsonDocument.Parse(File.ReadAllText(At("run/result.json")));
-        Assert.Equal("cpu-1", resultJson.RootElement.GetProperty("emulatorVersion").GetString());
+        Assert.Equal(CpuExecutionEngine.Version, resultJson.RootElement.GetProperty("emulatorVersion").GetString());
     }
 
     [Fact]

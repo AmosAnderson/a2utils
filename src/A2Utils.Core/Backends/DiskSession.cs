@@ -33,12 +33,19 @@ public sealed partial class DiskSession : IDisposable
         _hybrid = hybrid;
     }
 
-    public DiskInfo Info => new(_path, _disk is TwoIMG ? "2mg" : "raw",
-        _disk.ChunkAccess!.FileOrder == SectorOrder.DOS_Sector ? "dos" : "prodos",
-        _fs is DOS ? "dos33" : "prodos", _disk.ChunkAccess.FormattedLength,
-        _fs.FreeSpace, _fs.GetVolDirEntry().FileName, _fs is DOS dos ? dos.VolumeNum : null,
-        !_writable || _disk.IsReadOnly || _fs.IsReadOnly || IsWriteProtected,
-        _disk.IsDubious || _fs.IsDubious, Verify(), IsWriteProtected);
+    public DiskInfo Info
+    {
+        get
+        {
+            DiskInfo info = new(_path, _disk is TwoIMG ? "2mg" : "raw",
+                _disk.ChunkAccess!.FileOrder == SectorOrder.DOS_Sector ? "dos" : "prodos",
+                _fs is DOS ? "dos33" : "prodos", _disk.ChunkAccess.FormattedLength,
+                _fs.FreeSpace, _fs.GetVolDirEntry().FileName, _fs is DOS dos ? dos.VolumeNum : null,
+                !_writable || _disk.IsReadOnly || _fs.IsReadOnly || IsWriteProtected,
+                _disk.IsDubious || _fs.IsDubious, Verify(), IsWriteProtected);
+            return info with { Capabilities = DiskCapabilities.Describe(info, _fs.FindEmbeddedVolumes() is not null) };
+        }
+    }
 
     private bool IsWriteProtected => _disk is TwoIMG { WriteProtected: true };
 
@@ -74,9 +81,10 @@ public sealed partial class DiskSession : IDisposable
                 "No supported filesystem was recognized; filesystem operations are unavailable."));
             if (order == "unknown") diagnostics.Add(new("unknown_order", "warning",
                 "Raw sector order is unknown; use --input-order for conversion."));
-            return new DiskInfo(System.IO.Path.GetFullPath(path), image is TwoIMG ? "2mg" : "raw",
+            DiskInfo info = new(System.IO.Path.GetFullPath(path), image is TwoIMG ? "2mg" : "raw",
                 order, "unknown", length, null, "", null, true, image.IsDubious, diagnostics,
                 image is TwoIMG { WriteProtected: true });
+            return info with { Capabilities = DiskCapabilities.Describe(info) };
         }
     }
 

@@ -27,7 +27,7 @@ public static partial class ExecutionRunner
         foreach (string line in lines.Skip(1).SkipLast(1))
         {
             string[] fields = line.Split('\t');
-            if (fields is ["STOP", var stop] && reason is null && stop is "completion_condition" or "emulated_limit" or "breakpoint" or "watchpoint" or "debug_steps" or "sequence_complete" or "step_timeout" or "step_failed" or "cycle_limit" or "routine_return" or "cycle_complete") reason = stop;
+            if (fields is ["STOP", var stop] && reason is null && stop is "completion_condition" or "emulated_limit" or "breakpoint" or "watchpoint" or "debug_steps" or "sequence_complete" or "step_timeout" or "step_failed" or "cycle_limit" or "routine_return" or "cycle_complete" or "cpu_fault" or "cancelled" or "host_timeout") reason = stop;
             else if (fields is ["TIME", var time] && seconds is null
                 && double.TryParse(time, CultureInfo.InvariantCulture, out double parsed) && double.IsFinite(parsed) && parsed >= 0) seconds = parsed;
             else if (fields is ["REG", var register, var value] && long.TryParse(value, CultureInfo.InvariantCulture, out long number)
@@ -59,14 +59,19 @@ public static partial class ExecutionRunner
             else throw new InvalidDataException("The emulator observation file contains an invalid or duplicate field.");
         }
         if (reason is null || seconds is null) throw new InvalidDataException("The emulator observation is missing its stop reason or time.");
-        if ((reason is "cycle_complete" or "cycle_limit" or "routine_return") != (cycles is not null)
-            || cycles is not null && cycles.Returned != (reason is "cycle_complete" or "routine_return")
+        bool stoppedInDebugger = reason is "breakpoint" or "watchpoint" or "debug_steps";
+        bool abortedCpu = reason is "cpu_fault" or "cancelled" or "host_timeout";
+        bool interruptedCpu = abortedCpu || reason is "cycle_limit" or "routine_return" && debug is not null;
+        if (reason is "cycle_complete" or "cycle_limit" or "routine_return" && cycles is null
+            || cycles is not null && reason is not ("cycle_complete" or "cycle_limit" or "routine_return")
+                && !stoppedInDebugger && !interruptedCpu
+            || cycles is not null && !abortedCpu && cycles.Returned != (reason is "cycle_complete" or "routine_return")
             || steps.Count > 0 && steps[^1].EmulatedSeconds > seconds.Value
             || (reason is "step_failed" or "step_timeout") != (steps.Count > 0 && steps[^1].Status != "pass"))
             throw new InvalidDataException("The emulator stop reason and sequence/cycle evidence disagree.");
-        bool stoppedInDebugger = reason is "breakpoint" or "watchpoint" or "debug_steps";
-        if (stoppedInDebugger != (debug is not null) || history.Count > 0 && debug is null ||
-            debug is not null && (reason != (debug.SteppedInstructions > 0 ? "debug_steps" : debug.Trigger.Kind)
+        if (stoppedInDebugger && debug is null || debug is not null && !stoppedInDebugger && !interruptedCpu
+            || history.Count > 0 && debug is null ||
+            debug is not null && (!interruptedCpu && reason != (debug.SteppedInstructions > 0 ? "debug_steps" : debug.Trigger.Kind)
                 || debug.Trigger.Kind == "breakpoint" && (debug.Trigger.Value is not null || debug.Trigger.ProgramCounter != debug.Trigger.Address)
                 || debug.Trigger.Kind == "watchpoint" && debug.Trigger.Value is null))
             throw new InvalidDataException("The emulator debug stop and evidence disagree.");

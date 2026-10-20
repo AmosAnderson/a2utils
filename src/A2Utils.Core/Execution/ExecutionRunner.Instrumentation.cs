@@ -21,7 +21,9 @@ public static partial class ExecutionRunner
             diagnostics.Add(new("execution.cycles_timeout", "error", "The routine or measured code window did not finish before the deadline."));
             return;
         }
-        if (spec.Engine == "cpu" && observation.StopReason == "cpu_fault") return;
+        if (spec.Engine == "cpu" && observation.StopReason is "cpu_fault" or "cancelled" or "host_timeout") return;
+        bool cpuDebugStop = spec.Engine == "cpu" && spec.Debug is not null
+            && observation.StopReason is "breakpoint" or "watchpoint" or "debug_steps";
         int? start = spec.Cycles?.Start.Address ?? spec.Routine?.EntryPoint
             ?? (spec.Routine?.EntrySymbol is null ? spec.Routine?.Origin : null);
         int end = spec.Cycles?.End.Address ?? RoutineHarness.ReturnAddress;
@@ -30,9 +32,9 @@ public static partial class ExecutionRunner
         if (start.HasValue && cycles.StartAddress != start.Value || cycles.EndAddress != end
             || spec.Engine == "mame" && observation.EmulatedSeconds < after
             || cycles.Returned && observation.StopReason != (spec.Routine is null ? "cycle_complete" : "routine_return")
-            || !cycles.Returned && observation.StopReason != "cycle_limit")
+            || !cycles.Returned && observation.StopReason != "cycle_limit" && !cpuDebugStop)
             diagnostics.Add(new("execution.cycles_evidence", "error", "Cycle measurement evidence disagrees with the requested interval."));
-        if (!cycles.Returned || cycles.Cycles > maximum)
+        if (!cycles.Returned && !cpuDebugStop || cycles.Cycles > maximum)
             diagnostics.Add(new("execution.cycle_budget", "error", "The code exceeded its CPU cycle budget or did not return.",
                 Expected: maximum.ToString(System.Globalization.CultureInfo.InvariantCulture),
                 Actual: cycles.Cycles.ToString(System.Globalization.CultureInfo.InvariantCulture)));

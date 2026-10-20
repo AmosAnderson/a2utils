@@ -17,6 +17,7 @@ public sealed partial class CliApplication
         AddCopyCommand(disk);
         AddMoveCommand(disk);
         AddDirectoryImportCommand(disk);
+        AddMigrationCommand(disk);
     }
 
     private void AddExportCommand(Command disk)

@@ -25,9 +25,28 @@ informational text rather than result envelopes.
 
 Current envelopes retain those version-1 fields and add `contractVersion: 2`,
 `envelopeType`, and a resolvable `schemaId`. Result envelopes also identify the
-payload contract through `resultSchemaId`; most commands use the generic result
-schema, while typed results such as `project.resolve` name their specific schema.
+payload contract through `resultSchemaId`. Disk info/diff/plan/apply/migration,
+build/build-test, execution, suite results, suite selection, and project resolution
+name specific payload schemas. Other commands retain the generic result schema.
 Use `a2 schema result|error|envelope --json` to retrieve the bundled contracts.
+
+Retrieve payload contracts with `a2 schema disk-info-result --json`,
+`a2 schema build-result --json`, or another name from `capabilities.schemas`.
+The new result schemas are generated from the shipped public result types,
+including nested fields, nullability, and required properties. Validate `data`
+against the specific `resultSchemaId`; validate the entire envelope against
+`schemaId`. Generic `result:2` is an envelope schema.
+
+Capabilities describe option-dependent outputs with union schemas:
+`build-command-result`, `test-command-result`, and `migration-command-result`.
+Each actual result names its precise variant. Schema IDs ending in `:1` version
+these new payload contracts independently of the existing envelope contract.
+
+For an independent regression check, build Release and run
+`python eng/Validate-Contracts.py` in a development environment containing
+`jsonschema==4.23.0`. It validates all exported schemas and real disk,
+migration, build, CPU-debug, and suite outputs, including negative envelope and type checks.
+It uses disposable images and evidence and requires no emulator or ROM.
 
 Success has this shape:
 

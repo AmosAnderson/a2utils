@@ -40,6 +40,11 @@ if (args.SequenceEqual(new[] { "--version" }))
     Console.Error.WriteLine("cl65 V0.0 - contract test double");
     return 0;
 }
+if (args.Contains("-verifyroms"))
+{
+    Console.WriteLine("ROM verification succeeded (process-contract test double; no ROM was executed).");
+    return 0;
+}
 if (args.Contains("-t"))
 {
     string main = args.Last(path => Path.GetExtension(path).ToLowerInvariant() is ".c" or ".s" or ".asm" or ".a65");
@@ -53,6 +58,22 @@ if (args.Contains("-t"))
     {
         Console.Error.WriteLine(main + ":1: invalid C (controlled contract failure)");
         return 1;
+    }
+    if (source.Contains("A2_FAKE_OPTIONS"))
+    {
+        bool HasPair(string flag, string value) => Array.IndexOf(args, flag) is var index
+            && index >= 0 && index + 1 < args.Length && args[index + 1] == value;
+        int includeIndex = Array.IndexOf(args, "-I");
+        if (!HasPair("-D", "FEATURE=1") || args.Contains("-O") || !args.Contains("-C") ||
+            !args.Any(argument => Path.GetFileName(argument) == "main.c") ||
+            !args.Any(argument => Path.GetFileName(argument) == "helper.c") ||
+            includeIndex < 0 || includeIndex + 1 >= args.Length ||
+            !File.Exists(Path.Combine(args[includeIndex + 1], "local.h")) ||
+            string.IsNullOrEmpty(Environment.GetEnvironmentVariable("CC65_HOME")))
+        {
+            Console.Error.WriteLine("Compiler options were not forwarded as expected.");
+            return 13;
+        }
     }
     if (args.Contains("-C"))
     {
@@ -155,6 +176,22 @@ if (args.SequenceEqual(new[] { "-version" }))
     }
     Console.WriteLine(mode == "wrong-version" ? "0.288 (contract test double)" : "0.289 (contract test double)");
     return 0;
+}
+if (File.Exists("spec.json"))
+{
+    using JsonDocument smokeSpecification = JsonDocument.Parse(File.ReadAllBytes("spec.json"));
+    if (smokeSpecification.RootElement.GetProperty("name").GetString() == "environment smoke mailbox")
+    {
+        int romIndex = Array.IndexOf(args, "-rompath");
+        string marker = Path.Combine(args[romIndex + 1], "contract-smoke-outcome");
+        string outcome = File.Exists(marker) ? File.ReadAllText(marker) : "pass";
+        if (outcome == "change") File.WriteAllText(marker, "changed during contract execution");
+        string bytes = outcome == "fail" ? "000000" : "2AA55A";
+        File.WriteAllText("observations.tsv", "A2EXEC1\nSTOP\tcompletion_condition\nTIME\t3\nMEM\t768\t" + bytes + "\nEND\n");
+        File.WriteAllText("screen.txt", "Controlled smoke fixture");
+        Console.WriteLine("Controlled smoke fixture; this is not emulator boot or compiler execution evidence.");
+        return 0;
+    }
 }
 if (mode is "hang" or "cancel")
 {

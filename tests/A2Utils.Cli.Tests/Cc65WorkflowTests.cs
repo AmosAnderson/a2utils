@@ -23,6 +23,52 @@ public sealed class Cc65WorkflowTests : IDisposable
         Assert.False(File.Exists(At("main.o")));
     }
 
+    [Fact]
+    public void Compile_ExtendedOptions_ForwardsInputsAndReportsParsedFeedback()
+    {
+        File.WriteAllText(At("main.c"), "int main(void) { return 0; }\n");
+        File.WriteAllText(At("helper.c"), "// A2_FAKE_OPTIONS A2_FAKE_FEEDBACK\nint helper(void) { return 1; }\n");
+        File.WriteAllText(At("extra.c"), "// A2_FAKE_OPTIONS A2_FAKE_FEEDBACK\nint extra(void) { return 2; }\n");
+        Directory.CreateDirectory(At("include"));
+        File.WriteAllText(At("include/local.h"), "#define LOCAL 1\n");
+        Directory.CreateDirectory(At(".toolchain/include"));
+        File.WriteAllText(At(".toolchain/include/system.h"), "#define SYSTEM 1\n");
+        File.WriteAllText(At("custom.cfg"), "MEMORY { MAIN: start=$0803,size=$1000,file=%O; } SEGMENTS { CODE: load=MAIN,type=ro; }");
+        var result = Run("cc", "compile", At("main.c"), "--compiler", HostPath(),
+            "--source", At("helper.c"), "--source", At("extra.c"), "--include", At("include"), "--define", "FEATURE=1",
+            "--linker-config", At("custom.cfg"), "--toolchain-root", At(".toolchain"), "--no-optimize",
+            "--to", At("program.as"), "--json");
+        Assert.Equal(0, result.Code);
+        using JsonDocument json = JsonDocument.Parse(result.Output);
+        JsonElement data = json.RootElement.GetProperty("data");
+        Assert.Equal(0x0803, data.GetProperty("symbols").GetProperty("_main").GetInt32());
+        Assert.NotEmpty(data.GetProperty("segments").EnumerateArray());
+        Assert.NotEmpty(data.GetProperty("sourceMap").EnumerateArray());
+        Assert.Contains(data.GetProperty("diagnostics").EnumerateArray(), diagnostic => diagnostic.GetProperty("severity").GetString() == "warning");
+        Assert.Contains(data.GetProperty("inputs").EnumerateArray(), input => input.GetProperty("path").GetString() == "custom.cfg");
+        Assert.Contains(data.GetProperty("toolchainInputs").EnumerateArray(), input => input.GetProperty("path").GetString() == At(".toolchain/include/system.h"));
+        Assert.False(File.Exists(At("helper.o")));
+        Assert.Contains("A2_FAKE_OPTIONS", File.ReadAllText(At("helper.c")));
+    }
+
+    [Theory]
+    [InlineData("--source", "missing.c")]
+    [InlineData("--include", "missing")]
+    [InlineData("--define", "1INVALID")]
+    [InlineData("--linker-config", "missing.cfg")]
+    [InlineData("--toolchain-root", "missing")]
+    public void Compile_InvalidExtendedOption_PreservesExistingOutput(string option, string value)
+    {
+        string source = "int main(void) { return 0; }\n";
+        File.WriteAllText(At("main.c"), source);
+        File.WriteAllText(At("program.as"), "original");
+        var result = Run("cc", "compile", At("main.c"), "--compiler", HostPath(),
+            option, option == "--define" ? value : At(value), "--to", At("program.as"), "--overwrite", "--json");
+        Assert.NotEqual(0, result.Code);
+        Assert.Equal("original", File.ReadAllText(At("program.as")));
+        Assert.Equal(source, File.ReadAllText(At("main.c")));
+    }
+
     [Theory]
     [InlineData("A2_FAKE_FAILURE")]
     [InlineData("A2_FAKE_INVALID")]

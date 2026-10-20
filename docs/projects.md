@@ -197,12 +197,69 @@ slash, and backslashes are refused. File extensions do not select `kind`.
 | `memoryBank` | `main`; explicit destination RAM bank. IIe/IIc also support `aux`, `lc1`, `lc2`, `aux-lc1`, `aux-lc2`; requires an application loader. See [banked projects](iie-memory.md). |
 | `checkBasic` | `true`; run the conservative source checker for `basic`. Tokenizer validation always runs, and `basic-labels` is always prepared and checked. |
 
-The optional `startup` object requires `program`, the image path of one manifest
-file. `path` defaults to `HELLO` and names the launcher entry; `replace` defaults
-to `false`. The optional `cc65` object defaults to compiler `cl65`, target
+The optional `startup` object accepts either `program`, the image path of one
+manifest file, or an ordered `steps` array described below. `path` defaults to
+`HELLO` and names the launcher entry; `replace` defaults to `false`.
+The optional `cc65` object defaults to compiler `cl65`, target
 `apple2`, no expected-version pin, a 60-second timeout, optimization enabled,
 and empty `additionalSources`, `includes`, and `defines` arrays. Each list accepts
 at most 128 entries. See [C and ca65](cc65.md) for path and isolation rules.
+
+### Ordered startup loads and calls
+
+An OS-template project can generate a BASIC launcher that loads several binary
+files, calls their declared entry points, and optionally runs a final program:
+
+```json
+{
+  "startup": {
+    "path": "HELLO",
+    "workspaceBytes": 1024,
+    "steps": [
+      { "action": "load", "program": "SCREEN" },
+      { "action": "load", "program": "INIT" },
+      { "action": "call", "program": "INIT" },
+      { "action": "run", "program": "GAME" }
+    ]
+  }
+}
+```
+
+This is a manifest fragment. Every `program` names a file in `files`, matched
+case-insensitively. Use `program` or 1–128 `steps`, never both. An omitted action
+means `load`. The actions have these meanings:
+
+| Action | Generated behavior |
+| --- | --- |
+| `load` | `BLOAD` a nonempty main-memory BIN at its declared origin. |
+| `call` | `CALL` the BIN file's `entryPoint` (its origin by default). A preceding load must still occupy that range. |
+| `run` | Final step only. `RUN` a BASIC file at `$0801`, or `BLOAD` a BIN and `CALL` its entry point. |
+
+A load that overlaps an earlier load invalidates the earlier file for later
+calls. Ordinary memory and overlay declarations continue to apply. Calls must
+return with Applesoft and OS state intact if subsequent steps should execute.
+The builder cannot infer memory writes performed by application code.
+
+For a plan that loads binaries, the launcher sets `HIMEM` to the lowest loaded
+origin. It rejects overlap with the launcher's tokenized bytes plus
+`workspaceBytes` (default 1024, range 0–65,536), even when `checkMemory` is false.
+A final BASIC program must also fit beneath that boundary with at least the
+larger of `workspaceBytes` and `basicWorkspaceBytes` available. This reserves
+space for BASIC variables and keeps its string heap below the binaries; choose
+a sufficient budget for the application. Plans without a final BASIC run end
+with `END`.
+
+The generated launcher is validated and staged with the image. Its payload hash
+appears in build/resolution results; changing a step, source, entry point, or
+workspace budget invalidates the project cache. Existing single-`program`
+launchers retain their previous RUN/BRUN output.
+
+Automatic steps currently target main-memory BIN/BAS files. Auxiliary and
+language-card payloads still require an explicit application loader that owns
+the relevant banks and handles ProDOS `/RAM`; the existing
+[bank-copy examples](../examples/development/iie-banks/README.md) provide routines
+for that work. A supplied template must already boot the configured launcher,
+and ProDOS templates must include BASIC.SYSTEM.
 
 ## Build and test together
 

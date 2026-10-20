@@ -64,6 +64,15 @@ public sealed record ProjectStartup
     public string Path { get; init; } = "HELLO";
     public string Program { get; init; } = "";
     public bool Replace { get; init; }
+    public List<ProjectStartupStep> Steps { get; init; } = [];
+    public int WorkspaceBytes { get; init; } = 1024;
+}
+
+/// <summary>An ordered main-memory load, call, or final run action in a BASIC launcher.</summary>
+public sealed record ProjectStartupStep
+{
+    public string Action { get; init; } = "load";
+    public string Program { get; init; } = "";
 }
 
 /// <summary>Original boot code written to one or more track-zero sectors of a DOS-order floppy.</summary>

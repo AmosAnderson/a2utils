@@ -24,6 +24,11 @@ public sealed record DiskChange
     public string Action { get; init; } = "";
     public string Path { get; init; } = "";
     public string? Source { get; init; }
+    public string? SourcePath { get; init; }
+    public string? SourceImage { get; init; }
+    public string? SourceOrder { get; init; }
+    public string? SourceFileSystem { get; init; }
+    public string? Format { get; init; }
     public string? Hex { get; init; }
     public string? ExpectedSourceSha256 { get; init; }
     public string? Type { get; init; }
@@ -34,7 +39,7 @@ public sealed record DiskChange
     public bool? Locked { get; init; }
 }
 
-public sealed record DiskChangeInput(string Path, string Sha256, long Length);
+public sealed record DiskChangeInput(string Path, string Sha256, long Length, string Kind = "file");
 
 public sealed record DiskChangePlan(
     int SchemaVersion, string InputPath, string InputSha256,
@@ -46,7 +51,7 @@ public sealed record DiskChangePlan(
 public sealed record DiskApplyResult(ImageWriteResult Write, DiskChangePlan Plan, string OutputSha256);
 
 /// <summary>Preflights and atomically applies a bounded declarative disk mutation set.</summary>
-public static class DiskChangeSetRunner
+public static partial class DiskChangeSetRunner
 {
     private const int MaximumPlanBytes = 1024 * 1024;
     private const int MaximumPayloadBytes = 32 * 1024 * 1024;
@@ -123,6 +128,14 @@ public static class DiskChangeSetRunner
         bool inPlace, bool overwrite, string? expectedInputSha256 = null,
         string? expectedPlanSha256 = null, string? inputOrder = null,
         string? inputFileSystem = null, CancellationToken cancellationToken = default)
+        => ApplyCore(imagePath, changeSetPath, outputPath, inPlace, overwrite, expectedInputSha256,
+            expectedPlanSha256, inputOrder, inputFileSystem, cancellationToken);
+
+    internal static DiskApplyResult ApplyCore(string imagePath, string changeSetPath, string? outputPath,
+        bool inPlace, bool overwrite, string? expectedInputSha256 = null,
+        string? expectedPlanSha256 = null, string? inputOrder = null,
+        string? inputFileSystem = null, CancellationToken cancellationToken = default,
+        Action? candidateValidated = null)
     {
         if (expectedInputSha256 is not null && !IsSha256(expectedInputSha256))
             throw new DiskException("disk_plan.invalid", "--expect-sha256 must contain exactly 64 hexadecimal characters.", 2);
@@ -144,13 +157,19 @@ public static class DiskChangeSetRunner
         {
             ImageTransactions.EnsureDistinctPaths(prepared.ChangeSetPath, outputPath);
             foreach (DiskChangeInput input in prepared.Inputs)
-                ImageTransactions.EnsureDistinctPaths(input.Path, outputPath);
+            {
+                if (input.Kind == "file") ImageTransactions.EnsureDistinctPaths(input.Path, outputPath);
+                else if (IsWithinDirectory(outputPath, input.Path))
+                    throw new DiskException("disk_plan.output_source_directory",
+                        "The output image must be outside imported source directories.", 6);
+            }
         }
         ImageWriteResult write = ImageTransactions.Write(prepared.ImagePath, outputPath, inPlace,
             overwrite, temporary => ApplyChanges(temporary, prepared, cancellationToken),
             temporary =>
             {
                 Validate(temporary, prepared.Order, prepared.FileSystem);
+                candidateValidated?.Invoke();
                 RecheckInputs(prepared, cancellationToken);
                 string candidateHash = HashFile(temporary, cancellationToken);
                 if (candidateHash != plan.CandidateSha256)
@@ -218,60 +237,70 @@ public static class DiskChangeSetRunner
         }
         string root = Path.GetDirectoryName(planPath)!;
         List<DiskChangeInput> inputs = [];
-        long combinedPayloadBytes = 0;
-        foreach (DiskChange change in plan.Changes)
-        {
-            ValidateChange(change);
-            if (change.Source is null) continue;
-            string source = Path.GetFullPath(change.Source, root);
-            ImageTransactions.ValidatePath(source);
-            ImageTransactions.EnsureDistinctPaths(source, image);
-            ImageTransactions.EnsureDistinctPaths(source, planPath);
-            byte[] bytes = ProgramFiles.ReadBytes(source, MaximumPayloadBytes, cancellationToken);
-            string hash = ProgramFiles.Hash(bytes);
-            combinedPayloadBytes = checked(combinedPayloadBytes + bytes.LongLength);
-            if (combinedPayloadBytes > MaximumCombinedPayloadBytes)
-                throw new DiskException("disk_plan.payload_limit",
-                    $"Combined source payloads exceed {MaximumCombinedPayloadBytes} bytes.", 2);
-            if (change.ExpectedSourceSha256 is not null && !change.ExpectedSourceSha256.Equals(hash, StringComparison.OrdinalIgnoreCase))
-                throw new DiskException("disk_plan.source_hash", $"Payload hash does not match: {source}", 6);
-            inputs.Add(new(source, hash, bytes.LongLength));
-        }
+        IReadOnlyList<PreparedChange> changes = CaptureSources(plan.Changes, root,
+            image, planPath, inputs, cancellationToken);
         return new(image, planPath, plan, planBytes, imageHash, ProgramFiles.Hash(planBytes),
-            order, fileSystem, freeBytes, inputs);
+            order, fileSystem, freeBytes, inputs, changes);
     }
 
     private static void ValidateChange(DiskChange change)
     {
-        if (change.Action is not ("add" or "replace" or "delete" or "rename" or "mkdir" or "attr"))
-            throw new DiskException("disk_plan.action", "Change action must be add, replace, delete, rename, mkdir, or attr.", 2);
+        if (change.Action is not ("add" or "replace" or "delete" or "rename" or "mkdir" or "attr"
+            or "copy" or "move" or "import" or "restore"))
+            throw new DiskException("disk_plan.action",
+                "Change action must be add, replace, delete, rename, mkdir, attr, copy, move, import, or restore.", 2);
         if (string.IsNullOrWhiteSpace(change.Path)) throw new DiskException("disk_plan.path", "Every change requires path.", 2);
         if (change.Source is not null && change.Hex is not null)
             throw new DiskException("disk_plan.payload", "Specify source or hex, not both.", 2);
         if (change.ExpectedSourceSha256 is not null &&
-            (change.Source is null || !IsSha256(change.ExpectedSourceSha256)))
+            ((change.Source is null && change.SourceImage is null) || change.Action == "import" ||
+                !IsSha256(change.ExpectedSourceSha256)))
             throw new DiskException("disk_plan.source_hash",
-                "expectedSourceSha256 requires source and exactly 64 hexadecimal characters.", 2);
+                "expectedSourceSha256 requires a source file or sourceImage and exactly 64 hexadecimal characters.", 2);
         if (change.Action is "add" or "replace" && (change.Source is null) == (change.Hex is null))
             throw new DiskException("disk_plan.payload", "Add and replace require exactly one of source or hex.", 2);
-        if (change.Action is not ("add" or "replace") && (change.Source is not null || change.Hex is not null))
-            throw new DiskException("disk_plan.payload", "Only add and replace accept source or hex payloads.", 2);
-        if (change.Action == "add" && string.IsNullOrWhiteSpace(change.Type))
-            throw new DiskException("disk_plan.type", "Add requires a file type.", 2);
-        if (change.Action is not ("add" or "attr") && (change.Type is not null || change.AuxType is not null))
-            throw new DiskException("disk_plan.attributes", "Only add and attr accept type or auxType.", 2);
+        if (change.Action is not ("add" or "replace" or "import" or "restore") && change.Source is not null ||
+            change.Action is not ("add" or "replace") && change.Hex is not null)
+            throw new DiskException("disk_plan.payload",
+                "Only add, replace, import, and restore accept source; only add and replace accept hex.", 2);
+        if (change.Action is "import" or "restore" && string.IsNullOrWhiteSpace(change.Source))
+            throw new DiskException("disk_plan.source", "Import and restore require source.", 2);
+        if (change.Action == "add" && string.IsNullOrWhiteSpace(change.Type) ||
+            change.Action == "import" && change.Format != "text" && string.IsNullOrWhiteSpace(change.Type))
+            throw new DiskException("disk_plan.type", "Add and binary import require a file type.", 2);
+        if (change.Action is not ("add" or "attr" or "import") && (change.Type is not null || change.AuxType is not null))
+            throw new DiskException("disk_plan.attributes", "Only add, attr, and import accept type or auxType.", 2);
         if (change.Action == "rename" && string.IsNullOrWhiteSpace(change.NewName))
             throw new DiskException("disk_plan.rename", "Rename requires newName.", 2);
         if (change.Action != "rename" && change.NewName is not null)
             throw new DiskException("disk_plan.rename", "Only rename accepts newName.", 2);
-        if (change.Action != "delete" && change.Recursive)
-            throw new DiskException("disk_plan.recursive", "Only delete accepts recursive.", 2);
+        if (change.Action is not ("delete" or "copy" or "import") && change.Recursive)
+            throw new DiskException("disk_plan.recursive", "Only delete, copy, and import accept recursive.", 2);
         if (change.Action is not ("add" or "mkdir") && change.Parents)
             throw new DiskException("disk_plan.parents", "Only add and mkdir accept parents.", 2);
         if (change.Action != "attr" && change.Locked is not null)
             throw new DiskException("disk_plan.attributes", "Only attr accepts locked.", 2);
         if (change.Action == "attr" && change.Locked is null && change.Type is null && change.AuxType is null)
             throw new DiskException("disk_plan.attributes", "Attr requires locked, type, or auxType.", 2);
+        if (change.Action is "copy" or "move")
+        {
+            if (string.IsNullOrWhiteSpace(change.SourcePath))
+                throw new DiskException("disk_plan.source_path", "Copy and move require sourcePath.", 2);
+        }
+        else if (change.SourcePath is not null)
+            throw new DiskException("disk_plan.source_path", "Only copy and move accept sourcePath.", 2);
+        if (change.SourceImage is not null && (change.Action != "copy" || string.IsNullOrWhiteSpace(change.SourceImage)))
+            throw new DiskException("disk_plan.source_image", "Only copy accepts a nonempty sourceImage.", 2);
+        if (change.SourceImage is null && (change.SourceOrder is not null || change.SourceFileSystem is not null))
+            throw new DiskException("disk_plan.source_image", "Source interpretation overrides require sourceImage.", 2);
+        if (change.Format is not null && (change.Action != "import" || change.Format is not ("binary" or "text")))
+            throw new DiskException("disk_plan.format", "Only import accepts format, which must be binary or text.", 2);
+        if (change.Action == "import" && change.Format == "text" &&
+            (change.Type is not null && !new[] { "T", "TXT", "0x04" }.Contains(change.Type, StringComparer.OrdinalIgnoreCase) ||
+                change.AuxType is not null))
+            throw new DiskException("disk_plan.attributes", "Text import requires TXT and no auxiliary type.", 2);
+        if (change.Action == "restore" && change.Path != "/")
+            throw new DiskException("disk_plan.restore_path", "Restore requires path '/' and retains manifest paths.", 2);
         if (change.Hex is not null) _ = MameAdapter.ParseHex(change.Hex);
     }
 
@@ -279,19 +308,12 @@ public static class DiskChangeSetRunner
         CancellationToken cancellationToken)
     {
         using DiskSession session = DiskSession.Open(path, prepared.Order, prepared.FileSystem, writable: true);
-        int sourceIndex = 0;
-        foreach (DiskChange change in prepared.Plan.Changes)
+        foreach (PreparedChange operation in prepared.Changes)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            byte[]? payload = null;
-            if (change.Source is not null)
-            {
-                DiskChangeInput input = prepared.Inputs[sourceIndex++];
-                payload = ProgramFiles.ReadBytes(input.Path, MaximumPayloadBytes, cancellationToken);
-                if (ProgramFiles.Hash(payload) != input.Sha256)
-                    throw new DiskException("disk_plan.source_changed", $"Payload changed during apply: {input.Path}", 6);
-            }
-            else if (change.Hex is not null) payload = MameAdapter.ParseHex(change.Hex);
+            DiskChange change = operation.Change;
+            byte[]? payload = change.Action is "add" or "replace"
+                ? operation.Source?.Files[0].Bytes ?? MameAdapter.ParseHex(change.Hex!) : null;
             switch (change.Action)
             {
                 case "add":
@@ -315,6 +337,36 @@ public static class DiskChangeSetRunner
                     }
                     break;
                 case "attr": session.SetAttributes(change.Path, change.Locked, change.Type, change.AuxType); break;
+                case "move": session.Move(change.SourcePath!, change.Path); break;
+                case "copy":
+                    if (operation.Source is null)
+                        session.Copy(change.SourcePath!, change.Path, change.Recursive, cancellationToken);
+                    else
+                        WithMaterializedSource(operation.Source, root =>
+                        {
+                            using DiskSession source = DiskSession.Open(
+                                Path.Combine(root, operation.Source.PrimaryName),
+                                change.SourceOrder, change.SourceFileSystem);
+                            session.CopyFrom(source, change.SourcePath!, change.Path,
+                                change.Recursive, cancellationToken);
+                        }, cancellationToken);
+                    break;
+                case "import":
+                    HashSet<string> existing = session.List(recursive: true)
+                        .Select(entry => entry.Path).ToHashSet(StringComparer.Ordinal);
+                    WithMaterializedSource(operation.Source!, root =>
+                        DirectoryImport.Import(session, root, change.Path,
+                            change.Type ?? "TXT", change.AuxType ?? 0, change.Recursive,
+                            change.Format == "text" ? bytes => AppleTextCodec.Encode(bytes, prepared.FileSystem) : null,
+                            cancellationToken), cancellationToken);
+                    foreach (DiskEntry entry in session.List(recursive: true).Where(entry => !existing.Contains(entry.Path)))
+                        session.SetTimestamps(entry.Path, prepared.Plan.Timestamp, prepared.Plan.Timestamp);
+                    break;
+                case "restore":
+                    WithMaterializedSource(operation.Source!, root =>
+                        FileTransfer.Restore(session, Path.Combine(root, operation.Source!.PrimaryName),
+                            cancellationToken), cancellationToken);
+                    break;
             }
         }
     }
@@ -341,8 +393,14 @@ public static class DiskChangeSetRunner
             || ProgramFiles.Hash(ProgramFiles.ReadBytes(prepared.ChangeSetPath, MaximumPlanBytes, cancellationToken)) != prepared.ChangeSetSha256)
             throw new DiskException("disk_plan.changed", "The image or change-set file changed during apply.", 6);
         foreach (DiskChangeInput input in prepared.Inputs)
-            if (HashFile(input.Path, cancellationToken, MaximumPayloadBytes) != input.Sha256)
-                throw new DiskException("disk_plan.source_changed", $"Payload changed during apply: {input.Path}", 6);
+        {
+            ImageTransactions.ValidatePath(input.Path);
+            string currentHash = input.Kind == "directory"
+                ? DirectoryFingerprint(ReadSourceDirectory(input.Path, cancellationToken))
+                : HashFile(input.Path, cancellationToken);
+            if (currentHash != input.Sha256)
+                throw new DiskException("disk_plan.source_changed", $"Source changed during apply: {input.Path}", 6);
+        }
     }
 
     private static void Validate(string path, string order, string fileSystem)
@@ -362,13 +420,15 @@ public static class DiskChangeSetRunner
             .Append("order\t").AppendLine(order)
             .Append("filesystem\t").AppendLine(fileSystem)
             .Append("candidate\t").AppendLine(candidateHash);
-        foreach (DiskChangeInput input in inputs) text.Append(input.Length).Append('\t').AppendLine(input.Sha256);
+        foreach (DiskChangeInput input in inputs)
+            text.Append(input.Kind).Append('\t').Append(input.Length).Append('\t').AppendLine(input.Sha256);
         return ProgramFiles.Hash(Encoding.UTF8.GetBytes(text.ToString()));
     }
 
     private static bool InputFingerprintsEqual(IReadOnlyList<DiskChangeInput> first,
         IReadOnlyList<DiskChangeInput> second)
         => first.Count == second.Count && first.Zip(second).All(pair =>
+            pair.First.Path == pair.Second.Path && pair.First.Kind == pair.Second.Kind &&
             pair.First.Length == pair.Second.Length && pair.First.Sha256 == pair.Second.Sha256);
 
     private static bool IsSha256(string value)
@@ -380,5 +440,5 @@ public static class DiskChangeSetRunner
     private sealed record PreparedChangeSet(string ImagePath, string ChangeSetPath,
         DiskChangeSet Plan, byte[] PlanBytes, string ImageSha256, string ChangeSetSha256,
         string Order, string FileSystem, long? FreeBytesBefore,
-        IReadOnlyList<DiskChangeInput> Inputs);
+        IReadOnlyList<DiskChangeInput> Inputs, IReadOnlyList<PreparedChange> Changes);
 }

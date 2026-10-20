@@ -19,9 +19,10 @@ help, for example `a2 disk add --help`.
 | `project import IMAGE --to DIR` | Adopt an existing image as a hash-pinned editable project; optionally disassemble load-addressed binaries. |
 | `capabilities --json` | Discover the typed command tree, defaults, constraints, path roles, side effects, result schemas, targets, and supported values. |
 | `targets --json` | Inspect machine profiles, platform symbols, and runtime memory reservations. |
-| `schema NAME --json` | Return an embedded project, project-resolution, diagnostic, execution, execution-suite, environment, disk-change-set, result, error, or envelope JSON Schema under `data`. |
+| `schema NAME --json` | Return an input/envelope schema or a typed command payload schema under `data`; discover names through `capabilities`. See [JSON contracts](scripting.md). |
 | `disk diff BEFORE AFTER` | Compare logical entries, metadata, payload hashes, and physical byte ranges without changing either image. |
 | `disk plan IMAGE CHANGES` / `disk apply IMAGE CHANGES` | Preflight or atomically apply a strict declarative disk change set. |
+| `disk migrate IMAGE SOURCE DESTINATION --from SOURCEIMAGE` | [Migrate one TXT/BIN/Applesoft file between DOS and ProDOS](disk-images.md#migrate-files-between-dos-and-prodos), with explicit mapping and loss reporting. |
 | `mcp serve` | Serve the typed CLI contract to coding agents over local stdio MCP. |
 | `asm listing INPUT --to OUTPUT` | Assembly listing with addresses and bytes; accepts origin/CPU options. |
 | `asm map INPUT --to OUTPUT` | JSON symbols/source-map/dependency report. |
@@ -39,6 +40,14 @@ Development commands accept the usual `--json` output option. File-producing
 commands require explicit overwrite. `run`, `test`, and `build --test` always
 write to a new artifact directory, choosing one automatically by default. Use
 `--run-subdirectory` to create a unique child beneath an explicit artifact parent.
+
+`disk migrate` accepts `--preflight` for a noncommitting plan, or
+`--output IMAGE` / `--in-place` for application. `--expect-plan-sha256 HASH`
+binds application to a reviewed plan. `--allow-metadata-loss` accepts losses
+listed by preflight; `--text-mode preserve|convert` controls text conversion.
+`--source-order` and `--source-fs` apply to the source image, while the global
+input overrides apply to the destination. Existing host outputs require
+`--overwrite`. Preflight rejects write/acceptance flags.
 
 The remainder of this reference lists the complete syntax and command-specific
 options. The five custom global options in the next section are recursive and
@@ -346,16 +355,35 @@ ProDOS volume-root metadata appears as the `/` entry, including root permission
 and timestamp changes in both diffs and change-set plans.
 
 `disk plan` accepts a strict version 1 change-set JSON document with 1–1,024
-ordered `add`, `replace`, `delete`, `rename`, `mkdir`, or `attr` operations. Add
+ordered `add`, `replace`, `delete`, `rename`, `mkdir`, `attr`, `copy`, `move`,
+`import`, or `restore` operations. Add
 and replace payloads use exactly one of `source` (relative to the change-set file)
 or `hex`; sources can carry `expectedSourceSha256`, while the document can pin the
 input as `expectedSha256`. `a2 schema disk-change-set --json` returns the complete
-field contract. Newly created files and directories use the document's `timestamp`,
+field contract. Entries created by add, mkdir, and import use the document's `timestamp`,
 which defaults to `2000-01-01T00:00:00`, so a plan remains reproducible across runs.
-The change-set document is limited to 1 MiB. Each referenced source payload is
-limited to 32 MiB, and their combined size is limited to 128 MiB.
+Copy and restore preserve source metadata; move retains the existing entry.
 
-Planning applies the operations to a disposable sibling image, validates and
+| Operation | Fields and behavior |
+| --- | --- |
+| `copy` | `sourcePath` is a disk entry; `path` is its exact new destination. Omit `sourceImage` to copy from the staged image, including earlier changes. Set `sourceImage` to copy from a separate same-filesystem image; optional `sourceOrder` and `sourceFileSystem` select its interpretation. Directories require `recursive: true`. |
+| `move` | Move `sourcePath` to the exact new `path` within the staged image. Directory descendants move together. |
+| `import` | `source` is a host directory; `path` is an existing image directory (`/` for the root). Use `type` and optional `auxType` for binary import, or `format: "text"` for UTF-8 Apple text conversion. Host subdirectories require `recursive: true`. |
+| `restore` | `source` is an extraction manifest and `path` must be `/`. Restore its original paths and metadata into the same filesystem type, without merging existing entries. |
+
+All host paths are relative to the change-set file. An external image or restore
+manifest can also carry `expectedSourceSha256`. Copy does not convert between
+filesystems. Source images, manifests, and every referenced payload are captured
+and hashed; imports additionally pin each directory's names and entry kinds,
+including empty directories. `inputs[].kind` distinguishes `file` hashes from
+`directory` membership hashes; directories have length zero. The output image
+must be outside imported source directories and distinct from every source file.
+
+The change-set document is limited to 1 MiB. Each source payload or manifest is
+limited to 32 MiB, external image containers to 34 MiB, and combined external
+file bytes to 128 MiB. A plan accepts at most 65,535 external file/directory inputs.
+
+Planning applies the operations to disposable temporary images, validates and
 diffs it, then removes it. It leaves the requested output and original image
 untouched while returning input/change-set/payload hashes, a reproducible
 `planSha256`, candidate image hash, logical changes, and free space. `disk apply`

@@ -55,6 +55,9 @@ when a complete disk-level copy is needed.
 where applicable. DOS S/R/AA/BB files lack a reliable EOF, so their payload can
 include sector padding. `--format text` explicitly converts TXT content to
 UTF-8. `disk copy` requires matching source and destination filesystems.
+`disk migrate` explicitly maps individual TXT/BIN/Applesoft files across DOS
+and ProDOS with a validated preview and metadata-loss acceptance; see the
+[migration workflow](../disk-images.md#migrate-files-between-dos-and-prodos).
 ProDOS copies and manifest restores may turn allocated all-zero blocks into
 sparse holes; logical bytes, EOF, and supported metadata remain preserved.
 

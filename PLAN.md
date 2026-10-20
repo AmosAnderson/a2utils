@@ -1,6 +1,30 @@
 Apple II disk image utility — implementation plan
 ================================================
 
+Workflow completion milestone (October 20, 2026)
+------------------------------------------------
+
+- [x] Report per-image structural operation capabilities and stable refusal codes.
+- [x] Preview and atomically apply explicit single-file DOS/ProDOS migration
+  with exact plan hashes, type/load/lock mapping, and metadata-loss acceptance.
+- [x] Extend declarative disk plans with copy, move, directory import, and
+  extraction-manifest restore, including complete immutable dependency snapshots.
+- [x] Add CPU breakpoints/watchpoints/stepping, retained trace tails, and final
+  state for interrupted routines; update the engine fingerprint to `cpu-2`.
+- [x] Generate ordered main-memory loading/calling/startup with validated
+  Applesoft workspace and explicit binary entry points.
+- [x] Publish typed command-result schemas and an independent contract validator.
+- [x] Expose standalone cc65 options, parsed diagnostics, symbols, and source maps.
+- [x] Add optional environment compile/boot/load smoke checks and immutable evidence.
+- [x] Complete integrated Release, formatting, schema, and regression validation;
+  record results in `docs/VALIDATION.md`.
+
+Automatic auxiliary/language-card loading remains a follow-up requiring explicit
+RAM ownership and real-machine evidence. Resource-fork preservation and
+ShrinkIt/Binary II archives remain separate format milestones. Actual tool/platform
+release evidence and the existing public-distribution licensing gate are still
+required; this milestone does not acquire ROMs, OS media, or change licensing.
+
 Review fixes and simpler development workflows (October 16, 2026)
 -----------------------------------------------------------------
 
@@ -116,8 +140,9 @@ checks remain available. The subsequent milestone adds an explicit CFFA2 block-d
 
 The subsequent AI-tools milestone above adds runtime memory accounting, compiler
 diagnostics, project graphics assets, and toolchain fingerprints. The separate disk
-roadmap still includes DOS/ProDOS file migration, a higher-level transactional Core
-editing API, per-image capabilities, and resource forks. No new
+roadmap subsequently gained DOS/ProDOS file migration, the transactional
+`DiskEditor.Edit` API, and per-image capabilities. Resource forks remain a later
+format milestone. No new
 disk-engine dependency is introduced.
 
 AI development workflow implementation (September 10, 2026)

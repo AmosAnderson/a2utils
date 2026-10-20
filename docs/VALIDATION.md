@@ -1,5 +1,81 @@
 # Development preview validation
 
+## Precommit review and 0.7.0-dev — October 20, 2026
+
+Reviewed the workflow-completion changes across disk preservation, startup and
+environment workflows, CPU debugging, and output contracts. Fixed two minor
+findings: the independent validator now checks each complete envelope before its
+typed payload, with three malformed-envelope regressions, and capability text
+scopes capture-time history limitations to MAME. No review findings remain open.
+
+Bumped the shared version and active installation/release examples from
+`0.6.2-dev` to `0.7.0-dev`. Validation on macOS ARM64 with SDK **10.0.402**:
+
+- Locked restore, Release build with warnings as errors, formatting verification,
+  and `git diff --check` passed. Dependency pins and reference fixtures are unchanged.
+- Full suites passed **1,493 tests (1,284 Core, 209 CLI)** with zero failures and
+  15 optional real-MAME cases skipped. TRX reports are in the ignored
+  `artifacts/review-0.7.0/test-results/` directory.
+- The independent validator passed **24 schemas and 22 output/negative checks**.
+  Local links in 31 documentation files resolve and file-based schemas parse.
+- The final local tool package installs and reports `0.7.0-dev`; its Core/CLI
+  assemblies and dependency metadata match the final build. The full independent
+  contract/workflow checks also passed against this installed package.
+
+The version-specific restore refreshed project-reference metadata to `0.7.0-dev`.
+All 71 tested assembly hashes were unchanged by the subsequent build; the final
+package includes the refreshed dependency metadata.
+
+The ignored package is
+`artifacts/review-0.7.0/final-packages/A2Utils.Tool.0.7.0-dev.nupkg`
+(SHA-256 `989b937cd144f86b5a8a849b1f99a780d09c37cdf7c8912d7f4b215a2fc07b2d`).
+No package or release was published. Real-tool interoperability, other host
+platforms, and the existing distribution gates remain as recorded below.
+
+## Workflow completion milestone — October 20, 2026
+
+Added per-image operation capabilities, explicit single-file DOS/ProDOS migration,
+transactional copy/move/import/restore plans, CPU debugging and retained failure
+state, ordered main-memory startup, typed output contracts, standalone cc65 option
+parity, and optional environment compile/boot/load smoke checks.
+
+Validation on macOS ARM64 with .NET SDK **10.0.402**, selected by the repository's
+permitted patch roll-forward:
+
+| Check | Result |
+| --- | --- |
+| Locked restore and Release build with warnings as errors | Passed; zero build warnings or errors; dependency pins unchanged. |
+| Full Core and CLI suites | 1,493 passed (1,284 Core, 209 CLI); zero failures and 15 optional real-MAME cases skipped. This adds 101 cases to the previous 1,392-test baseline. |
+| Formatting and repository integrity | `dotnet format --verify-no-changes --no-restore --exclude third_party` and `git diff --check` passed. File-based JSON Schemas parse and local links in 31 documentation files resolve. |
+| Independent output contracts | `eng/Validate-Contracts.py` passed with Python `jsonschema` 4.23.0: 24 schemas and 19 real-output/negative checks, including disk planning/apply/migration, project build/test, CPU debugging, and suites. |
+| Installed local tool | The `0.6.2-dev` package built and installed into an isolated ignored directory. Installed Core and CLI assemblies match the final Release build byte for byte. The version command and the same independent contract/workflow checks passed against the installed package. |
+
+Disk coverage includes independently produced DOS/ProDOS fixtures, exact payload
+and metadata mapping, explicit metadata-loss acceptance, random-access DOS text
+refusal, changed input/plan rejection, allocation failure, output aliases, backups,
+and preservation of existing destination entries. Transactional plan coverage
+includes immutable external payloads and directory membership.
+
+CPU checks cover breakpoints, watchpoints, stepping, source-aware evidence,
+self-modifying instructions, bounded trace tails, cancellation/timeout state, and
+failed-stop reporting. Startup checks cover ordered loads/calls, final BASIC
+handoff, entry points, overlap/lifetime rules, and workspace bounds. Compiler and
+environment smoke tests use the explicit execution contract host. A timing-sensitive
+smoke cancellation test was replaced with a deterministic preparation hook before
+the final full-suite run.
+
+The ignored local package is
+`artifacts/workflow-completion/final-packages/A2Utils.Tool.0.6.2-dev.nupkg`
+(SHA-256 `a509e24f69e3cffc3bcbf1a5d5af0844c80a4794d4314970ca5526558dd3dfe4`).
+No package or release was published.
+
+Actual MAME, ROM/OS inputs, and cc65 were not configured for this validation.
+These checks add no real-tool interoperability evidence. Windows, Linux,
+self-contained packages, and release automation were not rerun for this
+milestone. Automatic auxiliary/language-card loading, resource-fork preservation,
+and archive formats remain follow-up scope in [PLAN.md](../PLAN.md); the existing
+public-distribution licensing gate remains unresolved.
+
 ## Version bump — October 17, 2026
 
 Bumped the shared development version and active installation examples to

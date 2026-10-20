@@ -230,6 +230,9 @@ public static partial class ExecutionRunner
     {
         Validate(spec);
         List<ProgramDiagnostic> diagnostics = [];
+        if (observation.StopReason is "cpu_fault" or "cancelled" or "host_timeout")
+            diagnostics.Add(new("execution.failed_stop", "error",
+                "Execution did not complete successfully: " + observation.StopReason + ".", Actual: observation.StopReason));
         EvaluateInstrumentation(spec, observation, diagnostics);
         if (spec.CheckBasicRuntime) diagnostics.AddRange(Basic.ApplesoftTools.RuntimeDiagnostics(observation.ScreenText));
         if (spec.Steps.Count != 0)
@@ -261,7 +264,11 @@ public static partial class ExecutionRunner
                     trigger.Address >= requested.Watchpoints[trigger.Index].Address &&
                     trigger.Address < (long)requested.Watchpoints[trigger.Index].Address! + requested.Watchpoints[trigger.Index].Length
                     && trigger.Value is >= 0 and <= 255 && observation.EmulatedSeconds >= requested.Watchpoints[trigger.Index].AfterSeconds)
-                && observation.StopReason == (requested.StepInstructions > 0 ? "debug_steps" : trigger.Kind)
+                && (observation.StopReason == (requested.StepInstructions > 0 ? "debug_steps" : trigger.Kind)
+                    || spec.Engine == "cpu" && observation.StopReason is "cycle_limit" or "cpu_fault" or "cancelled" or "host_timeout"
+                        && evidence.SteppedInstructions <= requested.StepInstructions
+                    || spec.Engine == "cpu" && observation.StopReason == "routine_return"
+                        && evidence.SteppedInstructions < requested.StepInstructions)
                 && observation.Registers.TryGetValue("PC", out long pc) && pc is >= 0 and <= 65535;
             if (!validTrigger || spec.Debug is not null && evidence.History.Count > spec.Debug.HistoryInstructions)
                 diagnostics.Add(new("execution.debug_evidence", "error", "The emulator debug evidence does not match a requested trigger or history limit."));

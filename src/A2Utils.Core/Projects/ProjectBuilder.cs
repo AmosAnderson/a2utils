@@ -303,24 +303,7 @@ public static partial class ProjectBuilder
         if (manifest.Startup is { } startup)
         {
             if (template is null) throw Error("startup_template", "Startup generation requires an existing bootable OS template.");
-            PreparedFile program = files.SingleOrDefault(file => file.Info.Path.Equals(startup.Program, StringComparison.OrdinalIgnoreCase))
-                ?? throw Error("startup_program", "Startup program must identify one manifest file.");
-            if (program.Info.MemoryBank != "main")
-                throw Error("startup_bank", "Generated startup must launch a main-memory loader, not a banked payload.");
-            string command = TypesEqual(program.Info.Type, "BAS") ? "RUN" : TypesEqual(program.Info.Type, "BIN") ? "BRUN"
-                : throw Error("startup_type", "A BASIC launcher can RUN BASIC or BRUN BIN files.");
-            if (program.Info.Path.Any(ch => ch is '"' or '\r' or '\n' or ',' or ':' || ch < 0x20 || ch > 0x7e))
-                throw Error("startup_name", "Startup program name cannot be represented safely in a DOS command string.");
-            if (TypesEqual(program.Info.Type, "BAS") && program.Info.Origin != ApplesoftBasic.DefaultOrigin)
-                throw Error("startup_origin", "RUN startup requires BASIC at the default origin.");
-            if (command == "BRUN" && program.Info.EntryPoint != program.Info.Origin)
-                throw Error("startup_entry", "BRUN startup requires entry point equal to load origin.");
-            string source = $"10 PRINT CHR$(4);\"{command} {program.Info.Path}\"\n";
-            byte[] bytes = ApplesoftBasic.Compile(source);
-            ProjectFile item = new() { Path = startup.Path, Kind = "basic", Replace = startup.Replace, Resident = false };
-            files.Add(new(item, bytes, new(item.Path, "startup", "BAS", ApplesoftBasic.DefaultOrigin,
-                ApplesoftBasic.DefaultOrigin, ApplesoftBasic.DefaultOrigin, bytes.Length, ProgramFiles.Hash(bytes), false,
-                new Dictionary<string, int>(), null)));
+            files.Add(PrepareStartup(manifest, files));
             diagnostics.Add(new("project.startup_template", "info",
                 "The template must already boot the configured launcher path (and contain BASIC.SYSTEM for ProDOS)."));
         }
@@ -598,9 +581,15 @@ public static partial class ProjectBuilder
         if (manifest.Files.Any(file => file.MemoryBank is not ("main" or "aux" or "lc1" or "lc2" or "aux-lc1" or "aux-lc2")) ||
             manifest.Reserve.Any(region => region.MemoryBank is not ("main" or "aux" or "lc1" or "lc2" or "aux-lc1" or "aux-lc2")))
             throw Error("memory_bank", "memoryBank must be main, aux, lc1, lc2, aux-lc1, or aux-lc2.");
-        if (manifest.Startup is { } startup && (string.IsNullOrWhiteSpace(startup.Program) || string.IsNullOrWhiteSpace(startup.Path) ||
-            startup.Path.StartsWith('/') || startup.Path.Contains('\\') || startup.Path.Split('/').Any(part => part is "" or "." or "..")))
-            throw Error("startup", "Startup requires a program path and a relative launcher path.");
+        if (manifest.Startup is { } startup)
+        {
+            if (string.IsNullOrWhiteSpace(startup.Path) || startup.Path.StartsWith('/') || startup.Path.Contains('\\') ||
+                startup.Path.Split('/').Any(part => part is "" or "." or "..") || startup.Steps is null ||
+                startup.Steps.Count > 128 || (string.IsNullOrWhiteSpace(startup.Program) == (startup.Steps.Count == 0)) ||
+                startup.Steps.Any(step => step is null || string.IsNullOrWhiteSpace(step.Program) || step.Action is not ("load" or "call" or "run")) ||
+                startup.WorkspaceBytes is < 0 or > 65536)
+                throw Error("startup", "Startup requires a relative launcher path and either program or 1..128 load/call/run steps; workspaceBytes must be 0..65536.");
+        }
         if (manifest.Boot is { } boot && (string.IsNullOrWhiteSpace(boot.Source) || boot.Kind is not ("asm" or "binary")
             || boot.Origin != 0x0800 || boot.Sectors is < 1 or > 16))
             throw Error("boot", "boot requires asm or binary source at origin $0800 and 1..16 sectors.");

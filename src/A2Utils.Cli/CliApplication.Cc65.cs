@@ -22,9 +22,16 @@ public sealed partial class CliApplication
         Option<string?> version = new("--expected-version") { Description = "Require this exact cl65 --version result." };
         Option<string?> projectRoot = new("--project-root") { Description = "Source/include root; defaults to the input directory." };
         Option<int> timeout = new("--timeout") { DefaultValueFactory = _ => 60, Description = "Maximum seconds per compiler process (1..3600)." };
+        Option<string[]> sources = new("--source") { Arity = ArgumentArity.OneOrMore, Description = "Additional C/ca65 sources beneath --project-root; repeatable." };
+        Option<string[]> includes = new("--include") { Arity = ArgumentArity.OneOrMore, Description = "Include directories beneath --project-root; repeatable." };
+        Option<string[]> defines = new("--define") { Arity = ArgumentArity.OneOrMore, Description = "Preprocessor NAME or NAME=value definitions; repeatable." };
+        Option<string?> linkerConfig = new("--linker-config") { Description = "Project-local single-output ld65 .cfg file." };
+        Option<string?> toolchainRoot = new("--toolchain-root") { Description = "cc65 distribution root to select and fingerprint." };
+        Option<bool> noOptimize = new("--no-optimize") { Description = "Disable the default compiler optimization." };
         Option<bool> overwrite = new("--overwrite") { Description = "Replace an existing output after validation." };
         compile.Arguments.Add(source);
-        foreach (Option option in new Option[] { output, compiler, target, version, projectRoot, timeout, overwrite }) compile.Options.Add(option);
+        foreach (Option option in new Option[] { output, compiler, target, version, projectRoot, timeout,
+            sources, includes, defines, linkerConfig, toolchainRoot, noOptimize, overwrite }) compile.Options.Add(option);
         compile.SetAction(parse =>
         {
             string input = Path.GetFullPath(parse.GetValue(source)!);
@@ -39,8 +46,15 @@ public sealed partial class CliApplication
                 Compiler = compilerPath,
                 Target = parse.GetValue(target)!,
                 ExpectedVersion = parse.GetValue(version),
-                TimeoutSeconds = parse.GetValue(timeout)
+                TimeoutSeconds = parse.GetValue(timeout),
+                AdditionalSources = (parse.GetValue(sources) ?? []).Select(Path.GetFullPath).ToList(),
+                Includes = (parse.GetValue(includes) ?? []).Select(Path.GetFullPath).ToList(),
+                Defines = (parse.GetValue(defines) ?? []).ToList(),
+                LinkerConfig = parse.GetValue(linkerConfig) is { } config ? Path.GetFullPath(config) : null,
+                ToolchainRoot = parse.GetValue(toolchainRoot) is { } distribution ? Path.GetFullPath(distribution) : null,
+                Optimize = !parse.GetValue(noOptimize)
             }, rootPath, _cancellationToken);
+            EmitProgramDiagnostics(result.Diagnostics);
             foreach (BuildInput dependency in result.Inputs)
                 ImageTransactions.EnsureDistinctPaths(Path.GetFullPath(dependency.Path, rootPath), destination);
             ImageWriteResult written = ImageTransactions.Create(destination, parse.GetValue(overwrite),
@@ -64,7 +78,14 @@ public sealed partial class CliApplication
                 sha256 = ProgramFiles.Hash(result.AppleSingle),
                 result.Map,
                 result.Labels,
-                result.Inputs
+                result.Inputs,
+                result.CompilerPath,
+                result.ToolchainInputs,
+                result.Symbols,
+                result.Segments,
+                result.SourceMap,
+                result.Diagnostics,
+                result.Debug
             }, $"Compiled {payload.Bytes.Length} program bytes to {written.OutputPath}");
         });
         group.Subcommands.Add(compile);

@@ -295,6 +295,43 @@ workflow can use `cc compile` without an environment profile. With `cc65Path`
 configured, readiness also requires `cc65Root` and its target-data directories.
 It probes the compiler version but does not compile a test program.
 
+Use the optional smoke workflow to check compilation, template boot/loading,
+and execution together:
+
+```sh
+a2 env check environment.json --smoke --artifacts artifacts/environment-smoke --json
+```
+
+`--smoke` first runs the ordinary readiness checks, then creates an original
+mailbox starter project, builds a copy of the configured template, and runs its
+MAME execution test. It uses C when `cc65Path` is configured and assembly
+otherwise. Success requires observing `2A A5 5A` at `$0300–$0302` after loading
+the program from the disk. A template that merely passes structural verification
+cannot satisfy that test. The template must boot to an Applesoft prompt within
+`bootSeconds`; ProDOS needs BASIC.SYSTEM. The original `apple2` machine profile
+has no project target and is refused for this workflow.
+
+The evidence directory must be new. If `--artifacts` is omitted, a unique
+`artifacts/environment-checks/run-*` directory is created beside the profile.
+`--artifacts` requires `--smoke`. Evidence cannot be written inside the selected
+ROM or compiler distribution directories. Existing evidence, templates, and
+source profiles are preserved.
+
+JSON `data.smoke` identifies the result, exact profile copy, environment lock,
+generated project, workflow evidence, and generated-input hashes.
+`smoke-result.json` records passed checks and failures, including compilation,
+assertion, cancellation, and changed-input failures after work has begun.
+The full environment lock fingerprints the template, tools, ROMs, and configured
+compiler distribution. The workflow validates that lock and rechecks the
+profile, lock, and generated inputs before reporting success. Failed runs retain
+their collected evidence and return exit code 1; invalid invocation/profile or
+an existing artifact directory is refused before a run begins.
+
+Process-contract tests use an explicitly labeled helper that emits controlled
+observations. Those tests do not establish real MAME boot or cc65 compilation
+success. Smoke results establish those capabilities only for the actual
+executables and inputs whose hashes are recorded in that run.
+
 Set `environment` in a project or execution JSON file to reuse the profile.
 Execution files inherit omitted emulator, ROM-directory, and machine settings.
 Projects inherit an omitted disk template and compiler configuration; an

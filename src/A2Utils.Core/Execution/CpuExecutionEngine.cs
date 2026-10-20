@@ -13,8 +13,9 @@ namespace A2Utils.Core.Execution;
 /// <summary>Deterministic, bounded 6502/Apple-compatible 65C02 routine execution without an emulator or ROM.</summary>
 public static class CpuExecutionEngine
 {
-    public const string Version = "cpu-1";
+    public const string Version = "cpu-2";
     private const int MaximumTraceBytes = 16 * 1024 * 1024;
+    private const int TailInstructions = 256;
     private static readonly HashSet<string> RegisterNames = new(StringComparer.Ordinal)
     {
         "PC", "A", "X", "Y", "P", "S", "SP"
@@ -40,8 +41,8 @@ public static class CpuExecutionEngine
             "CPU execution is disk-free; diskImage, disks, and diskAssertions must be empty.");
         Require(spec.SymbolicMemory is not null && spec.SymbolicMemory.Count == 0 && spec.SymbolicUntil is null,
             "CPU execution accepts resolved numeric assertions only.");
-        Require(spec.Debug is null && spec.Cycles is null && spec.Until is null,
-            "A CPU routine supplies its own return and cycle-budget stop mechanism.");
+        Require(spec.Cycles is null && spec.Until is null,
+            "A CPU routine supplies its own return and cycle-budget stop mechanism, optionally with debug points.");
         Require(spec.StorageProfile == "floppy", "CPU execution does not configure a storage controller.");
         Require(spec.Keys is not null && spec.Keys.Count == 0 && spec.Steps is not null && spec.Steps.Count == 0,
             "CPU execution does not provide keyboard or interactive machine steps.");
@@ -115,13 +116,36 @@ public static class CpuExecutionEngine
             "CPU register assertions use PC, A, X, Y, P, S, or SP and values 0..65535.");
         Require(spec.Registers.Select(register => register.Name).Distinct().Count() == spec.Registers.Count,
             "CPU register assertion names must be unique.");
+        if (spec.Debug is { } debug)
+        {
+            Require(debug.Breakpoints is not null && debug.Watchpoints is not null
+                && debug.Breakpoints.Count + debug.Watchpoints.Count is > 0 and <= 64,
+                "debug requires 1..64 breakpoints or watchpoints.");
+            Require(debug.StepInstructions is >= 0 and <= 1024 && debug.HistoryInstructions is >= 0 and <= 256,
+                "Debug steps must be 0..1024 and history instructions 0..256.");
+            foreach (ExecutionBreakpoint point in debug.Breakpoints)
+            {
+                Require(point is not null && point.Address is >= 0 and <= 65535 && point.Program is null
+                    && point.Symbol is null && point.Offset == 0,
+                    "Breakpoints require a numeric address; resolve program/symbol addresses using build --test.");
+                Require(point.AfterSeconds == 0, "CPU debug points require afterSeconds 0 because CPU routines have no machine clock.");
+            }
+            foreach (ExecutionWatchpoint point in debug.Watchpoints)
+            {
+                Require(point is not null && point.Address is >= 0 and <= 65535 && point.Length is > 0 and <= 65536
+                    && (long)point.Address + point.Length <= 65536 && point.Access is "read" or "write" or "readWrite"
+                    && point.Program is null && point.Symbol is null && point.Offset == 0,
+                    "Watchpoints require a CPU range and access read/write/readWrite; use build --test for symbols.");
+                Require(point.AfterSeconds == 0, "CPU debug points require afterSeconds 0 because CPU routines have no machine clock.");
+            }
+        }
     }
 
     internal static CpuKind ProcessorFor(string machine)
         => machine is "apple2ee" or "apple2c" ? CpuKind.Apple65C02 : CpuKind.Mos6502;
 
     internal static async Task<ExecutionResult> RunAsync(ExecutionSpec spec, string artifactDirectory,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, Action<long, CancellationToken>? instructionCompleted = null)
     {
         Validate(spec);
         cancellationToken.ThrowIfCancellationRequested();
@@ -154,18 +178,18 @@ public static class CpuExecutionEngine
             }, ExecutionSpec.JsonOptions), linked.Token);
 
             string? tracePath = spec.Trace ? Path.Combine(artifacts, "trace.tsv") : null;
-            CpuRunOutcome outcome = await Task.Run(() => Cpu6502.Run(spec, prepared, tracePath, linked.Token), linked.Token);
-            ExecutionRunner.ValidateExecutionEnvironment(spec, environment, linked.Token);
-            RoutineHarness.ValidateInputs(prepared, linked.Token);
+            CpuRunOutcome outcome = await Task.Run(() => Cpu6502.Run(spec, prepared, tracePath, linked.Token,
+                instructionCompleted), linked.Token);
             reason = outcome.StopReason;
             observation = CreateObservation(spec, prepared, outcome);
+            linked.Token.ThrowIfCancellationRequested();
+            ExecutionRunner.ValidateExecutionEnvironment(spec, environment, linked.Token);
+            RoutineHarness.ValidateInputs(prepared, linked.Token);
             if (outcome.Fault is { } fault)
                 diagnostics.Add(new("execution.cpu_fault", "error", fault.Message,
                     Symbol: "$" + fault.ProgramCounter.ToString("X4", CultureInfo.InvariantCulture),
                     Actual: "$" + fault.Opcode.ToString("X2", CultureInfo.InvariantCulture)));
             diagnostics.AddRange(ExecutionRunner.Evaluate(spec, observation));
-            await File.WriteAllTextAsync(Path.Combine(artifacts, "observations.tsv"),
-                ObservationText(observation), linked.Token);
             await File.WriteAllTextAsync(Path.Combine(artifacts, "screen.txt"), "", linked.Token);
             ExecutionRunner.ValidateExecutionEnvironment(spec, environment, linked.Token);
         }
@@ -188,6 +212,12 @@ public static class CpuExecutionEngine
             diagnostics.Add(new("execution.cpu_fault", "error", exception.Message));
         }
 
+        if (observation is not null)
+        {
+            observation = observation with { StopReason = reason };
+            await File.WriteAllTextAsync(Path.Combine(artifacts, "observations.tsv"),
+                ObservationText(observation), CancellationToken.None);
+        }
         bool passed = observation is not null && diagnostics.All(diagnostic => diagnostic.Severity != "error");
         ExecutionResult result = new(1, spec.Name, passed, reason, Version, observation?.EmulatedSeconds,
             observation?.Registers ?? new Dictionary<string, long>(), observation?.Memory ?? new Dictionary<int, string>(),
@@ -196,6 +226,7 @@ public static class CpuExecutionEngine
         {
             BankMemory = observation?.BankMemory ?? [],
             Cycles = observation?.Cycles,
+            Debug = observation?.Debug,
             Environment = environment
         };
         string resultPath = Path.Combine(artifacts, "result.json");
@@ -214,7 +245,8 @@ public static class CpuExecutionEngine
         return new(outcome.StopReason, 0, outcome.Registers, memory, "")
         {
             Cycles = new(prepared.EntryPoint, RoutineHarness.ReturnAddress, outcome.Cycles, outcome.Returned),
-            BankMemory = memory.Select(pair => new ExecutionMemory("cpu", pair.Key, pair.Value)).ToArray()
+            BankMemory = memory.Select(pair => new ExecutionMemory("cpu", pair.Key, pair.Value)).ToArray(),
+            Debug = outcome.Debug
         };
     }
 
@@ -230,12 +262,20 @@ public static class CpuExecutionEngine
         if (observation.Cycles is { } cycles)
             text.Append("CYCLES\t").Append(cycles.StartAddress).Append('\t').Append(cycles.EndAddress).Append('\t')
                 .Append(cycles.Cycles).Append('\t').Append(cycles.Returned ? '1' : '0').Append('\n');
+        if (observation.Debug is { } debug)
+        {
+            text.Append("DEBUG\t").Append(debug.Trigger.Kind).Append('\t').Append(debug.Trigger.Index).Append('\t')
+                .Append(debug.Trigger.Address).Append('\t').Append(debug.Trigger.Value ?? -1).Append('\t')
+                .Append(debug.Trigger.ProgramCounter).Append('\t').Append(debug.SteppedInstructions).Append('\n');
+            foreach (ExecutionInstruction instruction in debug.History)
+                text.Append("HIST\t").Append(instruction.Address).Append('\t').Append(instruction.Disassembly).Append('\n');
+        }
         return text.Append("END\n").ToString();
     }
 
     internal sealed record CpuFault(int ProgramCounter, byte Opcode, string Message);
     internal sealed record CpuRunOutcome(string StopReason, long Cycles, bool Returned, byte[] Memory,
-        IReadOnlyDictionary<string, long> Registers, CpuFault? Fault);
+        IReadOnlyDictionary<string, long> Registers, CpuFault? Fault, ExecutionDebugResult? Debug);
 
     private sealed class Cpu6502 : IDisposable
     {
@@ -261,6 +301,12 @@ public static class CpuExecutionEngine
         private readonly IReadOnlyDictionary<byte, Instruction> _instructions;
         private readonly CpuTraceWriter? _trace;
         private readonly CancellationToken _cancellationToken;
+        private readonly Action<long, CancellationToken>? _instructionCompleted;
+        private readonly ExecutionDebug? _debug;
+        private readonly Queue<(int Address, byte[] Bytes)> _history = [];
+        private ExecutionDebugStop? _debugTrigger;
+        private int _debugStepped;
+        private ushort _instructionPc;
         private readonly List<string> _accesses = [];
         private readonly List<byte> _instructionBytes = [];
         private byte _a;
@@ -271,7 +317,8 @@ public static class CpuExecutionEngine
         private ushort _pc;
         private long _cycles;
 
-        private Cpu6502(ExecutionSpec spec, PreparedRoutine routine, string? tracePath, CancellationToken cancellationToken)
+        private Cpu6502(ExecutionSpec spec, PreparedRoutine routine, string? tracePath, CancellationToken cancellationToken,
+            Action<long, CancellationToken>? instructionCompleted)
         {
             _cpu = ProcessorFor(spec.Machine);
             _instructions = InstructionSet.GetInstructions(_cpu).ToDictionary(instruction => instruction.Opcode);
@@ -292,13 +339,15 @@ public static class CpuExecutionEngine
             _memory[0x01ff] = 0x02;
             _pc = (ushort)routine.EntryPoint;
             _cancellationToken = cancellationToken;
+            _instructionCompleted = instructionCompleted;
+            _debug = spec.Debug;
             _trace = tracePath is null ? null : new CpuTraceWriter(tracePath, MaximumTraceBytes, routine.SourceMap);
         }
 
         public static CpuRunOutcome Run(ExecutionSpec spec, PreparedRoutine routine, string? tracePath,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken, Action<long, CancellationToken>? instructionCompleted)
         {
-            using Cpu6502 cpu = new(spec, routine, tracePath, cancellationToken);
+            using Cpu6502 cpu = new(spec, routine, tracePath, cancellationToken, instructionCompleted);
             return cpu.Execute(spec.Routine!.MaxCycles);
         }
 
@@ -309,7 +358,25 @@ public static class CpuExecutionEngine
             string reason;
             while (true)
             {
-                _cancellationToken.ThrowIfCancellationRequested();
+                if (_cancellationToken.IsCancellationRequested)
+                {
+                    reason = "cancelled";
+                    break;
+                }
+                if (_debug is not null && _debugTrigger is null)
+                {
+                    for (int index = 0; index < _debug.Breakpoints.Count; index++)
+                    {
+                        if (_debug.Breakpoints[index].Address != _pc) continue;
+                        _debugTrigger = new("breakpoint", index, _pc, null, _pc);
+                        break;
+                    }
+                }
+                if (_debugTrigger is not null && _debugStepped == _debug!.StepInstructions)
+                {
+                    reason = _debugStepped > 0 ? "debug_steps" : _debugTrigger.Kind;
+                    break;
+                }
                 if (_pc == RoutineHarness.ReturnAddress)
                 {
                     returned = true;
@@ -317,6 +384,8 @@ public static class CpuExecutionEngine
                     break;
                 }
                 ushort instructionPc = _pc;
+                _instructionPc = instructionPc;
+                bool stepping = _debugTrigger is not null;
                 byte beforeA = _a, beforeX = _x, beforeY = _y, beforeP = _p, beforeSp = _sp;
                 long beforeCycles = _cycles;
                 _accesses.Clear();
@@ -340,8 +409,15 @@ public static class CpuExecutionEngine
                     break;
                 }
                 _cycles += instructionCycles;
+                if (_debug?.HistoryInstructions > 0)
+                {
+                    _history.Enqueue((instructionPc, _instructionBytes.ToArray()));
+                    if (_history.Count > _debug.HistoryInstructions) _history.Dequeue();
+                }
                 _trace?.Write(beforeCycles, _cycles, instructionPc, _instructionBytes, instruction.Mnemonic,
                     beforeA, beforeX, beforeY, beforeP, beforeSp, _a, _x, _y, _p, _sp, _accesses);
+                if (stepping) _debugStepped++;
+                _instructionCompleted?.Invoke(_cycles, _cancellationToken);
                 if (_cycles > maximumCycles)
                 {
                     reason = "cycle_limit";
@@ -358,7 +434,19 @@ public static class CpuExecutionEngine
                     ["P"] = _p,
                     ["S"] = _sp,
                     ["SP"] = 0x100 | _sp
-                }, fault);
+                }, fault, _debugTrigger is null ? null : new(_debugTrigger, _debugStepped,
+                    _history.Select(item => new ExecutionInstruction(item.Address,
+                        DescribeInstruction(item.Address, item.Bytes))).ToArray()));
+        }
+
+        private string DescribeInstruction(int address, byte[] bytes)
+        {
+            // Preserve the actual opcode/operand bytes, even after self-modifying writes.
+            // A wrapping fetch cannot be passed to the linear disassembler.
+            if (address + bytes.Length > 65536)
+                return _instructions[bytes[0]].Mnemonic + " ; " + Convert.ToHexString(bytes);
+            string line = Disassembler.Disassemble(bytes, (ushort)address, _cpu).Split('\n')[1];
+            return line.Trim();
         }
 
         private int ExecuteInstruction(Instruction instruction)
@@ -674,12 +762,29 @@ public static class CpuExecutionEngine
 
         private byte Read(ushort address)
         {
-            byte value = _memory[address]; _accesses.Add($"R:${address:X4}=${value:X2}"); return value;
+            byte value = _memory[address];
+            _accesses.Add($"R:${address:X4}=${value:X2}");
+            ObserveAccess(address, value, "read");
+            return value;
         }
 
         private void Write(ushort address, byte value)
         {
             _memory[address] = value; _accesses.Add($"W:${address:X4}=${value:X2}");
+            ObserveAccess(address, value, "write");
+        }
+
+        private void ObserveAccess(ushort address, byte value, string access)
+        {
+            if (_debug is null || _debugTrigger is not null) return;
+            for (int index = 0; index < _debug.Watchpoints.Count; index++)
+            {
+                ExecutionWatchpoint point = _debug.Watchpoints[index];
+                if (address < point.Address || address >= (long)point.Address! + point.Length
+                    || point.Access != access && point.Access != "readWrite") continue;
+                _debugTrigger = new("watchpoint", index, address, value, _instructionPc);
+                break;
+            }
         }
 
         private void Push(byte value) { Write((ushort)(0x100 | _sp), value); _sp--; }
@@ -694,14 +799,18 @@ public static class CpuExecutionEngine
     private sealed class CpuTraceWriter : IDisposable
     {
         private readonly StreamWriter _writer;
+        private readonly string _tailPath;
+        private readonly Queue<string> _tail = [];
         private readonly int _maximumBytes;
         private readonly AssemblySourceMapEntry?[] _sourceMap = new AssemblySourceMapEntry?[65536];
         private int _bytes;
         private bool _truncated;
+        private const string Header = "cycleStart\tcycleEnd\tpc\topcode\tmnemonic\taBefore\txBefore\tyBefore\tpBefore\tspBefore\taAfter\txAfter\tyAfter\tpAfter\tspAfter\taccesses\tsourceFile\tsourceLine\tsource\n";
 
         public CpuTraceWriter(string path, int maximumBytes, IReadOnlyList<AssemblySourceMapEntry> sourceMap)
         {
             _writer = new(new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.Read), new UTF8Encoding(false));
+            _tailPath = Path.Combine(Path.GetDirectoryName(path)!, "trace-tail.tsv");
             _maximumBytes = maximumBytes;
             foreach (AssemblySourceMapEntry entry in sourceMap.Where(entry => entry.Length > 0 && entry.Address is >= 0 and <= 65535)
                 .OrderBy(entry => entry.Address).ThenBy(entry => entry.Length).ThenBy(entry => entry.File, StringComparer.Ordinal)
@@ -710,19 +819,21 @@ public static class CpuExecutionEngine
                 int end = (int)Math.Min(65536L, (long)entry.Address + entry.Length);
                 for (int address = entry.Address; address < end; address++) _sourceMap[address] ??= entry;
             }
-            Append("cycleStart\tcycleEnd\tpc\topcode\tmnemonic\taBefore\txBefore\tyBefore\tpBefore\tspBefore\taAfter\txAfter\tyAfter\tpAfter\tspAfter\taccesses\tsourceFile\tsourceLine\tsource\n");
+            Append(Header);
         }
 
         public void Write(long start, long end, ushort pc, IReadOnlyList<byte> bytes, string mnemonic,
             byte beforeA, byte beforeX, byte beforeY, byte beforeP, byte beforeSp,
             byte afterA, byte afterX, byte afterY, byte afterP, byte afterSp, IReadOnlyList<string> accesses)
         {
-            if (_truncated) return;
             AssemblySourceMapEntry? source = _sourceMap[pc];
             string line = $"{start}\t{end}\t{pc:X4}\t{Convert.ToHexString(bytes.ToArray())}\t{mnemonic}\t" +
                 $"{beforeA:X2}\t{beforeX:X2}\t{beforeY:X2}\t{beforeP:X2}\t{beforeSp:X2}\t" +
                 $"{afterA:X2}\t{afterX:X2}\t{afterY:X2}\t{afterP:X2}\t{afterSp:X2}\t{string.Join(',', accesses)}\t" +
                 $"{Escape(source?.File)}\t{source?.Line.ToString(CultureInfo.InvariantCulture) ?? ""}\t{Escape(source?.Source)}\n";
+            _tail.Enqueue(line);
+            if (_tail.Count > TailInstructions) _tail.Dequeue();
+            if (_truncated) return;
             const string marker = "# trace truncated at the 16 MiB evidence limit\n";
             int markerBytes = Encoding.UTF8.GetByteCount(marker);
             if (_bytes + Encoding.UTF8.GetByteCount(line) + markerBytes > _maximumBytes)
@@ -743,7 +854,14 @@ public static class CpuExecutionEngine
         }
 
         private void Append(string text) { _writer.Write(text); _bytes += Encoding.UTF8.GetByteCount(text); }
-        public void Dispose() => _writer.Dispose();
+        public void Dispose()
+        {
+            _writer.Dispose();
+            using StreamWriter tail = new(new FileStream(_tailPath, FileMode.CreateNew, FileAccess.Write, FileShare.Read),
+                new UTF8Encoding(false));
+            tail.Write(Header);
+            foreach (string line in _tail) tail.Write(line);
+        }
     }
 
     private sealed class CpuExecutionFault(string message) : Exception(message);

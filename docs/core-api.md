@@ -537,6 +537,11 @@ public sealed record DiskChange
     public string Action { get; init; } = "";
     public string Path { get; init; } = "";
     public string? Source { get; init; }
+    public string? SourcePath { get; init; }
+    public string? SourceImage { get; init; }
+    public string? SourceOrder { get; init; }
+    public string? SourceFileSystem { get; init; }
+    public string? Format { get; init; }
     public string? Hex { get; init; }
     public string? ExpectedSourceSha256 { get; init; }
     public string? Type { get; init; }
@@ -546,7 +551,8 @@ public sealed record DiskChange
     public bool Parents { get; init; }
     public bool? Locked { get; init; }
 }
-public sealed record DiskChangeInput(string Path, string Sha256, long Length);
+public sealed record DiskChangeInput(
+    string Path, string Sha256, long Length, string Kind = "file");
 public sealed record DiskChangePlan(
     int SchemaVersion, string InputPath, string InputSha256,
     string ChangeSetPath, string ChangeSetSha256, string PlanSha256,
@@ -572,12 +578,28 @@ public static class DiskChangeSetRunner
 ```
 
 `Plan` strictly loads 1..1,024 ordered `add`, `replace`, `delete`, `rename`,
-`mkdir`, or `attr` changes, applies them to disposable sibling images, validates
+`mkdir`, `attr`, `copy`, `move`, `import`, or `restore` changes, applies them to
+disposable temporary images, validates
 the candidate, and returns reproducible input/change-set/payload/candidate hashes
 without committing an output. `Apply` repeats that preflight, can require the
 input and plan hashes, rechecks every input, and commits the same candidate through
-`ImageTransactions`. Change-set JSON is limited to 1 MiB, each source payload to
-32 MiB, and combined source payloads to 128 MiB.
+`ImageTransactions`. Copy/move use `SourcePath` and the exact destination `Path`.
+Copy reads the staged image unless `SourceImage` names a separate image with
+optional `SourceOrder`/`SourceFileSystem`; copying requires matching filesystems.
+Import uses `Source` as a host directory, an existing destination `Path`, `Type`
+and optional `AuxType`, or `Format = "text"`. Restore uses `Source` as an extraction
+manifest, requires `Path = "/"`, and preserves recorded paths and metadata.
+
+All external files are captured before edits. Directory import also captures
+membership, so added, removed, renamed, or replaced source entries invalidate
+the plan. `DiskChangeInput.Kind` is `file` for byte hashes and `directory` for
+membership hashes (length zero). Output paths cannot overwrite these inputs or
+reside within imported directories. Add/mkdir/import use the plan timestamp;
+copy/restore preserve source timestamps.
+
+Change-set JSON is limited to 1 MiB, each source payload/manifest to 32 MiB,
+external image containers to 34 MiB, combined external file bytes to 128 MiB,
+and external file/directory inputs to 65,535.
 
 ### `ImageConverter`
 
@@ -2382,7 +2404,7 @@ fields throw `InvalidDataException`.
 ```csharp
 public static class CpuExecutionEngine
 {
-    public const string Version = "cpu-1";
+    public const string Version = "cpu-2";
     public static void Validate(ExecutionSpec spec);
 }
 ```
@@ -2393,7 +2415,10 @@ P to `$24`, SP to `$01FD`, applies declared register/memory inputs, and stops af
 the routine returns through the harness sentinel or crosses `MaxCycles`. Optional
 `trace.tsv` rows include instruction bytes, PC, before/after registers, cycle range,
 logical memory accesses, and source file/line/text when the assembled routine has
-a mapping. The UTF-8 artifact is capped at 16 MiB. Machine I/O and ROM services
+a mapping. The UTF-8 artifact is capped at 16 MiB; `trace-tail.tsv` retains the
+last 256 instruction rows. CPU debug stops support breakpoints, watchpoints,
+and bounded stepping with `AfterSeconds = 0`. Interrupted runs retain final
+register/memory observations once execution has started. Machine I/O and ROM services
 are not emulated.
 
 ## Extended AI programming APIs
@@ -2401,6 +2426,27 @@ are not emulated.
 The additive APIs below are described in their focused guides. They follow the
 same versioned project/execution JSON options and bounded input rules as the
 original workflow.
+
+`DiskSession.Info.Capabilities` describes format/structure eligibility separately
+from the session's `IsReadOnly` flag. Each `DiskOperationCapability` contains an
+operation name, supported flag, and stable refusal reasons. Entry permissions,
+free space, and host destination permissions must still be checked at application.
+
+`DiskMigration.Plan(sourceImage, sourcePath, destinationImage, destinationPath,
+options, cancellationToken)` stages and reopens a candidate without publishing it.
+`DiskMigration.Apply` accepts the same inputs plus output/in-place/overwrite,
+metadata-loss acceptance, and an optional exact `expectedPlanSha256`.
+`DiskMigrationOptions` selects source/destination order/filesystem overrides and
+`TextMode` (`preserve` or `convert`). Results expose input/candidate/payload hashes,
+mapped type/auxiliary/lock fields, metadata losses, and resulting free space.
+Both images are rechecked before commit; see [migration](disk-images.md#migrate-files-between-dos-and-prodos).
+
+`DevelopmentEnvironment.SmokeAsync(profilePath, artifactDirectory,
+cancellationToken)` performs the opt-in original-program compile/boot/load check.
+The returned `EnvironmentCheckResult.Smoke` identifies the input profile/hash,
+environment lock, generated inputs, workflow result, and retained evidence.
+Readiness failures, runtime failures, and cancellation retain evidence once
+the new directory has been created; no external assets are acquired.
 
 Their remaining public data contracts are:
 

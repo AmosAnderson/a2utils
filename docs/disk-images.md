@@ -62,6 +62,50 @@ that session; `imageWriteProtected` separately reports container protection.
 Read-only inspection accepts symbolic links to regular image files and applies
 the image-size limit to the target. Write paths reject linked inputs and outputs.
 
+`info.capabilities` in the JSON payload reports structural eligibility for each
+operation, stable refusal codes, and the filesystem's metadata fields. The
+capabilities are independent of the read-only inspection session: an ordinary
+healthy image can report `edit.supported: true` while `isReadOnly` is true.
+Entry access flags, allocation capacity, and host destination permissions still
+apply. `readFile` describes support for individual readable entries; `extractAll`
+also accounts for damaged or forked entries elsewhere in the volume.
+
+## Migrate files between DOS and ProDOS
+
+Use `disk migrate` for an individual TXT, BIN, or Applesoft BAS file. Supply an
+exact new destination name and an existing parent directory. Naming collisions,
+unsupported types, insufficient capacity, and unrepresentable payloads are
+refused before committing. Existing source and destination images stay unchanged
+when a separate output is requested.
+
+```sh
+mkdir -p artifacts
+a2 disk create artifacts/destination.po --fs prodos
+a2 disk migrate artifacts/destination.po HELLO.BIN HELLO --from tests/TestData/independent-dos33.do --preflight --json
+a2 disk migrate artifacts/destination.po HELLO.BIN HELLO --from tests/TestData/independent-dos33.do --output artifacts/migrated.po --expect-plan-sha256 PLAN_HASH
+```
+
+Replace `PLAN_HASH` with the preflight result's `planSha256`. The hash binds both
+image snapshots, the entry names, conversion mode, payload, metadata-loss report,
+and validated candidate. Changed inputs are refused. `--in-place` explicitly
+updates the destination image with a backup; it never updates the source image.
+
+Migration transfers logical payloads, translates filesystem headers, and retains
+the supported type, binary load address, and lock state. It does not preserve
+DOS sector padding or filesystem allocation. Applesoft requires origin `$0801`.
+New ProDOS dates use the original dates when present, otherwise January 1, 2000.
+DOS cannot store ProDOS dates or all access/auxiliary fields: preflight reports
+these losses, and applying them requires `--allow-metadata-loss`.
+
+TXT bytes are preserved by default. `--text-mode convert` explicitly converts
+Apple text high bits and line endings for the destination filesystem. Controls
+outside the supported ASCII text policy are refused. Without conversion, a
+payload that DOS would truncate at a NUL is also refused.
+DOS text with nonzero stored records beyond its logical EOF is refused; use
+stored-byte extraction to preserve such random-access files. Directories and
+resource forks remain outside this initial migration contract; choose each file
+and destination path explicitly. Same-filesystem preservation uses `disk copy`.
+
 ## Image paths and names
 
 Image paths belong to the disk filesystem, independently of Windows or Unix

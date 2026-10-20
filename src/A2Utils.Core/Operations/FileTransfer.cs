@@ -116,22 +116,8 @@ public static class FileTransfer
         string manifestFile = Path.GetFullPath(manifestPath);
         RejectLinks(manifestFile);
         if (outputPath is not null) ImageTransactions.EnsureDistinctPaths(manifestFile, outputPath);
-        ExtractionManifest manifest;
-        try
-        {
-            manifest = JsonSerializer.Deserialize<ExtractionManifest>(
-                ProgramFiles.DecodeText(ProgramFiles.ReadBytes(manifestFile, MaximumManifestBytes, cancellationToken)), JsonOptions)
-                ?? throw new JsonException("The manifest is empty.");
-        }
-        catch (JsonException ex)
-        {
-            throw new DiskException("invalid_manifest", ex.Message, 2, ex);
-        }
-
-        if (manifest.SchemaVersion != 1 || manifest.Entries is null || manifest.Entries.Count > MaximumEntries)
-        {
-            throw new DiskException("invalid_manifest", "Expected a version 1 manifest with at most 65,535 entries.", 2);
-        }
+        ExtractionManifest manifest = ParseManifest(
+            ProgramFiles.ReadBytes(manifestFile, MaximumManifestBytes, cancellationToken));
         if (!string.Equals(manifest.FileSystem, session.Info.FileSystem, StringComparison.Ordinal))
         {
             throw new DiskException("filesystem_mismatch", "Manifest restore requires the original filesystem type.", 3);
@@ -158,12 +144,8 @@ public static class FileTransfer
             {
                 continue;
             }
-            if (string.IsNullOrWhiteSpace(file.HostFile) || file.HostFile != Path.GetFileName(file.HostFile)
-                || file.HostFile.Contains(':') || file.HostFile.Contains('\\') || file.HostFile.Contains('/'))
-            {
-                throw new DiskException("invalid_manifest_path", "Manifest payloads must be direct sibling files.", 2);
-            }
-            string payloadPath = Path.Combine(parent, file.HostFile);
+            ValidatePayloadName(file.HostFile);
+            string payloadPath = Path.Combine(parent, file.HostFile!);
             RejectLinks(payloadPath);
             if (outputPath is not null) ImageTransactions.EnsureDistinctPaths(payloadPath, outputPath);
             byte[] data = ProgramFiles.ReadBytes(payloadPath,
@@ -229,6 +211,31 @@ public static class FileTransfer
                 throw new DiskException("invalid_manifest", "Restored data or metadata differs from the manifest.", 2);
             }
         }
+    }
+
+    internal static ExtractionManifest ParseManifest(byte[] bytes)
+    {
+        ExtractionManifest manifest;
+        try
+        {
+            manifest = JsonSerializer.Deserialize<ExtractionManifest>(ProgramFiles.DecodeText(bytes), JsonOptions)
+                ?? throw new JsonException("The manifest is empty.");
+        }
+        catch (JsonException ex)
+        {
+            throw new DiskException("invalid_manifest", ex.Message, 2, ex);
+        }
+        if (manifest.SchemaVersion != 1 || manifest.Entries is null || manifest.Entries.Count > MaximumEntries ||
+            manifest.Entries.Any(file => file?.Entry is null))
+            throw new DiskException("invalid_manifest", "Expected a version 1 manifest with at most 65,535 valid entries.", 2);
+        return manifest;
+    }
+
+    internal static void ValidatePayloadName(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name) || name != Path.GetFileName(name)
+            || name.Contains(':') || name.Contains('\\') || name.Contains('/') || name is "." or "..")
+            throw new DiskException("invalid_manifest_path", "Manifest payloads must be direct sibling files.", 2);
     }
 
     private static string SafeName(string name)

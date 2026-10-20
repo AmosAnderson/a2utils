@@ -294,14 +294,72 @@
           "type": "string"
         },
         "program": {
-          "type": "string"
+          "type": "string",
+          "description": "Legacy single program; leave empty or omit when steps are supplied."
         },
         "replace": {
           "type": "boolean"
+        },
+        "steps": {
+          "type": "array",
+          "maxItems": 128,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "action": {
+                "enum": [
+                  "load",
+                  "call",
+                  "run"
+                ],
+                "default": "load"
+              },
+              "program": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "program"
+            ]
+          }
+        },
+        "workspaceBytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65536,
+          "default": 1024,
+          "description": "Minimum BASIC workspace below the lowest loaded BIN for an ordered startup plan."
         }
       },
-      "required": [
-        "program"
+      "anyOf": [
+        {
+          "required": [
+            "program"
+          ],
+          "properties": {
+            "program": {
+              "minLength": 1
+            },
+            "steps": {
+              "maxItems": 0
+            }
+          }
+        },
+        {
+          "required": [
+            "steps"
+          ],
+          "properties": {
+            "program": {
+              "const": ""
+            },
+            "steps": {
+              "minItems": 1
+            }
+          }
+        }
       ]
     },
     "boot": {

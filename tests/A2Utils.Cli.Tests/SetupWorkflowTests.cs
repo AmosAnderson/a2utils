@@ -23,6 +23,35 @@ public sealed class SetupWorkflowTests : IDisposable
     }
 
     [Fact]
+    public void Check_SmokeFailure_RetainsEvidenceAndRefusesExistingArtifacts()
+    {
+        string profile = Path.Combine(_directory, "environment.json");
+        File.WriteAllText(profile, """{"schemaVersion":1,"mamePath":"missing","romDirectory":"missing-roms"}""");
+        string artifacts = Path.Combine(_directory, "smoke");
+        var result = Run("env", "check", profile, "--smoke", "--artifacts", artifacts, "--json");
+        Assert.Equal(1, result.Code);
+        using JsonDocument json = JsonDocument.Parse(result.Output);
+        Assert.False(json.RootElement.GetProperty("data").GetProperty("smoke").GetProperty("passed").GetBoolean());
+        byte[] evidence = File.ReadAllBytes(Path.Combine(artifacts, "smoke-result.json"));
+        Assert.Equal(2, Run("env", "check", profile, "--smoke", "--artifacts", artifacts, "--json").Code);
+        Assert.Equal(evidence, File.ReadAllBytes(Path.Combine(artifacts, "smoke-result.json")));
+        Assert.Equal(2, Run("env", "check", profile, "--artifacts", Path.Combine(_directory, "unused"), "--json").Code);
+        Assert.False(Directory.Exists(Path.Combine(_directory, "unused")));
+    }
+
+    [Fact]
+    public void Check_SmokeDefaultDirectory_UsesDistinctRuns()
+    {
+        string profile = Path.Combine(_directory, "environment.json");
+        File.WriteAllText(profile, """{"schemaVersion":1,"mamePath":"missing","romDirectory":"missing-roms"}""");
+        var first = Run("env", "check", profile, "--smoke", "--json");
+        var second = Run("env", "check", profile, "--smoke", "--json");
+        Assert.Equal(1, first.Code);
+        Assert.Equal(1, second.Code);
+        Assert.Equal(2, Directory.GetDirectories(Path.Combine(_directory, "artifacts", "environment-checks")).Length);
+    }
+
+    [Fact]
     public void Init_NewProject_ReportsConfigurationNeededAndPreservesExistingDirectory()
     {
         string project = Path.Combine(_directory, "project");

@@ -100,6 +100,23 @@ public sealed class DebugExecutionTests : IDisposable
     }
 
     [Theory]
+    [InlineData("cpu_fault")]
+    [InlineData("cancelled")]
+    [InlineData("host_timeout")]
+    public void Evaluate_FailureStopWithOtherwisePassingMachineAssertions_Fails(string reason)
+    {
+        ExecutionSpec spec = Spec() with { Memory = [new(768, "42")] };
+        ExecutionObservation observation = ExecutionRunner.ParseObservation(
+            "A2EXEC1\nSTOP\t" + reason + "\nTIME\t1\nMEM\t768\t42\nEND\n", "");
+
+        var diagnostic = Assert.Single(ExecutionRunner.Evaluate(spec, observation));
+
+        Assert.Equal("execution.failed_stop", diagnostic.Code);
+        Assert.Equal("error", diagnostic.Severity);
+        Assert.Equal(reason, diagnostic.Actual);
+    }
+
+    [Theory]
     [InlineData("{\"breakpoints\":[]}")]
     [InlineData("{\"breakpoints\":[{\"address\":65536}]}")]
     [InlineData("{\"breakpoints\":[{\"program\":\"MAIN\",\"symbol\":\"START\"}]}")]

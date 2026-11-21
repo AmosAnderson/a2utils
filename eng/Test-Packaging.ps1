@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: 2026 Amos Anderson
-# SPDX-License-Identifier: GPL-2.0-only
+# SPDX-License-Identifier: MIT
 
 # Exercise real packaging/archive logic with a synthetic dotnet publisher.
 # No restore, compilation, or network access is performed by this test.

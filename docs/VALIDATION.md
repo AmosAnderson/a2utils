@@ -1,5 +1,14 @@
 # Development preview validation
 
+## Binary redistribution review for 0.8.0-dev.2 — November 21, 2026
+
+Version `0.8.0-dev.2` adopts MIT for original A2Utils material. Inspection of
+the compiled CiderPress II libraries found eight embedded Apple boot payloads
+from DOS 3.2.1 and 3.3, GS/OS, Apple Pascal, and 68K Macintosh. The ProDOS
+formatter copies the GS/OS-sourced boot block to block 0 of new ProDOS volumes.
+The repository lacks a documented redistribution grant covering all eight. Public binary
+publication remains on hold. [Third-party components](../THIRD_PARTY.md)
+
 ## Windows release retry for 0.8.0-dev.1 — November 21, 2026
 
 The Windows job for `v0.8.0-dev` failed two tests. The cc65 CLI test compared
@@ -9,6 +18,12 @@ timed out while starting PowerShell to create a junction. It now creates the
 junction directly with `cmd.exe /d /c mklink /J` in the fixture directory and
 still verifies traversal through the same link twice. Linux and macOS passed
 the original workflow. [Original release run](https://github.com/AmosAnderson/a2utils/actions/runs/44882277742).
+
+All three platform builds passed for `v0.8.0-dev.1`, including packaging and
+smoke tests. That revision licensed original A2Utils code under GPL-2.0-only,
+and its publish script refused a public repository. The script stopped before
+creating a GitHub Release.
+[Windows retry and publish log](https://github.com/AmosAnderson/a2utils/actions/runs/44952522343).
 
 ## Disk preservation and execution evidence for 0.8.0-dev — November 21, 2026
 
@@ -140,8 +155,8 @@ Actual MAME, ROM/OS inputs, and cc65 were not configured for this validation.
 These checks add no real-tool interoperability evidence. Windows, Linux,
 self-contained packages, and release automation were not rerun for this
 milestone. Automatic auxiliary/language-card loading, resource-fork preservation,
-and archive formats remain follow-up scope in [PLAN.md](../PLAN.md); the existing
-public-distribution licensing gate remains unresolved.
+and archive formats were follow-up work at this milestone. Its licensing
+policy also restricted public binary releases. [Current plan](../PLAN.md).
 
 ## Version bump — October 17, 2026
 
@@ -541,13 +556,10 @@ their Unix branches and the `/usr/bin/stat` regular-file check passed on the
 initial hosted Linux job. Native macOS validation remains pending. Fixtures are hand-generated and
 contain no boot code. The emulator catalog/load smoke check has not been run.
 
-Before a stable/public release, run the configured hosted CI matrix, validate
-generated data disks in independent DOS and ProDOS emulator environments, and
-resolve the Apache-2.0/GPL-2.0-only dependency incompatibility for combined
-binaries. Original A2Utils code is licensed under GPL-2.0-only. Initial
-implementation and validation were performed locally. A private
-[GitHub repository](https://github.com/AmosAnderson/a2utils) has since been
-created; no public package has been published.
+At this early preview, the team still needed hosted CI results and independent
+DOS and ProDOS emulator validation. The repository was private, and the
+GPL-2.0-only license for original A2Utils code restricted public distribution
+of the combined binaries with the Apache-2.0 dependencies.
 
 ## Documentation verification
 
@@ -582,7 +594,7 @@ that physical writes succeed and writes through a created alias are refused;
 that branch awaits native macOS/Linux execution of the updated tests.
 
 All 49 local release checks passed. They exercise real Git tags and branch ancestry, then use a
-simulated GitHub CLI to cover private-repository enforcement, changed-tag
+simulated GitHub CLI to cover the private-repository requirement in that version, changed-tag
 rejection, required assets, checksums, draft publication, failed/incomplete
 uploads, retries, and stable/prerelease flags. Versioned Windows packaging for
 `0.3.0` produced matching package and binary versions, bundled notices, and

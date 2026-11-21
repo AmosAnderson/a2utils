@@ -308,8 +308,9 @@ Keep that address consistent with the assembly origin.
 Use `--from-image` when preservation extraction contains DOS headers and sector
 slack; alternatively, `disk export --format binary` produces a logical payload.
 See [Disk images](disk-images.md) for manifests, backups, and write semantics.
-Created images are data disks without Apple boot code and need an existing
-DOS/ProDOS environment to load programs. Emulator execution remains a
+Created images are data disks. ProDOS images contain a boot block and need a
+separately supplied `PRODOS` system file to boot. To load programs from either
+kind of data disk, use an existing DOS/ProDOS environment. Emulator execution remains a
 [release validation check](VALIDATION.md).
 
 See [Troubleshooting](troubleshooting.md) for failures and

@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: 2026 Amos Anderson
-# SPDX-License-Identifier: GPL-2.0-only
+# SPDX-License-Identifier: MIT
 
 # Exercises real Git tag/branch relationships and a simulated GitHub CLI.
 # This script never connects to GitHub or publishes a release.
@@ -169,7 +169,7 @@ Assert-Rejected { & $publishRelease @publishArguments } 'upload verification fai
 Assert-Release ($releaseTestFixture.State.Draft -and $releaseTestFixture.Events -notcontains 'release edit') 'Incomplete upload published a release.'
 Reset-GitHubFixture
 $releaseTestFixture.State.Private = $false
-Assert-Rejected { & $publishRelease @publishArguments } 'requires a private repository'
+Assert-Rejected { & $publishRelease @publishArguments } 'redistribution terms for the Apple boot code'
 Assert-Release ($releaseTestFixture.Events -notcontains 'release create') 'A public release was created.'
 Reset-GitHubFixture
 $releaseTestFixture.State.Commit = '0' * 40

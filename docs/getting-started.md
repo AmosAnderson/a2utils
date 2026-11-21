@@ -60,18 +60,19 @@ The pin does not automatically accept every .NET 10 feature band. See
 [SDK troubleshooting](troubleshooting.md#setup-and-installation) if a compatible
 SDK cannot be found. Initial restore uses the package source in
 [NuGet.Config](../NuGet.Config); later operations can use cached dependencies.
-Windows x64 has been tested locally. Subsequent hosted validation completed Linux
-and macOS packaging and smoke checks; Windows release validation had a separate
-path-assertion failure. Consult the dated entries in
-[the validation record](VALIDATION.md) for the tested revision and outstanding
-release checks, rather than assuming every platform passed for this checkout.
+The `v0.8.0-dev.1` hosted builds passed tests, packaging, and smoke checks on
+Windows x64, Linux x64, and Apple Silicon macOS. See the dated
+[validation record](VALIDATION.md) for the tested revisions and external-tool coverage.
 
 ## Download a tagged release
 
-When available, binaries are attached to
-[GitHub Releases](https://github.com/AmosAnderson/a2utils/releases), accessible
-to users with access to this private repository. Choose `win-x64` for Windows
-x64, `linux-x64` for Linux x64, or `osx-arm64` for Apple Silicon macOS. Extract
+Public binaries for `0.8.0-dev.2` are on hold pending review of embedded Apple
+boot code. To use this revision, follow [the source build steps below](#build-and-inspect-the-sample-image).
+
+For an available tagged release, download the archive for your system from
+[GitHub Releases](https://github.com/AmosAnderson/a2utils/releases).
+Choose `win-x64` for Windows x64, `linux-x64` for Linux x64, or `osx-arm64`
+for Apple Silicon macOS. Extract
 the whole archive and keep its accompanying files and notices. Run `a2.exe`
 on Windows or `./a2` on Unix; these archives include the .NET runtime.
 
@@ -81,7 +82,7 @@ using `Get-FileHash -Algorithm SHA256` in PowerShell, `sha256sum` on Linux, or
 installed from a local download folder using `dotnet tool install A2Utils.Tool
 --version <version> --add-source <folder> --tool-path <tools-folder>`.
 It requires .NET 10. See [release automation](development.md#tagged-releases)
-for how tags create these downloads.
+for the packaging workflow and current publication limits.
 
 ## Build and inspect the sample image
 
@@ -106,13 +107,13 @@ Build and install the preview package into this checkout:
 
 ```sh
 dotnet pack src/A2Utils.Cli -c Release --no-restore -o artifacts/packages
-dotnet tool install A2Utils.Tool --version 0.8.0-dev.1 --add-source artifacts/packages --tool-path artifacts/tools --configfile NuGet.Config
+dotnet tool install A2Utils.Tool --version 0.8.0-dev.2 --add-source artifacts/packages --tool-path artifacts/tools --configfile NuGet.Config
 ```
 
 For an already installed preview, substitute `update` for `install`:
 
 ```sh
-dotnet tool update A2Utils.Tool --version 0.8.0-dev.1 --add-source artifacts/packages --tool-path artifacts/tools --configfile NuGet.Config --no-cache
+dotnet tool update A2Utils.Tool --version 0.8.0-dev.2 --add-source artifacts/packages --tool-path artifacts/tools --configfile NuGet.Config --no-cache
 ```
 
 The package ID is `A2Utils.Tool`; its executable is `a2`. Installation is local
@@ -203,7 +204,7 @@ identifies Applesoft. Each successful in-place addition creates a uniquely
 named `.bak` file containing the preceding disk image. Verification checks
 disk structures; it does not execute either program.
 
-New images contain a formatted filesystem without boot code. To run these
+The new DOS image contains a formatted filesystem with empty boot tracks. To run these
 programs on an Apple II or emulator, use an existing compatible DOS/ProDOS
 environment. The MAME adapter has passed real enhanced-IIe checks with an
 original self-booting sector and a supplied ProDOS template, but this newly

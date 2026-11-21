@@ -7,8 +7,7 @@ programs. Build projects into disk images, prepare graphics assets, test pure
 6502/65C02 routines in-process, and test full machines through an optional MAME
 installation. The reusable core library is independent of console output.
 
-The current version is **0.8.0-dev.1**, a development preview. The
-[GitHub repository](https://github.com/AmosAnderson/a2utils) is private.
+The current version is **0.8.0-dev.2**, a development preview.
 
 The AI programming workflow now includes [setup profiles and starters](docs/setup.md),
 [runtime memory checks](docs/runtime-memory.md), [project graphics assets and visual tests](docs/project-assets.md),
@@ -31,10 +30,12 @@ recheck captured observations offline.
 
 ## Download and run
 
-When a release is available, download the package for your computer and
-`SHA256SUMS.txt` from
-[GitHub Releases](https://github.com/AmosAnderson/a2utils/releases). Access to
-the private repository is required.
+Build `0.8.0-dev.2` from source. Public binary releases are on hold while the
+project resolves redistribution rights for boot code embedded in its disk
+libraries. [Build from source](#build-from-source) · [Licensing](#preview-status-and-licensing)
+
+For an available tagged release, download the package for your computer and
+`SHA256SUMS.txt` from [GitHub Releases](https://github.com/AmosAnderson/a2utils/releases).
 
 | Computer | Release asset | Command after extraction |
 | --- | --- | --- |
@@ -187,8 +188,9 @@ a2 build project.a2.json --cache artifacts/build-cache --json
 
 Commands that write host outputs require new destinations or the appropriate
 explicit replacement option; verification, diff, and project resolution are
-read-only with respect to requested outputs. An image made by `disk create` is
-a formatted data volume without an operating system or boot code. The
+read-only with respect to requested outputs. `disk create` formats a data
+volume. The ProDOS formatter writes an Apple boot block at block 0. Both DOS
+and ProDOS data volumes need a separate operating system to run programs. The
 assembly example targets address `0x2000`; any `.org` in `hello.asm` must agree.
 Follow the [first-project walkthrough](docs/getting-started.md#build-a-disk-with-two-programs)
 for this sequence and the equivalent ProDOS metadata step by step.
@@ -300,16 +302,14 @@ external tools along with the remaining limits. The standard local suites and
 remaining external-machine checks are recorded there; real MAME and OS
 interoperability checks require local emulator resources.
 
-Original A2Utils code, scripts, and examples are Copyright (C) 2026 Amos
-Anderson and licensed under the GNU General Public License, version 2 only
-(`GPL-2.0-only`); see [LICENSE](LICENSE). Third-party code and dependencies
-retain their own licenses, which are included in each archive and summarized in
-[THIRD_PARTY.md](THIRD_PARTY.md).
+Starting with `0.8.0-dev.2`, Amos Anderson licenses original A2Utils code,
+documentation, examples, and test fixtures under MIT. Include the copyright
+and permission notice when redistributing copies or substantial portions.
+[MIT license](LICENSE)
 
-CiderPress2 and the Model Context Protocol SDK are licensed under Apache-2.0,
-which the [Apache Software Foundation](https://www.apache.org/licenses/GPL-compatibility)
-and [GNU Project](https://www.gnu.org/licenses/license-compatibility.en.html)
-identify as incompatible with GPL-2.0-only for a publicly distributed combined
-program. The repository and development releases remain private while those
-dependencies are replaced, separately licensed, or the project license is
-revisited before public binary distribution.
+Bundled libraries carry their own licenses, including Apache-2.0 for CiderPress II
+and the Model Context Protocol SDK. The CiderPress II libraries also embed
+eight Apple boot payloads covering DOS 3.2.1 and 3.3, ProDOS (from GS/OS),
+Apple Pascal, and 68K Macintosh. The project is holding public binaries until
+it can document redistribution rights for all eight or ship a build that
+omits or replaces them. [Third-party components](THIRD_PARTY.md)

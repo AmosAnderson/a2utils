@@ -14,6 +14,9 @@ third_party/CiderPress2/** -text
 # The original source manifest uses CRLF; retain it while checking other whitespace.
 third_party/CiderPress2/SOURCE_MANIFEST.json whitespace=cr-at-eol
 
+# Retain the notice exactly as shipped in the upstream NuGet packages.
+notices/Microsoft.Extensions/THIRD-PARTY-NOTICES.TXT -text -whitespace
+
 # Disk fixtures must never undergo newline conversion.
 *.do -text
 *.po -text

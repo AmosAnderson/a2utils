@@ -1,5 +1,5 @@
 ; SPDX-FileCopyrightText: 2026 Amos Anderson
-; SPDX-License-Identifier: GPL-2.0-only
+; SPDX-License-Identifier: MIT
 
 ; Original 6502 opaque HGR page-1 sprite blitter. Main RAM, RAMRD/RAMWRT=0,
 ; ALTZP=0, 80STORE=0; caller selects the display mode. Decimal mode must be off.

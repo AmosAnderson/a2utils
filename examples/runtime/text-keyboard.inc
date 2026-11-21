@@ -1,5 +1,5 @@
 ; SPDX-FileCopyrightText: 2026 Amos Anderson
-; SPDX-License-Identifier: GPL-2.0-only
+; SPDX-License-Identifier: MIT
 
 ; Original 6502 building blocks. Main RAM/ROM mapped, ALTZP=0.
 ; a2_puts: $06/$07 points to a NUL-terminated ASCII string of at most 255 bytes.

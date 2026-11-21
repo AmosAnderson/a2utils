@@ -1,5 +1,5 @@
 ; SPDX-FileCopyrightText: 2026 Amos Anderson
-; SPDX-License-Identifier: GPL-2.0-only
+; SPDX-License-Identifier: MIT
 
 ; DOS/custom-runtime demonstration. Leaves the normal main/ROM mapping.
 ; Clobbers A/X/Y, $06-$09, $0300-$0302, main $3000-$30FF and $4000,

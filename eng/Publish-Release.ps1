@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: 2026 Amos Anderson
-# SPDX-License-Identifier: GPL-2.0-only
+# SPDX-License-Identifier: MIT
 
 param(
     [Parameter(Mandatory)][string]$Tag,
@@ -43,7 +43,9 @@ $checksums = foreach ($file in $files | Sort-Object Name) {
 $assets = @($files.FullName) + @($checksumPath)
 
 $repositoryInfo = Invoke-GitHub @('repo', 'view', $Repository, '--json', 'isPrivate') | ConvertFrom-Json
-if (-not $repositoryInfo.isPrivate) { throw 'This release workflow requires a private repository.' }
+if (-not $repositoryInfo.isPrivate) {
+    throw 'Public binary publication is blocked pending resolution of redistribution terms for the Apple boot code bundled in DiskArc and CommonUtil.'
+}
 $remoteCommit = Invoke-GitHub @('api', "repos/$Repository/commits/$Tag", '--jq', '.sha')
 if ($remoteCommit -ne $Commit) { throw 'The remote tag changed after validation; refusing to publish different binaries.' }
 

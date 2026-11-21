@@ -415,8 +415,9 @@ a2 disk convert INPUT OUTPUT --container raw|2mg --order dos|prodos [options]
 | `--volume-number NUMBER` | `254`; DOS volume number. |
 | `--overwrite` | Replace an existing output file after validation. |
 
-Creation produces formatted **data volumes without boot code**. It does not
-resize an existing image or install DOS/ProDOS system files.
+Creation produces a formatted **data volume**. DOS creation leaves out the DOS
+boot tracks. ProDOS creation writes a 512-byte Apple boot block at block 0.
+Booting ProDOS still requires the `PRODOS` system file.
 
 `convert` requires both output `--container` and output `--order`. Its additional
 options are `--overwrite` and `--allow-metadata-loss`. Every 2IMG-to-raw conversion

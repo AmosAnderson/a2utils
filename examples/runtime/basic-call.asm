@@ -1,5 +1,5 @@
 ; SPDX-FileCopyrightText: 2026 Amos Anderson
-; SPDX-License-Identifier: GPL-2.0-only
+; SPDX-License-Identifier: MIT
 
 ; Original BASIC CALL routine: adds two unsigned bytes, returning a 16-bit sum.
 ; Load at $6000; caller reserves $6000-$601F code and $6040-$6043 mailbox.

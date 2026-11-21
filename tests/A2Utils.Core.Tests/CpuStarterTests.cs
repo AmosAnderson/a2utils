@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: 2026 Amos Anderson
-// SPDX-License-Identifier: GPL-2.0-only
+// SPDX-License-Identifier: MIT
 
 using A2Utils.Core.Execution;
 using A2Utils.Core.Projects;

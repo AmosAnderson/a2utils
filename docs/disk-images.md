@@ -350,6 +350,10 @@ a2 disk mkdir prodos-work.po DOCS/NOTES --parents --in-place
 a2 disk ls prodos-work.po --recursive
 ```
 
+The ProDOS formatter writes its 512-byte Apple boot block to block 0 of the
+new volume. Booting the disk also requires a separately supplied `PRODOS`
+system file.
+
 ProDOS creation supports 280–65,535 blocks of 512 bytes. `--size 800k` creates
 1,600 blocks; `--blocks 65535` requests the exact maximum. Choose either
 `--size` or `--blocks`. Larger images require ProDOS order. `--parents` accepts

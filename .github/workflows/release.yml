@@ -89,7 +89,9 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Installed assembler smoke test failed' }
           & ./artifacts/smoke/a2 basic compile examples/hello.bas --to artifacts/hello.basbin
           if ($LASTEXITCODE -ne 0) { throw 'Archived BASIC tokenizer smoke test failed' }
+      # Hold public binary uploads while Apple boot-code redistribution terms are unresolved.
       - name: Upload release archive
+        if: github.event.repository.private == true
         uses: actions/upload-artifact@v7
         with:
           name: release-${{ matrix.runtime }}
@@ -98,7 +100,7 @@ jobs:
           compression-level: 0
           overwrite: true
       - name: Upload portable tool package
-        if: matrix.runtime == 'win-x64'
+        if: github.event.repository.private == true && matrix.runtime == 'win-x64'
         uses: actions/upload-artifact@v7
         with:
           name: release-tool
@@ -115,6 +117,7 @@ jobs:
           overwrite: true
 
   publish:
+    if: github.event.repository.private == true
     needs: [validate, build]
     runs-on: ubuntu-latest
     permissions:

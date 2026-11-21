@@ -88,10 +88,18 @@ on both sides; the hand-built fixture supplies independent read evidence.
 ## Licensing and updates
 
 Retain upstream `LICENSE`, `NOTICE`, `THIRD_PARTY_NOTICES`, `LegalStuff.txt`,
-and all file headers. The selected source is distributed under upstream's
-Apache-2.0 terms and per-file notices. No upstream TestData was copied; its
+and all file headers. Upstream licenses its own source under Apache-2.0 and
+identifies additional components in its per-file notices. No upstream TestData was copied; its
 redistribution permissions are not assumed. Locally created fixtures document
 their own provenance. No official NuGet package is assumed.
+
+The pinned DiskArc and CommonUtil assemblies also contain eight Apple boot
+payloads. DiskArc includes two DOS track images, one ProDOS block, and three
+Apple Pascal blocks. CommonUtil includes two 68K Macintosh blocks. DiskArc's
+ProDOS formatter writes the embedded block when creating a volume, including
+when A2Utils requests a data disk. Public binary distribution is on hold until
+redistribution rights are documented or the payloads are removed or replaced.
+[Third-party components](../../THIRD_PARTY.md)
 
 Updates replace both projects at an exact revision, refresh hashes and notices,
 and rerun preservation and failure tests. Keep A2Utils behavior in the adapter;

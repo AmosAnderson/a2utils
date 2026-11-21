@@ -8,7 +8,7 @@
     <Description>Apple II disk, assembly, BASIC, graphics, project build, and execution-test utilities.</Description>
     <Authors>Amos Anderson</Authors>
     <Copyright>Copyright (C) 2026 Amos Anderson for original A2Utils code; third-party components retain their own copyrights.</Copyright>
-    <PackageLicenseExpression>GPL-2.0-only</PackageLicenseExpression>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
   <ItemGroup>
@@ -25,6 +25,7 @@
     <Content Include="../../notices/ModelContextProtocol/LICENSE" Link="notices/ModelContextProtocol/LICENSE" Pack="false" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="../../notices/ModelContextProtocol/SOURCE.md" Link="notices/ModelContextProtocol/SOURCE.md" Pack="false" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="../../notices/Microsoft.Extensions/LICENSE.txt" Link="notices/Microsoft.Extensions/LICENSE.txt" Pack="false" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="../../notices/Microsoft.Extensions/THIRD-PARTY-NOTICES.TXT" Link="notices/Microsoft.Extensions/THIRD-PARTY-NOTICES.TXT" Pack="false" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="../../notices/Microsoft.Extensions/SOURCE.md" Link="notices/Microsoft.Extensions/SOURCE.md" Pack="false" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="../../third_party/CiderPress2/LICENSE" Link="notices/CiderPress2/LICENSE" Pack="false" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="../../third_party/CiderPress2/NOTICE" Link="notices/CiderPress2/NOTICE" Pack="false" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />

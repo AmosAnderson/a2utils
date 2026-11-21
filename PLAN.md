@@ -36,9 +36,8 @@ Workflow completion milestone (October 20, 2026)
 
 Automatic auxiliary/language-card loading remains a follow-up requiring explicit
 RAM ownership and real-machine evidence. The November milestone adds ProDOS
-resource-fork preservation and native ShrinkIt reads. Binary II remains future work. Actual tool/platform
-release evidence and the existing public-distribution licensing gate are still
-required; this milestone does not acquire ROMs, OS media, or change licensing.
+resource-fork preservation and native ShrinkIt reads. Binary II remains future work. External-tool and platform checks are recorded
+in [the validation log](docs/VALIDATION.md).
 
 Review fixes and simpler development workflows (October 16, 2026)
 -----------------------------------------------------------------
@@ -200,9 +199,9 @@ The original proposal below now has a working implementation. The workspace star
 | Read-only DOS slice | Implemented and tested against independent synthetic DO/PO fixtures |
 | DOS writes | Implemented with staged commits, backups, conversion, and failure tests; emulator release check remains |
 | ProDOS operations | Implemented with directories, metadata restore, sparse files, and larger volumes; emulator release check remains |
-| Packaging and release | Tag-only builds and private GitHub Releases with versioned binaries, tool package, and checksums implemented; original A2Utils code is GPL-2.0-only; emulator checks and resolution of the Apache-2.0/GPL-2.0-only dependency incompatibility remain before public binary distribution |
+| Packaging and release | From 0.8.0-dev.2, original A2Utils code uses MIT. Tagged builds test and package Windows, Linux, and macOS binaries. Public binary publication is on hold pending resolution of the Apple boot payloads embedded in the CiderPress II libraries. |
 
-See `README.md` for actual commands and supported limits. This is a development preview, not a stable release. The [GitHub repository](https://github.com/AmosAnderson/a2utils) is private; no public package or release has been created.
+A2Utils is a development preview. The [README](README.md) covers supported commands, limits, and source installation.
 
 Preview 0.2 adds logical payload export, explicit UTF-8/Apple text conversion,
 same-filesystem copies within and between images, directory moves, recursive
@@ -348,7 +347,7 @@ Develop tests alongside each milestone, especially before enabling writes. Requi
 
 If DiskArc is reused, CiderPress checks alone are not independent validation. Keep documented, redistributable fixtures with provenance and hashes; add independent hand-checked layout vectors and fixtures made by another implementation or an Apple II environment.
 
-Build and test on Windows, Linux, and macOS only when a release version tag is pushed for a commit on main. Package a .NET tool and self-contained downloads for Windows x64, Linux x64, and macOS ARM64, using the tag's version. Test installation and representative commands from the packaged artifacts. After all builds pass, upload archives, the tool package, and SHA-256 checksums to a draft GitHub Release and publish it after upload verification; retain private repository visibility. Document supported format combinations, examples, metadata handling, transaction behavior, and known limitations. Original A2Utils code is GPL-2.0-only. Before public binary distribution, replace or separately license the Apache-2.0 dependencies, or revisit the project license, and preserve every required dependency notice.
+Build and test on Windows, Linux, and macOS only when a release version tag is pushed for a commit on main. Package a .NET tool and self-contained archives for Windows x64, Linux x64, and macOS ARM64, using the tag's version. Test installation and representative commands from the packaged artifacts. Public binary distribution requires a documented grant for the embedded Apple boot payloads or a build that excludes or replaces them. Packages must retain the A2Utils MIT license and applicable third-party licenses and notices. [Third-party components](THIRD_PARTY.md)
 
 Completion criterion: a reproducible release with passing tests, installable artifacts, sample workflows, and no advertised write operation lacking preservation and failure-path coverage.
 

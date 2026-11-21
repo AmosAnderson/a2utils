@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-FileCopyrightText: 2026 Amos Anderson
-# SPDX-License-Identifier: GPL-2.0-only
+# SPDX-License-Identifier: MIT
 """Validate real CLI payloads with jsonschema 4.23.0 (a development-only dependency).
 
 Build Release first, then run in an environment with jsonschema installed.

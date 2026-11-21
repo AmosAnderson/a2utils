@@ -82,9 +82,10 @@ are described separately in [program tools](../programs.md).
 
 NIB/WOZ, 13-sector DOS, DiskCopy, partitions, and hybrid writes are unsupported. Preserve such images for inspection with a tool
 that explicitly supports their structures. `verify` does not repair damage.
-Newly formatted images are data volumes without operating-system files or
-boot code. Successful structural verification is not a bootability or program
-execution test.
+Newly formatted images are data volumes. DOS creation omits the DOS boot
+tracks. ProDOS creation writes a 512-byte Apple boot block and leaves the
+`PRODOS` system file to the user. Structural verification checks filesystem
+integrity. Boot and program execution require separate tests.
 
 Format documentation and primary-reference links are included with the pinned
 engine under [DiskArc](../../third_party/CiderPress2/DiskArc). The adapter choice

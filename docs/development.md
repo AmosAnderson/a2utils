@@ -102,8 +102,9 @@ The [development workflow decision](decisions/0003-development-workflow.md)
 and [execution adapter decision](decisions/0002-execution.md) describe the
 new boundaries. Start with [project builds](projects.md) to combine source
 compilation and disk creation, then use [execution tests](execution.md) for
-behavioral checks. External cc65 and MAME installations are optional; no
-emulator, compiler, Apple ROM, or operating-system disk is bundled.
+behavioral checks. Full-machine tests use an external MAME installation,
+user-supplied Apple ROMs, and, for OS-based tests, a bootable disk template.
+Projects that compile C or ca65 assembly also use an external cc65 installation.
 
 ### Local MCP surface
 
@@ -397,7 +398,7 @@ dotnet run --project third_party/evaluation/DiskEngineProbe.csproj -c Release
 
 ## Packaging and local installation
 
-The shared version is currently `0.8.0-dev.1` in
+The shared version is currently `0.8.0-dev.2` in
 [Directory.Build.props](../Directory.Build.props). When changing it, also update
 versioned local installation examples. Release builds take their version from
 the Git tag instead. The CLI package ID is `A2Utils.Tool`; its command is `a2`.
@@ -407,7 +408,7 @@ From the repository root:
 ```sh
 pwsh -File eng/Package.ps1
 pwsh -File eng/Package.ps1 -Runtime win-x64 -SkipTests
-pwsh -File eng/Package.ps1 -Runtime win-x64 -Version 0.8.0-dev.1 -SkipTests
+pwsh -File eng/Package.ps1 -Runtime win-x64 -Version 0.8.0-dev.2 -SkipTests
 ```
 
 The default runtime is the host's runtime identifier. Accepted explicit values
@@ -418,7 +419,7 @@ execution on that platform. Unix archives also require `tar` on the build host.
 
 | Artifact | Location and requirements |
 | --- | --- |
-| .NET tool package | `artifacts/packages/A2Utils.Tool.0.8.0-dev.1.nupkg`; running the installed tool requires the .NET 10 runtime |
+| .NET tool package | `artifacts/packages/A2Utils.Tool.0.8.0-dev.2.nupkg`; running the installed tool requires the .NET 10 runtime |
 | Self-contained files | `artifacts/publish/<RID>/`; includes the runtime and uses `a2.exe` on Windows or `a2` on Unix |
 | Windows archive | `artifacts/a2utils-<RID>.zip` |
 | Linux/macOS archive | `artifacts/a2utils-<RID>.tar.gz` |
@@ -444,7 +445,7 @@ version. Omitting this option preserves the local artifact names above.
 Install the tool into this checkout:
 
 ```sh
-dotnet tool install A2Utils.Tool --version 0.8.0-dev.1 --add-source artifacts/packages --tool-path artifacts/tools --configfile NuGet.Config
+dotnet tool install A2Utils.Tool --version 0.8.0-dev.2 --add-source artifacts/packages --tool-path artifacts/tools --configfile NuGet.Config
 ```
 
 Use `dotnet tool update` with the same arguments when upgrading an existing
@@ -464,8 +465,14 @@ and checks that the tagged commit belongs to `origin/main` history. Annotated
 and lightweight tags work; tags on unmerged branches are rejected. Numeric
 version identifiers cannot have leading zeroes; build metadata is unsupported.
 
-To release a reviewed commit, update your checkout and push a new version tag.
-For example, to validate a 0.8.0 release candidate:
+Public binary publication is on hold. The CiderPress II libraries embed eight
+Apple boot payloads from DOS, ProDOS, Apple Pascal, and 68K Macintosh. The
+project lacks a documented redistribution grant covering all eight. Use local
+packaging and smoke tests to validate `0.8.0-dev.2`.
+[Third-party components](../THIRD_PARTY.md)
+
+When preparing a reviewed commit for a future release, update your checkout
+and push a new version tag. For example, to validate a 0.8.0 release candidate:
 
 ```sh
 git switch main
@@ -481,7 +488,8 @@ release tags unchanged.
 
 Each platform restores locked dependencies, verifies formatting, runs tests,
 builds packages, and smoke-tests the installed tool and executable extracted
-from its archive. Only after all platforms pass does publication begin.
+from its archive. Publication requires all platform checks to pass and
+redistribution of the packages to be cleared for the destination.
 
 | Release asset | Platform or purpose |
 | --- | --- |
@@ -491,11 +499,9 @@ from its archive. Only after all platforms pass does publication begin.
 | `A2Utils.Tool.<version>.nupkg` | Portable .NET tool; requires .NET 10 |
 | `SHA256SUMS.txt` | SHA-256 hashes of the four downloads |
 
-Downloads and generated release notes appear in the repository's
-[Releases section](https://github.com/AmosAnderson/a2utils/releases). The
-repository remains private, and publication refuses a public repository.
-The workflow uses GitHub's built-in token, with write access only in the
-publication job; no additional secret or NuGet publishing account is needed.
+Packages include the A2Utils MIT license and applicable third-party licenses
+and notices. The workflow uses GitHub's built-in token with
+write access only in the publication job.
 TRX reports remain workflow artifacts, separate from release downloads.
 
 Publication uploads and verifies assets in a draft before publishing it. If
@@ -511,8 +517,7 @@ exposed the system `/var` alias in cc65's generated workspace. Compiler staging
 now resolves only its trusted system temp root to a physical path and uses
 bounded best-effort cleanup; user-supplied linked paths remain refused. Current
 test counts and external-tool evidence are maintained in
-[VALIDATION.md](VALIDATION.md). A new version tag is required for
-hosted confirmation and actual publication; see [PLAN.md](../PLAN.md).
+[VALIDATION.md](VALIDATION.md).
 
 For a contribution, use a focused imperative commit subject and explain the
 problem, resulting behavior, affected formats, and validation in the pull request.

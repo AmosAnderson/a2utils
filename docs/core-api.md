@@ -350,8 +350,8 @@ target must not. `fs` accepts `dos33` or `prodos`, `container` accepts `raw`,
 takes precedence over `sizeKiB`; `sizeKiB * 2` otherwise determines the block
 count. DOS requires exactly 280 blocks. ProDOS creation accepts 280 through
 65,535 blocks, with ProDOS order required above 280. DOS volume numbers are
-0 through 254. The result is a formatted data volume with no operating system
-or boot code.
+0 through 254. Creation formats a data volume and leaves system files to the
+caller. On ProDOS volumes, DiskArc writes its 512-byte Apple boot block to block 0.
 
 All instance mutation methods require a writable, safe session:
 

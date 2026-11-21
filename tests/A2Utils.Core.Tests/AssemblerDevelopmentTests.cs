@@ -95,6 +95,20 @@ public sealed class AssemblerDevelopmentTests
     }
 
     [Fact]
+    public void AssembleFile_GeneratedBinaryIncludes_FollowDirectoryCaseSensitivity()
+    {
+        using FixtureWorkspace workspace = new();
+        string main = workspace.NewPath("main.asm");
+        File.WriteAllText(main, ".org $2000\n.incbin \"Tiles.bin\"\n.incbin \"tiles.bin\"");
+        bool distinct = !File.Exists(workspace.NewPath("MAIN.ASM"));
+        Dictionary<string, byte[]> generated = new(StringComparer.Ordinal) { [workspace.NewPath("Tiles.bin")] = [1] };
+        if (distinct) generated.Add(workspace.NewPath("tiles.bin"), [2]);
+
+        AssemblyResult result = Assembler.AssembleFile(main, generated);
+        Assert.Equal(new byte[] { 1, distinct ? (byte)2 : (byte)1 }, result.Bytes);
+    }
+
+    [Fact]
     public void AssembleFile_ErrorInInclude_ReportsIncludedFileAndPhysicalLine()
     {
         using FixtureWorkspace workspace = new();

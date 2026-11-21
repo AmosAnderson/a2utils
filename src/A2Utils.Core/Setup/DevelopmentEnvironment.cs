@@ -133,7 +133,12 @@ public static partial class DevelopmentEnvironment
         if (manifest.Disk is null) throw new DiskException("setup.invalid_project", "Project disk settings cannot be null.", 2);
         Cc65Options? compiler = manifest.Cc65;
         if (compiler is null && profile.Cc65Path is not null)
-            compiler = new() { Compiler = profile.Cc65Path, Target = manifest.Target == "apple2enh" ? "apple2enh" : "apple2", ExpectedVersion = profile.ExpectedCc65Version };
+            compiler = new()
+            {
+                Compiler = profile.Cc65Path,
+                Target = manifest.Target == "apple2enh" && manifest.Cpu != "6502" ? "apple2enh" : "apple2",
+                ExpectedVersion = profile.ExpectedCc65Version
+            };
         if (compiler is not null && compiler.ToolchainRoot is null && profile.Cc65Root is not null)
             compiler = compiler with { ToolchainRoot = profile.Cc65Root };
         string? template = manifest.Boot is null ? manifest.Disk.Template ?? profile.TemplateImage : manifest.Disk.Template;

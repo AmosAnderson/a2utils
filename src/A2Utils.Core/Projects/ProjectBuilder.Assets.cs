@@ -17,8 +17,7 @@ public static partial class ProjectBuilder
             throw Error("assets", "Assets must be an array of at most 128 conversion steps.");
         if (manifest.Assets.Select(asset => asset.Name).Distinct(StringComparer.OrdinalIgnoreCase).Count() != manifest.Assets.Count)
             throw Error("asset_name", "Asset names must be unique.");
-        Dictionary<string, byte[]> generated = new(OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
-            ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
+        Dictionary<string, byte[]> generated = new(StringComparer.FromComparison(HostFiles.DirectoryNameComparison(root)));
         List<ProjectAssetReport> reports = [];
         long inputBytes = 0, outputBytes = 0;
         foreach (ProjectAsset asset in manifest.Assets)

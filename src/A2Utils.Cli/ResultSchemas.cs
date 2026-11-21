@@ -17,6 +17,13 @@ public static class ResultSchemas
 {
     private static readonly IReadOnlyDictionary<string, Type> Types = new Dictionary<string, Type>(StringComparer.Ordinal)
     {
+        ["replay-result"] = typeof(ExecutionReplayResult),
+        ["disk-inspect-result"] = typeof(DiskInspectionResult),
+        ["archive-list-result"] = typeof(ShrinkItListing),
+        ["archive-extract-result"] = typeof(ShrinkItExtraction),
+        ["archive-catalog-result"] = typeof(ShrinkItDiskCatalog),
+        ["batch-migration-plan-result"] = typeof(BatchMigrationPlan),
+        ["batch-migration-result"] = typeof(BatchMigrationResult),
         ["disk-info-result"] = typeof(DiskInfo),
         ["disk-diff-result"] = typeof(DiskDifference),
         ["disk-plan-result"] = typeof(DiskChangePlan),
@@ -30,12 +37,20 @@ public static class ResultSchemas
         ["suite-plan-result"] = typeof(ExecutionSuitePlan)
     };
 
-    public static IReadOnlyList<string> Names { get; } = [.. Types.Keys, "build-command-result", "test-command-result", "migration-command-result"];
+    public static IReadOnlyList<string> Names { get; } = [.. Types.Keys, "build-command-result", "test-command-result", "migration-command-result", "batch-migration-command-result"];
 
     public static string Id(string name) => $"urn:a2utils:schema:{name}:1";
 
     public static string ForCommand(string command) => command switch
     {
+        "execution.replay" or "a2 replay" => Id("replay-result"),
+        "disk.inspect" or "a2 disk inspect" => Id("disk-inspect-result"),
+        "archive.ls" or "a2 archive ls" => Id("archive-list-result"),
+        "archive.extract" or "a2 archive extract" => Id("archive-extract-result"),
+        "archive.catalog" or "a2 archive catalog" => Id("archive-catalog-result"),
+        "disk.migrate-batch.plan" => Id("batch-migration-plan-result"),
+        "disk.migrate-batch" => Id("batch-migration-result"),
+        "a2 disk migrate-batch" => Id("batch-migration-command-result"),
         "info" or "a2 disk info" => Id("disk-info-result"),
         "diff" or "a2 disk diff" => Id("disk-diff-result"),
         "disk.plan" or "a2 disk plan" => Id("disk-plan-result"),
@@ -79,7 +94,9 @@ public static class ResultSchemas
                     }
                     if (node is JsonObject item && item["properties"] is JsonObject properties)
                     {
-                        item["required"] = new JsonArray(properties.Select(property => (JsonNode?)JsonValue.Create(property.Key)).ToArray());
+                        item["required"] = new JsonArray(properties.Where(property =>
+                            context.TypeInfo.Properties.FirstOrDefault(info => info.Name == property.Key)?.ShouldSerialize is null)
+                            .Select(property => (JsonNode?)JsonValue.Create(property.Key)).ToArray());
                         item["additionalProperties"] = false;
                     }
                     return node;
@@ -92,6 +109,7 @@ public static class ResultSchemas
             {
                 "build-command-result" => ["build-result", "build-test-result"],
                 "test-command-result" => ["suite-result", "suite-plan-result"],
+                "batch-migration-command-result" => ["batch-migration-result", "batch-migration-plan-result"],
                 "migration-command-result" => ["migration-result", "migration-plan-result"],
                 _ => throw new ArgumentException("Unknown result schema.", nameof(name))
             };

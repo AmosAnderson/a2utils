@@ -127,6 +127,16 @@ public static class ImageConverter
     private static Layout ReadLayout(string path, string? inputOrder)
     {
         using FileStream stream = File.OpenRead(path);
+        Layout layout = ReadLayout(stream, inputOrder);
+        if (layout.Order != SectorOrder.Unknown) return layout;
+        using DiskSession session = DiskSession.Open(path);
+        SectorOrder detectedOrder = ParseOrder(session.Info.Order);
+        ValidateGeometry(layout.PayloadLength, detectedOrder);
+        return layout with { Order = detectedOrder };
+    }
+
+    internal static Layout ReadLayout(Stream stream, string? inputOrder)
+    {
         byte[] header = new byte[64];
         if (stream.Length < header.Length)
         {
@@ -136,19 +146,11 @@ public static class ImageConverter
         stream.ReadExactly(header);
         if (!header.AsSpan(0, 4).SequenceEqual("2IMG"u8))
         {
-            ValidateGeometry(stream.Length, SectorOrder.ProDOS_Block);
-
-            if (inputOrder is not null)
-            {
-                SectorOrder explicitOrder = ParseOrder(inputOrder);
-                ValidateGeometry(stream.Length, explicitOrder);
-                return new Layout("raw", explicitOrder, 0, (uint)(stream.Length / 512), (int)stream.Length);
-            }
-
-            using DiskSession session = DiskSession.Open(path);
-            SectorOrder detectedOrder = ParseOrder(session.Info.Order);
-            ValidateGeometry(stream.Length, detectedOrder);
-            return new Layout("raw", detectedOrder, 0, (uint)(stream.Length / 512), (int)stream.Length);
+            if (header.AsSpan(0, 4).SequenceEqual("WOZ1"u8) || header.AsSpan(0, 4).SequenceEqual("WOZ2"u8))
+                throw new DiskException("unsupported_container", "WOZ track images do not have a contiguous sector payload.", 3);
+            SectorOrder rawOrder = inputOrder is null ? SectorOrder.Unknown : ParseOrder(inputOrder);
+            ValidateGeometry(stream.Length, rawOrder);
+            return new Layout("raw", rawOrder, 0, (uint)(stream.Length / 512), (int)stream.Length);
         }
 
         ushort headerLength = BinaryPrimitives.ReadUInt16LittleEndian(header.AsSpan(8));
@@ -157,7 +159,9 @@ public static class ImageConverter
         uint blocks = BinaryPrimitives.ReadUInt32LittleEndian(header.AsSpan(20));
         uint offset = BinaryPrimitives.ReadUInt32LittleEndian(header.AsSpan(24));
         uint length = BinaryPrimitives.ReadUInt32LittleEndian(header.AsSpan(28));
-        if (headerLength < 64 || offset < headerLength || (long)offset + length > stream.Length)
+        // Legacy 2IMG writers declared a 52-byte header but still placed data at or after byte 64.
+        if ((headerLength < 64 && headerLength != 52) || offset < 64 || offset < headerLength ||
+            (long)offset + length > stream.Length)
         {
             throw new DiskException("image.invalid_header", "The 2IMG header contains an invalid payload range.", 4);
         }
@@ -249,5 +253,5 @@ public static class ImageConverter
         _ => throw new DiskException("image.order_unsupported", "The sector order must be dos or prodos.", 3),
     };
 
-    private sealed record Layout(string Container, SectorOrder Order, long PayloadOffset, uint BlockCount, int PayloadLength);
+    internal sealed record Layout(string Container, SectorOrder Order, long PayloadOffset, uint BlockCount, int PayloadLength);
 }

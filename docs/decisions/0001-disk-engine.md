@@ -1,13 +1,14 @@
 # 0001: Reuse CiderPress II DiskArc through an A2Utils adapter
 
-Status: accepted for the implemented DOS 3.3 and ProDOS sector-image scope.
+Status: accepted for DOS 3.3 and ProDOS sector images and read-only native NuFX archives.
 
 ## Decision
 
 Vendor `CommonUtil` and `DiskArc` from [CiderPress II revision
 7a055a200e31f752f3a92bb9fe6ae6f67cd55534](https://github.com/fadden/CiderPress2/tree/7a055a200e31f752f3a92bb9fe6ae6f67cd55534).
 Expose only A2Utils records, errors, and operations through
-`src/A2Utils.Core/Backends/DiskSession.cs`. DiskArc types remain implementation
+`DiskSession` for sector images and `ShrinkItArchive` for native NuFX archives
+in `src/A2Utils.Core/Backends/`. DiskArc types remain implementation
 details. Do not maintain a second production filesystem engine.
 
 The pinned projects target `net10.0`, compile with the installed .NET SDK
@@ -26,6 +27,7 @@ The upstream narrative source notes lag behind the actual project target.
 | Filesystem and layout detection | Probe `DOS.TestImage` and `ProDOS.TestImage` for supported orders. The adapter scores all candidates, respects explicit overrides and 2IMG order, and refuses ambiguous results. |
 | Catalog and metadata | `IFileSystem.PrepareFileAccess(true)`, `GetVolDirEntry()`, iterable `IFileEntry`, `RawFileName`, types, access flags, and timestamps. |
 | Exact stored DOS data | `OpenFile(..., FilePart.RawData)` includes embedded headers and sector slack. `DataFork` provides logical payload bytes. ProDOS uses `DataFork` with its explicit EOF. |
+| Native NuFX | `NuFX.OpenArchive` lists records and `OpenPart` decodes data, resource and disk threads. The adapter checks decoded size, bounds compressed reads, and stages extracted host files. |
 | Sparse allocation | `DiskFileStream.Seek` with `SEEK_ORIGIN_DATA` and `SEEK_ORIGIN_HOLE` returns allocated extents; restore seeks over holes before writing. |
 | Mutation | `CreateFile`, `OpenFile(ReadWrite)`, `DeleteFile`, `MoveFile`, mutable entry attributes, and `SaveChanges`. |
 | Creation | Raw sector/block and 2IMG sector/block creation followed by `FormatDisk`. A 140 KiB block-form 2IMG must be reanalyzed into sector-capable chunks before DOS formatting. |
@@ -67,13 +69,15 @@ No original image may be passed to a writable backend session by the CLI.
 The backend independently respects image write protection and file access
 flags; upstream `DeleteFile`, for example, deliberately ignores file locks.
 
-The adapter refuses writes to damaged, hybrid, or forked-file volumes. Reading
+The adapter refuses writes to damaged, hybrid, or already-forked volumes.
+It reads both forks of ProDOS extended files and can recreate them with DiskArc
+on a staged, initially fork-free volume. Reading
 a known filesystem does not make arbitrary container layouts safe to write.
 `Inspect` can report geometry-valid containers with an unknown filesystem;
 free space is then null and raw sector order remains unknown unless supplied.
 This fallback enables no filesystem operations. `DiskInfo.IsReadOnly` describes
 the open session; `ImageWriteProtected` reports the container's stored flag.
-Nibble/bitstream formats, partitions, extended files, and repair are outside the
+Nibble/bitstream formats, partitions, and repair are outside the
 advertised scope even when DiskArc contains code for them. Supported metadata
 restoration does not promise identical sector placement or free-sector contents.
 
@@ -105,7 +109,8 @@ even with an explicit manifest timestamp.
 
 The adapter cannot synchronize this field through the public entry API, and
 writing directory blocks behind DiskArc's filesystem state would bypass its
-mutation model. The patch retains upstream formatting and changes only the
-redundant date when the creation date or name is changed. Raw and 2IMG project
-regressions independently inspect both timestamp copies in nested directories,
-then reopen and verify the filesystem. All other vendor files remain unchanged.
+mutation model. The patch updates the header name and creation date independently
+when their respective directory entry fields change. A rename therefore preserves
+an existing difference between the two stored dates. Raw and 2IMG project
+regressions inspect both timestamp copies in nested directories, and a rename
+regression checks a directory with independently populated creation dates.

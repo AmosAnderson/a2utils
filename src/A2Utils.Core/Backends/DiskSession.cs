@@ -67,7 +67,7 @@ public sealed partial class DiskSession : IDisposable
             AppHook hook = new(new SimpleMessageLog());
             using IDiskImage image = signature.AsSpan().SequenceEqual("2IMG"u8)
                 ? TwoIMG.OpenDisk(stream, hook) : UnadornedSector.OpenDisk(stream, hook);
-            if (!image.AnalyzeDisk(null, inputOrder is null ? SectorOrder.DOS_Sector : ParseOrder(inputOrder),
+            if (!image.AnalyzeDisk(null, inputOrder is null ? SectorOrder.ProDOS_Block : ParseOrder(inputOrder),
                 IDiskImage.AnalysisDepth.ChunksOnly) || image.ChunkAccess is null)
                 throw new DiskException("unsupported_geometry", "The image geometry is not supported.", 3);
             long length = image.ChunkAccess.FormattedLength;
@@ -130,7 +130,7 @@ public sealed partial class DiskSession : IDisposable
                 disk = UnadornedSector.OpenDisk(stream, hook);
             }
 
-            if (!disk.AnalyzeDisk(null, requestedOrder ?? SectorOrder.DOS_Sector,
+            if (!disk.AnalyzeDisk(null, requestedOrder ?? SectorOrder.ProDOS_Block,
                 IDiskImage.AnalysisDepth.ChunksOnly) || disk.ChunkAccess is null)
             {
                 throw new DiskException("unsupported_geometry", "The image geometry is not supported.", 3);
@@ -198,25 +198,39 @@ public sealed partial class DiskSession : IDisposable
         }
     }
 
-    public DiskEntry GetEntry(string path) => Describe(Resolve(path), NormalizePath(path));
+    public DiskEntry GetEntry(string path)
+    {
+        IFileEntry entry = Resolve(path);
+        return Describe(entry, TransferEntryPath(entry));
+    }
 
     public IReadOnlyList<DiskEntry> List(string? path = null, bool recursive = false)
     {
         IFileEntry entry = Resolve(path);
-        if (!entry.IsDirectory) return [Describe(entry, NormalizePath(path!))];
+        string catalogPath = TransferEntryPath(entry);
+        if (!entry.IsDirectory) return [Describe(entry, catalogPath)];
         var result = new List<DiskEntry>();
-        Walk(entry, NormalizePath(path ?? ""), recursive, result, 0);
+        Walk(entry, catalogPath, recursive, result, 0);
         return result;
     }
 
     public byte[] ReadFile(string path, bool raw = false)
+        => ReadFile(ResolveFile(path), Part(raw));
+
+    /// <summary>Reads a specific logical fork, including an empty ProDOS resource fork.</summary>
+    public byte[] ReadFile(string path, DiskFileFork fork)
     {
-        IFileEntry entry = ResolveFile(path);
+        IFileEntry entry = ResolveFile(path, allowForks: true);
+        return ReadFile(entry, SelectFork(entry, fork));
+    }
+
+    private byte[] ReadFile(IFileEntry entry, FilePart part)
+    {
         if ((entry.Access & (byte)AccessFlags.Read) == 0)
             throw new DiskException("file_access_denied", "The file does not permit reading.");
         return ReadEngine(() =>
         {
-            using DiskFileStream file = _fs.OpenFile(entry, IFileSystem.FileAccessMode.ReadOnly, Part(raw));
+            using DiskFileStream file = _fs.OpenFile(entry, IFileSystem.FileAccessMode.ReadOnly, part);
             if (file.Length > 32 * 1024 * 1024) throw new DiskException("file_too_large", "File exceeds the supported volume size.", 4);
             byte[] data = new byte[checked((int)file.Length)];
             if (data.Length != 0) file.ReadExactly(data);
@@ -224,12 +238,28 @@ public sealed partial class DiskSession : IDisposable
         });
     }
 
-    public IReadOnlyList<SparseExtent> GetSparseExtents(string path)
+    internal byte[]? ReadDosTextWithTrailingRecords(DiskEntry entry)
     {
-        IFileEntry entry = ResolveFile(path);
+        if (_fs is not DOS || entry.FileType != 0x04 || entry.StoredLength <= entry.Length)
+            return null;
+        byte[] stored = ReadFile(entry.Path, raw: true);
+        return stored.AsSpan(checked((int)entry.Length)).ContainsAnyExcept((byte)0) ? stored : null;
+    }
+
+    public IReadOnlyList<SparseExtent> GetSparseExtents(string path)
+        => GetSparseExtents(ResolveFile(path), Part(true));
+
+    public IReadOnlyList<SparseExtent> GetSparseExtents(string path, DiskFileFork fork)
+    {
+        IFileEntry entry = ResolveFile(path, allowForks: true);
+        return GetSparseExtents(entry, SelectFork(entry, fork));
+    }
+
+    private IReadOnlyList<SparseExtent> GetSparseExtents(IFileEntry entry, FilePart part)
+    {
         return ReadEngine<IReadOnlyList<SparseExtent>>(() =>
         {
-            using DiskFileStream file = _fs.OpenFile(entry, IFileSystem.FileAccessMode.ReadOnly, Part(true));
+            using DiskFileStream file = _fs.OpenFile(entry, IFileSystem.FileAccessMode.ReadOnly, part);
             var extents = new List<SparseExtent>();
             long cursor = 0;
             while (cursor < file.Length)
@@ -255,7 +285,7 @@ public sealed partial class DiskSession : IDisposable
         foreach (DiskEntry entry in List(recursive: true))
         {
             if (entry.IsDubious) diagnostics.Add(new("damaged_entry", "error", $"File entry is damaged or dubious: {entry.Path}"));
-            if (entry.HasResourceFork) diagnostics.Add(new("unsupported_forks", "warning", $"Forked file operations are unsupported: {entry.Path}"));
+            if (entry.HasResourceFork) diagnostics.Add(new("unsupported_forks", "warning", $"General edits to a volume containing resource forks are refused: {entry.Path}"));
         }
         return diagnostics;
     }
@@ -284,8 +314,15 @@ public sealed partial class DiskSession : IDisposable
                 : TwoIMG.CreateProDOSBlockImage(stream, (uint)blockCount, hook);
         if (blockCount == 280 && image.ChunkAccess is { HasSectors: false })
             image.AnalyzeDisk(null, fileOrder, IDiskImage.AnalysisDepth.ChunksOnly);
-        image.FormatDisk(fileSystem == "dos33" ? FileSystemType.DOS33 : FileSystemType.ProDOS,
-            volumeName, volumeNumber, false, hook);
+        // Format the selected geometry directly. FormatDisk reopens it without an order hint.
+        IChunkAccess chunks = image.ChunkAccess!;
+        chunks.Initialize();
+        using (IFileSystem filesystem = fileSystem == "dos33" ? new DOS(chunks, hook) : new ProDOS(chunks, hook))
+        {
+            filesystem.Format(volumeName, volumeNumber, false);
+        }
+        if (!image.AnalyzeDisk(null, fileOrder, IDiskImage.AnalysisDepth.Full) || image.Contents is not IFileSystem)
+            throw new DiskException("format_failed", "The formatted volume could not be reopened using its requested order.", 4);
         image.Flush();
         stream.Flush(true);
     }
@@ -293,8 +330,7 @@ public sealed partial class DiskSession : IDisposable
     public void Add(string name, byte[] data, string type, ushort auxType = 0)
     {
         EnsureWritable();
-        byte fileType = ParseType(type);
-        if (fileType == 0x0f) throw new DiskException("invalid_file_type", "DIR is reserved for directories.", 2);
+        byte fileType = ValidateFileType(type, auxType == 0 ? null : auxType);
         Mutate(() =>
         {
             IFileEntry entry = CreateEntry(name, IFileSystem.CreateMode.File);
@@ -389,68 +425,92 @@ public sealed partial class DiskSession : IDisposable
     }
 
     public void RestoreFile(DiskEntry metadata, byte[] rawData, IReadOnlyList<SparseExtent> dataExtents)
+        => RestoreFile(metadata, rawData, dataExtents, null, null);
+
+    public void RestoreFile(DiskEntry metadata, byte[] rawData, IReadOnlyList<SparseExtent> dataExtents,
+        byte[]? resourceData, IReadOnlyList<SparseExtent>? resourceExtents)
     {
-        EnsureWritable();
+        EnsureWritable(allowForks: true);
         ValidateRestoreName(metadata);
-        if (metadata.IsDirectory || metadata.HasResourceFork || metadata.IsDubious || metadata.FileType == 0x0f)
+        if (metadata.HasResourceFork != (resourceData is not null) ||
+            metadata.HasResourceFork != (resourceExtents is not null) || metadata.ResourceForkLength != resourceData?.LongLength ||
+            metadata.HasResourceFork && _fs is not ProDOS)
+            throw new DiskException("invalid_manifest", "Resource fork metadata and payload must agree on a ProDOS volume.", 2);
+        if (metadata.IsDirectory || metadata.IsDubious || metadata.FileType == 0x0f)
             throw new DiskException("unsupported_restore", "Only undamaged data files can be restored.", 3);
         if (_fs is DOS) _ = ParseType($"0x{metadata.FileType:x2}");
         if (metadata.StoredLength != rawData.LongLength)
             throw new DiskException("invalid_manifest", "Stored length differs from the raw payload.", 2);
-        long end = 0;
-        foreach (SparseExtent extent in dataExtents)
-        {
-            if (extent is null || extent.Offset < end || extent.Length <= 0 || extent.Offset > rawData.LongLength - extent.Length)
-                throw new DiskException("invalid_manifest", "Invalid sparse extents.", 2);
-            if (rawData.AsSpan(checked((int)end), checked((int)(extent.Offset - end))).IndexOfAnyExcept((byte)0) >= 0)
-                throw new DiskException("invalid_manifest", "A sparse hole omits nonzero payload bytes.", 2);
-            end = extent.Offset + extent.Length;
-        }
-        if (rawData.AsSpan(checked((int)end)).IndexOfAnyExcept((byte)0) >= 0)
-            throw new DiskException("invalid_manifest", "A trailing sparse hole omits nonzero payload bytes.", 2);
+        ValidateExtents(rawData, dataExtents, "invalid_manifest");
+        if (resourceData is not null) ValidateExtents(resourceData, resourceExtents!, "invalid_manifest");
         Mutate(() =>
         {
-            IFileEntry entry = CreateEntry(metadata.Path, IFileSystem.CreateMode.File);
+            string createPath = metadata.Path;
+            if (_fs is DOS && !DOS_FileEntry.IsFileNameValid(metadata.Name))
+            {
+                IFileEntry root = _fs.GetVolDirEntry();
+                if (FindTransferChild(root, metadata.Name) is not null)
+                    throw new DiskException("destination_exists", $"An image entry already exists: {metadata.Name}");
+                // The raw-name setter accepts legacy catalog names that CreateFile rejects.
+                for (int index = 0; ; index++)
+                {
+                    createPath = $"A2RESTORE{index}";
+                    if (FindTransferChild(root, createPath) is null) break;
+                }
+            }
+            IFileEntry entry = CreateEntry(createPath, metadata.HasResourceFork
+                ? IFileSystem.CreateMode.Extended : IFileSystem.CreateMode.File);
             entry.FileType = metadata.FileType;
             entry.SaveChanges();
-            using (DiskFileStream file = _fs.OpenFile(entry, IFileSystem.FileAccessMode.ReadWrite, Part(true)))
+            WritePart(entry, Part(true), rawData, dataExtents);
+            if (resourceData is not null)
             {
-                foreach (SparseExtent extent in dataExtents)
-                {
-                    file.Position = extent.Offset;
-                    file.Write(rawData, checked((int)extent.Offset), checked((int)extent.Length));
-                }
-                file.SetLength(rawData.LongLength);
+                WritePart(entry, FilePart.RsrcFork, resourceData, resourceExtents!);
+                if (metadata.HfsFileType is uint fileType) entry.HFSFileType = fileType;
+                if (metadata.HfsCreator is uint creator) entry.HFSCreator = creator;
             }
-            RestoreName(entry, metadata);
-            entry.AuxType = metadata.AuxType;
-            if (metadata.Created.HasValue) entry.CreateWhen = metadata.Created.Value;
-            if (metadata.Modified.HasValue) entry.ModWhen = metadata.Modified.Value;
-            entry.Access = metadata.Access;
-            entry.SaveChanges();
-            if (entry.DataLength != metadata.Length)
+            RestoreAttributes(entry, metadata);
+            if (entry.DataLength != metadata.Length || metadata.HasResourceFork && entry.RsrcLength != metadata.ResourceForkLength)
                 throw new DiskException("invalid_manifest", "Logical file length disagrees with stored payload metadata.", 2);
         });
     }
 
+    private void WritePart(IFileEntry entry, FilePart part, byte[] bytes, IReadOnlyList<SparseExtent> extents)
+    {
+        using DiskFileStream file = _fs.OpenFile(entry, IFileSystem.FileAccessMode.ReadWrite, part);
+        foreach (SparseExtent extent in extents)
+        {
+            file.Position = extent.Offset;
+            file.Write(bytes, checked((int)extent.Offset), checked((int)extent.Length));
+        }
+        file.SetLength(bytes.LongLength);
+    }
+
+    internal static void ValidateExtents(byte[] bytes, IReadOnlyList<SparseExtent> extents, string diagnostic)
+    {
+        long end = 0;
+        foreach (SparseExtent extent in extents)
+        {
+            if (extent is null || extent.Offset < end || extent.Length <= 0 || extent.Offset > bytes.LongLength - extent.Length)
+                throw new DiskException(diagnostic, "Invalid sparse extents.", 2);
+            if (bytes.AsSpan(checked((int)end), checked((int)(extent.Offset - end))).IndexOfAnyExcept((byte)0) >= 0)
+                throw new DiskException(diagnostic, "A sparse hole omits nonzero payload bytes.", 2);
+            end = extent.Offset + extent.Length;
+        }
+        if (bytes.AsSpan(checked((int)end)).IndexOfAnyExcept((byte)0) >= 0)
+            throw new DiskException(diagnostic, "A trailing sparse hole omits nonzero payload bytes.", 2);
+    }
+
     public void RestoreDirectoryMetadata(DiskEntry metadata)
     {
-        EnsureWritable();
+        EnsureWritable(allowForks: true);
         ValidateRestoreName(metadata);
         if (!metadata.IsDirectory || metadata.IsDubious || _fs is DOS)
             throw new DiskException("invalid_directory_metadata", "Expected metadata for a valid ProDOS directory.", 2);
         IFileEntry entry = Resolve(metadata.Path);
         if (!entry.IsDirectory || entry == _fs.GetVolDirEntry())
             throw new DiskException("invalid_directory_metadata", "Directory metadata can only be restored on a subdirectory.", 2);
-        Mutate(() =>
-        {
-            RestoreName(entry, metadata);
-            entry.AuxType = metadata.AuxType;
-            if (metadata.Created.HasValue) entry.CreateWhen = metadata.Created.Value;
-            if (metadata.Modified.HasValue) entry.ModWhen = metadata.Modified.Value;
-            entry.Access = metadata.Access;
-            entry.SaveChanges();
-        });
+        Mutate(() => RestoreAttributes(entry, metadata));
     }
 
     public void Flush()
@@ -472,7 +532,7 @@ public sealed partial class DiskSession : IDisposable
         }
     }
 
-    private void EnsureWritable()
+    private void EnsureWritable(bool allowForks = false)
     {
         if (!_writable || _disk.IsReadOnly || _fs.IsReadOnly || IsWriteProtected)
             throw new DiskException("image_read_only", "The image is read-only or write protected.");
@@ -480,7 +540,7 @@ public sealed partial class DiskSession : IDisposable
             throw new DiskException("corrupt_image", "Writes to a damaged image are refused.", 4);
         if (_hybrid || _fs.FindEmbeddedVolumes() is not null)
             throw new DiskException("hybrid_filesystem", "Writes to hybrid or embedded filesystems are refused.");
-        if (List(recursive: true).Any(entry => entry.HasResourceFork || entry.IsDubious))
+        if (List(recursive: true).Any(entry => entry.IsDubious || !allowForks && entry.HasResourceFork))
             throw new DiskException("unsafe_allocation", "Writes require an undamaged volume without forked files.");
     }
 
@@ -557,18 +617,25 @@ public sealed partial class DiskSession : IDisposable
             throw new DiskException("invalid_manifest", "Raw name, display name, and image path disagree.", 2);
     }
 
-    private void RestoreName(IFileEntry entry, DiskEntry metadata)
+    private void RestoreAttributes(IFileEntry entry, DiskEntry metadata)
     {
         if (_fs is DOS) entry.RawFileName = metadata.RawName;
         else entry.FileName = metadata.Name; // Keep ProDOS name-case flags carried by the display name.
+        entry.AuxType = metadata.AuxType;
+        entry.CreateWhen = metadata.Created ?? TimeStamp.NO_DATE;
+        entry.ModWhen = metadata.Modified ?? TimeStamp.NO_DATE;
+        entry.Access = metadata.Access;
+        entry.SaveChanges();
+        if (ValidDate(entry.CreateWhen) != metadata.Created || ValidDate(entry.ModWhen) != metadata.Modified)
+            throw new DiskException("invalid_manifest", "The filesystem cannot represent the supplied timestamps.", 2);
     }
 
-    private IFileEntry ResolveFile(string path)
+    private IFileEntry ResolveFile(string path, bool allowForks = false)
     {
         IFileEntry entry = Resolve(path);
         if (entry.IsDirectory) throw new DiskException("not_a_file", "The image path is a directory.");
         if (entry.IsDamaged) throw new DiskException("damaged_entry", "The file entry is damaged.", 4);
-        if (entry.HasRsrcFork) throw new DiskException("unsupported_forks", "Forked file operations are unsupported.", 3);
+        if (entry.HasRsrcFork && !allowForks) throw new DiskException("unsupported_forks", "This operation requires a single data fork.", 3);
         return entry;
     }
 
@@ -585,14 +652,21 @@ public sealed partial class DiskSession : IDisposable
 
     private DiskEntry Describe(IFileEntry entry, string path)
     {
-        long storedLength = entry.DataLength;
+        // A damaged extended entry may have no readable extended key block.
+        long length = entry.IsDamaged && entry.HasRsrcFork ? 0 : entry.DataLength;
+        long storedLength = length;
         if (!entry.IsDirectory && !entry.IsDamaged)
             entry.GetPartInfo(Part(true), out storedLength, out _, out _);
         return new DiskEntry(path, entry.FileName, entry.IsDirectory, FormatType(entry.FileType),
             entry.FileType, entry.AuxType, entry.Access, (entry.Access & (byte)AccessFlags.Write) == 0,
-            entry.DataLength, storedLength, entry.StorageSize, entry.RawFileName,
+            length, storedLength, entry.StorageSize, entry.RawFileName,
             ValidDate(entry.CreateWhen), ValidDate(entry.ModWhen), entry.IsDubious || entry.IsDamaged,
-            entry.HasRsrcFork);
+            entry.HasRsrcFork)
+        {
+            ResourceForkLength = entry.HasRsrcFork && !entry.IsDamaged ? entry.RsrcLength : null,
+            HfsFileType = entry.HasRsrcFork && entry.HFSFileType != 0 ? entry.HFSFileType : null,
+            HfsCreator = entry.HasRsrcFork && entry.HFSCreator != 0 ? entry.HFSCreator : null
+        };
     }
 
     private void Walk(IFileEntry directory, string path, bool recursive, List<DiskEntry> result, int depth)
@@ -617,8 +691,17 @@ public sealed partial class DiskSession : IDisposable
         result.Add(entry);
     }
 
+    private static FilePart SelectFork(IFileEntry entry, DiskFileFork fork) => fork switch
+    {
+        DiskFileFork.Data => FilePart.DataFork,
+        DiskFileFork.Resource when entry.HasRsrcFork => FilePart.RsrcFork,
+        DiskFileFork.Resource => throw new DiskException("no_resource_fork", "The file has no resource fork.", 3),
+        _ => throw new ArgumentOutOfRangeException(nameof(fork))
+    };
+
     private FilePart Part(bool raw) => raw && _fs is DOS ? FilePart.RawData : FilePart.DataFork;
-    private static DateTime? ValidDate(DateTime date) => date.Year >= 1900 ? date : null;
+    private static DateTime? ValidDate(DateTime date) =>
+        date.Year >= 1900 ? DateTime.SpecifyKind(date, DateTimeKind.Unspecified) : null;
 
     private string NormalizePath(string path)
     {

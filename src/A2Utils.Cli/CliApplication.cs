@@ -99,6 +99,9 @@ public sealed partial class CliApplication
         }
 
         AddReadCommands(disk);
+        AddInspectCommand(disk);
+        AddBatchMigrationCommand(disk);
+        AddArchiveCommands(root);
         AddCreateCommand(disk);
         AddImportCommand(disk);
         AddMutationCommands(disk);
@@ -110,6 +113,7 @@ public sealed partial class CliApplication
         AddDevelopmentCommands(root);
         AddGraphicsCommands(root);
         AddExecutionCommands(root);
+        AddReplayCommand(root);
         AddCc65Commands(root);
         AddSetupCommands(root);
         AddMcpCommands(root);
@@ -166,7 +170,8 @@ public sealed partial class CliApplication
                     case "ls":
                         IReadOnlyList<DiskEntry> entries = session.List(parse.GetValue(path), parse.GetValue(recursive));
                         return Result(name, entries, string.Join(Environment.NewLine, entries.Select(e =>
-                            $"{(e.IsDirectory ? "DIR" : e.Type),-4} {(e.IsLocked ? '*' : ' ')} {e.Length,10}  {e.Path}")));
+                            $"{(e.IsDirectory ? "DIR" : e.Type),-4} {(e.IsLocked ? '*' : ' ')} {e.Length,10}  {e.Path}" +
+                            (e.ResourceForkLength is long length ? $"  (resource fork {length} bytes)" : ""))));
                     case "verify":
                         IReadOnlyList<DiskDiagnostic> diagnostics = session.Verify();
                         bool corrupt = session.Info.IsDubious || diagnostics.Any(d =>

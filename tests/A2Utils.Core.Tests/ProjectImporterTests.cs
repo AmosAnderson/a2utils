@@ -4,6 +4,7 @@
 using A2Utils.Core.Backends;
 using A2Utils.Core.Basic;
 using A2Utils.Core.Operations;
+using A2Utils.Core.Programs;
 using A2Utils.Core.Projects;
 
 namespace A2Utils.Core.Tests;
@@ -92,6 +93,97 @@ public sealed class ProjectImporterTests
         Assert.Contains(imported.Diagnostics, message => message.Contains("would change the original bytes", StringComparison.Ordinal));
         using DiskSession rebuilt = DiskSession.Open(build.OutputPath);
         Assert.Equal(payload, rebuilt.ReadFile("MESSAGE"));
+    }
+
+    [Fact]
+    public void Import_DosTextWithRecordsAfterLogicalEof_PreservesStoredBytes()
+    {
+        using FixtureWorkspace workspace = new();
+        string source = workspace.CopyDisk();
+        using (DiskSession disk = DiskSession.Open(source, writable: true))
+            disk.Add("RECORDS", [0xc1, 0x00, 0xc2], "TXT");
+        byte[] original = File.ReadAllBytes(source);
+        byte[] stored;
+        using (DiskSession disk = DiskSession.Open(source))
+        {
+            Assert.Equal(new byte[] { 0xc1 }, disk.ReadFile("RECORDS"));
+            stored = disk.ReadFile("RECORDS", raw: true);
+        }
+
+        ProjectImportResult imported = ProjectImporter.Import(source, workspace.NewPath("imported"));
+        ImportedProjectFile file = Assert.Single(imported.Files, item => item.ImagePath == "RECORDS");
+        Assert.False(file.Editable);
+        Assert.Contains("records after its logical EOF", file.Reason, StringComparison.Ordinal);
+        Assert.Equal(stored, File.ReadAllBytes(Path.Combine(imported.Directory, file.SourcePath)));
+        ProjectBuildResult built = ProjectBuilder.Build(imported.ProjectPath);
+        using DiskSession rebuilt = DiskSession.Open(built.OutputPath);
+        Assert.Equal(stored, rebuilt.ReadFile("RECORDS", raw: true));
+        Assert.Equal(original, File.ReadAllBytes(source));
+    }
+
+    [Fact]
+    public void Build_LegacyDosTextReplacement_PreservesRecordsUntilPayloadChanges()
+    {
+        using FixtureWorkspace workspace = new();
+        string template = workspace.CopyDisk();
+        byte[] records = new byte[601];
+        records[0] = 0xc1;
+        records[^1] = 0xc2;
+        using (DiskSession disk = DiskSession.Open(template, writable: true))
+            disk.Add("RECORDS", records, "TXT");
+        byte[] original = File.ReadAllBytes(template);
+        byte[] stored;
+        using (DiskSession disk = DiskSession.Open(template))
+            stored = disk.ReadFile("RECORDS", raw: true);
+        string source = workspace.NewPath("records.txt");
+        File.WriteAllText(source, "A");
+        ProjectManifest manifest = new()
+        {
+            Output = "unchanged.do",
+            Disk = new() { FileSystem = "dos33", Template = "disk.do", TemplateSha256 = ProgramFiles.Hash(original) },
+            Files = [new() { Source = "records.txt", Path = "RECORDS", Kind = "text", Type = "0x04", Replace = true, Resident = false }]
+        };
+        string project = workspace.NewPath("project.json");
+        File.WriteAllText(project, System.Text.Json.JsonSerializer.Serialize(manifest, ProjectJson.Options));
+
+        ProjectBuildResult preflight = ProjectBuilder.Build(project, preflight: true);
+        Assert.False(File.Exists(preflight.OutputPath));
+        Assert.Equal(preflight.Plan!.FreeBytesBefore, preflight.Plan.FreeBytesAfter);
+        ProjectBuildResult built = ProjectBuilder.Build(project);
+        Assert.Equal(preflight.Sha256, built.Sha256);
+        using (DiskSession rebuilt = DiskSession.Open(built.OutputPath))
+            Assert.Equal(stored, rebuilt.ReadFile("RECORDS", raw: true));
+
+        File.WriteAllText(source, "Z");
+        ProjectBuildResult edited = ProjectBuilder.Build(project, workspace.NewPath("edited.do"));
+        using DiskSession changed = DiskSession.Open(edited.OutputPath);
+        byte[] changedStored = changed.ReadFile("RECORDS", raw: true);
+        Assert.Equal(0xda, changedStored[0]);
+        Assert.False(changedStored.AsSpan(1).ContainsAnyExcept((byte)0));
+        Assert.Equal(original, File.ReadAllBytes(template));
+    }
+
+    [Fact]
+    public void Import_DataFileExceedingSourceLimit_PreservesEntryInBuildableTemplate()
+    {
+        using FixtureWorkspace workspace = new();
+        string source = workspace.NewPath("large.po");
+        byte[] payload = new byte[4 * 1024 * 1024 + 1];
+        payload[0] = 0x41;
+        payload[^1] = 0x42;
+        DiskSession.Create(source, "prodos", blocks: 10000, order: "prodos");
+        using (DiskSession disk = DiskSession.Open(source, inputOrder: "prodos", writable: true))
+            disk.Add("DATA", payload, "0xf2", 0x1234);
+        byte[] original = File.ReadAllBytes(source);
+
+        ProjectImportResult imported = ProjectImporter.Import(source, workspace.NewPath("imported"), inputOrder: "prodos");
+        ImportedProjectFile file = Assert.Single(imported.Files);
+        Assert.False(file.Editable);
+        Assert.Contains("4 MiB", file.Reason, StringComparison.Ordinal);
+        Assert.True(payload.AsSpan().SequenceEqual(File.ReadAllBytes(Path.Combine(imported.Directory, file.SourcePath))));
+        ProjectBuildResult built = ProjectBuilder.Build(imported.ProjectPath);
+        Assert.True(original.AsSpan().SequenceEqual(File.ReadAllBytes(built.OutputPath)));
+        Assert.True(original.AsSpan().SequenceEqual(File.ReadAllBytes(source)));
     }
 
     [Fact]

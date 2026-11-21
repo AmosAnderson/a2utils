@@ -24,6 +24,41 @@ public sealed class Cc65FeedbackTests
     }
 
     [Fact]
+    public void ParseLabels_VerboseMapAndScopedViceLabels_ResolvesOnlyUnambiguousAddresses()
+    {
+        string map = """
+            Exports list by name:
+            ---------------------
+            _main                     00080F RLA    public_unused             000880  LA
+            __HIMEM__                 009600 REA
+
+            Exports list by value:
+            """;
+        string labels = """
+            al 00080F ._main
+            al 000880 .public_unused
+            al 000881 .public_unused
+            al 000884 .exit
+            al 000890 .exit
+            al 000891 .exit
+            al 000899 .local
+            """;
+        var result = Cc65Feedback.ParseLabels(labels, map);
+        Assert.Equal(0x080f, result["_main"]);
+        Assert.Equal(0x0880, result["public_unused"]);
+        Assert.Equal(0x9600, result["__HIMEM__"]);
+        Assert.Equal(0x0899, result["local"]);
+        Assert.False(result.ContainsKey("exit"));
+    }
+
+    [Fact]
+    public void ParseLabels_ConflictingLinkerExports_RefusesAmbiguousAddress()
+    {
+        string map = "Exports list by name:\n_main 002000 RLA    _main 003000 RLA\n";
+        Assert.Equal("cc65.labels", Assert.Throws<DiskException>(() => Cc65Feedback.ParseLabels("", map)).Code);
+    }
+
+    [Fact]
     public void ParseSegments_LinkedMap_SeparatesBssZeroPageAndHeader()
     {
         var segments = Cc65Feedback.ParseSegments("""
@@ -97,6 +132,36 @@ public sealed class Cc65FeedbackTests
         Assert.Equal((source, 2, 0x6000, 2, "return 42;"),
             (map[0].File, map[0].Line, map[0].Address, map[0].Length, map[0].Source));
         Assert.Equal(0x6002, map[1].Address);
+    }
+
+    [Fact]
+    public void ParseDebugMap_Ca65LineZero_MapsOnlySourceLocations()
+    {
+        using FixtureWorkspace workspace = new();
+        File.WriteAllText(workspace.NewPath("main.c"), "int main(void) { return 42; }\n");
+        string debug = """
+            version	major=2,minor=0
+            file	id=0,name="main.c.13496.0.s"
+            file	id=2,name="main.c"
+            line	id=2,file=0,line=0
+            line	id=4,file=2,line=1,type=1,span=3
+            line	id=5,file=2,line=0,span=3
+            seg	id=0,name="CODE",start=0x0803,size=1
+            span	id=3,seg=0,start=0,size=1
+            """;
+        var entry = Assert.Single(Cc65Feedback.ParseDebugMap(debug, workspace.DirectoryPath, workspace.DirectoryPath));
+        Assert.Equal((1, 0x0803, "int main(void) { return 42; }"), (entry.Line, entry.Address, entry.Source));
+    }
+
+    [Theory]
+    [InlineData("id=1,file=0,line=0\nline\tid=1,file=0,line=1")]
+    [InlineData("id=1,file=9,line=0")]
+    [InlineData("id=1,file=0,line=0,span=9")]
+    [InlineData("id=1,file=0,line=-1")]
+    public void ParseDebugMap_InvalidLineIdReferenceOrNumber_RejectsRecord(string line)
+    {
+        string debug = "version\tmajor=2,minor=0\nfile\tid=0,name=\"main.c\"\nline\t" + line;
+        Assert.Equal("cc65.debug", Assert.Throws<DiskException>(() => Cc65Feedback.ParseDebugMap(debug, ".", ".")).Code);
     }
 
     [Fact]

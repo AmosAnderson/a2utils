@@ -96,6 +96,7 @@ public static class BuildExecution
         ExecutionSpec bound = spec with
         {
             DiskImage = mountsBuild ? "" : spec.DiskImage,
+            PackagedRoutine = null,
             Disks = disks.OrderBy(disk => disk.Device, StringComparer.Ordinal).ToArray(),
             Memory = memory,
             Until = until,
@@ -105,7 +106,12 @@ public static class BuildExecution
             Cycles = BindCycles(spec.Cycles, build),
             Steps = BindSteps(spec.Steps, build)
         };
+        if (spec.Routine is { Kind: "packaged" } routine)
+            bound = PackagedRoutine.Bind(bound, routine, build);
         ExecutionRunner.Validate(bound);
+        if (bound.PackagedRoutine is { } packaged)
+            RoutineHarness.ValidateLayout(bound.Routine!, bound.Routine!.Origin,
+                packaged.File.Length, bound.Routine.EntryPoint!.Value);
         return bound;
     }
 
@@ -186,9 +192,14 @@ public static class BuildExecution
             throw Error("symbol", "A symbolic address requires a program image path and symbol name.");
         BuiltFile file = build.Files.SingleOrDefault(file => file.Path.Equals(program, StringComparison.OrdinalIgnoreCase))
             ?? throw Error("symbol_program", $"The build contains no program '{program}'.");
+        return ResolveAddress(file, symbol, offset);
+    }
+
+    internal static int ResolveAddress(BuiltFile file, string symbol, int offset = 0)
+    {
         KeyValuePair<string, int>[] matches = file.Symbols.Where(pair => pair.Key.Equals(symbol,
             file.Kind == "asm" ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)).ToArray();
-        if (matches.Length != 1) throw Error("symbol_missing", $"Program '{program}' has no unique exported symbol '{symbol}'.");
+        if (matches.Length != 1) throw Error("symbol_missing", $"Program '{file.Path}' has no unique exported symbol '{symbol}'.");
         long address = (long)matches[0].Value + offset;
         if (address is < 0 or > 65535) throw Error("symbol_range", $"Symbol '{symbol}' plus offset is outside the 16-bit address space.");
         return (int)address;
@@ -278,6 +289,7 @@ public static class BuildExecution
         if (pcField < 0) return null;
 
         TraceSource?[] addresses = new TraceSource?[65536];
+        bool[] ambiguous = new bool[addresses.Length];
         foreach (BuiltFile file in build.Files.Where(file => file.Resident))
             foreach (AssemblySourceMapEntry entry in SourceEntries(file.SourceMap)
                 .Where(entry => entry.Length > 0 && entry.Address is >= 0 and <= 65535)
@@ -285,8 +297,12 @@ public static class BuildExecution
                 .ThenBy(entry => entry.Line))
             {
                 int end = (int)Math.Min(65536L, (long)entry.Address + entry.Length);
+                TraceSource source = new(file.Path, file.MemoryBank, entry.File, entry.Line, entry.Source);
                 for (int address = entry.Address; address < end; address++)
-                    addresses[address] ??= new(file.Path, file.MemoryBank, entry.File, entry.Line, entry.Source);
+                {
+                    if (addresses[address] is not { } existing) addresses[address] = source;
+                    else if (existing.Program != file.Path) ambiguous[address] = true;
+                }
             }
         if (!addresses.Any(source => source is not null)) return null;
 
@@ -298,19 +314,23 @@ public static class BuildExecution
         using (FileStream output = new(outputPath, FileMode.CreateNew, FileAccess.Write, FileShare.Read))
         using (StreamWriter writer = new(output, new System.Text.UTF8Encoding(false)))
         {
-            if (!Append(header + "\tprogram\tmemoryBank\tsourceFile\tsourceLine\tsource\n")) return null;
+            if (!Append(header + "\tprogram\tmemoryBank\tsourceFile\tsourceLine\tsource\tmappingStatus\n")) return null;
             foreach (string raw in lines.Skip(1))
             {
                 string line = raw.TrimEnd('\r');
                 if (line.Length == 0) continue;
                 string[] fields = line.Split('\t');
                 TraceSource? source = null;
+                bool isAmbiguous = false;
                 if (fields.Length > pcField && int.TryParse(fields[pcField], NumberStyles.Integer,
                     CultureInfo.InvariantCulture, out int address) && address is >= 0 and <= 65535)
-                    source = addresses[address];
-                string suffix = source is null ? "\t\t\t\t"
-                    : $"{Escape(source.Program)}\t{Escape(source.MemoryBank)}\t{Escape(source.File)}\t{source.Line}\t{Escape(source.Source)}";
-                if (source is not null) mapped = true;
+                {
+                    isAmbiguous = ambiguous[address];
+                    if (!isAmbiguous) source = addresses[address];
+                }
+                string suffix = source is null ? "\t\t\t\t\t" + (isAmbiguous ? "ambiguous" : "unmapped")
+                    : $"{Escape(source.Program)}\t{Escape(source.MemoryBank)}\t{Escape(source.File)}\t{source.Line}\t{Escape(source.Source)}\tmatched";
+                if (source is not null || isAmbiguous) mapped = true;
                 string annotated = line + "\t" + suffix + "\n";
                 if (bytes + System.Text.Encoding.UTF8.GetByteCount(annotated) + truncatedBytes > maximumBytes)
                 {
@@ -365,7 +385,7 @@ public static class BuildExecution
         }
     }
 
-    private static IEnumerable<AssemblySourceMapEntry> SourceEntries(object? sourceMap) => sourceMap switch
+    internal static IEnumerable<AssemblySourceMapEntry> SourceEntries(object? sourceMap) => sourceMap switch
     {
         IEnumerable<AssemblySourceMapEntry> entries => entries,
         Cc65SourceMap compiler => compiler.Entries,

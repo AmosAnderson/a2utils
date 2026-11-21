@@ -65,6 +65,19 @@ public sealed class RuntimeMemoryTests
     }
 
     [Fact]
+    public void Check_BssInsideOwnBasicWorkspace_RejectsOverlapUpToExclusiveEnd()
+    {
+        ProjectManifest manifest = new() { BasicWorkspaceBytes = 512 };
+        ProjectFile file = new() { Path = "PROGRAM", Kind = "basic", RuntimeMemory = [new("BSS", 2150, 300, "main", "bss")] };
+        BuiltFile info = Built(file, 0x0801, 8) with { Type = "BAS", RuntimeMemory = file.RuntimeMemory };
+        Assert.Equal("project.memory_overlap", Assert.Throws<DiskException>(() => ProjectRuntimeMemory.Check(manifest, [(file, info)])).Code);
+
+        file = file with { RuntimeMemory = [new("BSS", 0x0801 + 8 + 512, 300, "main", "bss")] };
+        info = info with { RuntimeMemory = file.RuntimeMemory };
+        Assert.Equal(8 + 512 + 300, Assert.Single(ProjectRuntimeMemory.Check(manifest, [(file, info)])).Length);
+    }
+
+    [Fact]
     public void Check_SoftwareStackCollidesWithBss_RejectsLinkerFootprint()
     {
         ProjectFile item = new() { Path = "APP", Kind = "cc65" };

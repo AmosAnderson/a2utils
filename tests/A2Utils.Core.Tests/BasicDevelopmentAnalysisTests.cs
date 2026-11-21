@@ -64,6 +64,30 @@ public sealed class BasicDevelopmentAnalysisTests
     }
 
     [Fact]
+    public void Check_UserFunctionArguments_LeaveArrayChecksToArrayReferences()
+    {
+        const string source = "10 DEF FN F(X)=X*X\n20 DIM F(1)\n30 PRINT FN F(-2),FN F(2),F(2)";
+        BasicCheckResult result = ApplesoftTools.Check(source);
+        Assert.True(result.Valid);
+        Assert.Single(result.Diagnostics, diagnostic => diagnostic.Code == "basic.array_bounds");
+        Assert.Contains("FN F(-2)", ApplesoftTools.Renumber(source).Source);
+        Assert.Contains("FN F(-2)", ApplesoftTools.Prepare("DEF FN F(X)=X*X\nPRINT FN F(-2)").Source);
+    }
+
+    [Theory]
+    [InlineData("\n")]
+    [InlineData("\r\n")]
+    [InlineData("\r")]
+    public void RuntimeDiagnostics_AdjacentScreenErrors_ReportsEachDistinctError(string newline)
+    {
+        string screen = string.Join(newline, "?SYNTAX ERROR IN 10", "?BAD SUBSCRIPT ERROR IN 20", "?SYNTAX ERROR IN 10");
+        var diagnostics = ApplesoftTools.RuntimeDiagnostics(screen);
+        Assert.Collection(diagnostics,
+            first => Assert.Equal(10, first.BasicLine),
+            second => Assert.Equal(20, second.BasicLine));
+    }
+
+    [Fact]
     public void RuntimeDiagnostics_LabeledSource_UsesOriginalFileAndPhysicalLine()
     {
         BasicPrepareResult prepared = ApplesoftTools.Prepare("@start:\n\nPRINT 1/0", file: "/project/main.bas");

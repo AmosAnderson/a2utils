@@ -16,6 +16,7 @@ namespace A2Utils.Core.Projects;
 public static partial class ProjectBuilder
 {
     private const int MaximumBuildInputBytes = 64 * 1024 * 1024;
+    internal const int MaximumFileSourceBytes = 4 * 1024 * 1024;
 
     public static ProjectBuildResult Build(string manifestPath, string? outputPath = null,
         bool overwrite = false, bool checkOnly = false, CancellationToken cancellationToken = default,
@@ -105,8 +106,7 @@ public static partial class ProjectBuilder
         string? template = resolved.TemplatePath;
         using TemporaryProjectInput? templateSnapshot = resolved.TemplateInput is null ? null
             : new(resolved.TemplateInput, "build-template");
-        Dictionary<string, string> inputHashes = new(OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
-            ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal)
+        Dictionary<string, string> inputHashes = new(HostFiles.InputPathComparer)
         {
             [manifestFile] = ProgramFiles.Hash(manifestBytes)
         };
@@ -146,7 +146,7 @@ public static partial class ProjectBuilder
         {
             cancellationToken.ThrowIfCancellationRequested();
             string source = Path.GetFullPath(item.Source, root);
-            byte[] bytes = generatedAssets.Outputs.TryGetValue(source, out byte[]? generated) ? generated : ReadInput(source, 4 * 1024 * 1024);
+            byte[] bytes = generatedAssets.Outputs.TryGetValue(source, out byte[]? generated) ? generated : ReadInput(source, MaximumFileSourceBytes);
             int? origin = item.Origin;
             ushort aux = item.AuxType ?? item.Origin ?? 0;
             string type = item.Type ?? (item.Kind is "basic" or "basic-labels" ? "BAS" : item.Kind == "text" ? "TXT" : "BIN");
@@ -212,8 +212,6 @@ public static partial class ProjectBuilder
                     break;
                 case "cc65":
                     Cc65Options options = manifest.Cc65 ?? throw Error("compiler", "cc65 source requires a cc65 configuration.");
-                    if (options.Target == "apple2enh" && profile.Cpu != "65c02")
-                        throw Error("cpu_target", "cc65 apple2enh requires an enhanced Apple II target.");
                     Cc65Result compiled = Cc65Compiler.Compile(source, options, root, cancellationToken,
                         generatedInputs: generatedAssets.Outputs.Where(pair => Path.GetExtension(pair.Key).ToLowerInvariant() is ".bin" or ".inc" or ".h")
                             .ToDictionary(pair => pair.Key, pair => pair.Value));
@@ -351,6 +349,7 @@ public static partial class ProjectBuilder
             manifest.Timestamp, inputHashes.OrderBy(pair => pair.Key, StringComparer.Ordinal).Select(pair => new BuildInput(pair.Key, pair.Value)).ToArray(),
             files.Select(file => file.Info).ToArray(), memory, diagnostics)
         {
+            Order = order,
             CheckOnly = checkOnly,
             Preflight = preflight,
             Plan = plan,
@@ -398,8 +397,8 @@ public static partial class ProjectBuilder
                 if (File.Exists(generatedPath) || Directory.Exists(generatedPath))
                     throw Error("asset_collision", "A generated asset path appeared while building: " + generatedPath, 6);
             if (manifest.Files.Any(file => file.Kind == "cc65") &&
-                Cc65Compiler.EnumerateInputPaths(manifest.Cc65!, root, cancellationToken)
-                    .Any(path => !inputHashes.ContainsKey(path)))
+                !Cc65Compiler.InputPathsMatch(manifest.Cc65!, root, files.Select(file => file.Info),
+                    inputHashes.ContainsKey, cancellationToken))
                 throw Error("source_changed", "Compiler input paths changed while building.", 6);
             if (expectedBuild is not null && (inputHashes.Count != expectedBuild.Inputs.Count || expectedBuild.Inputs.Any(input =>
                 !inputHashes.TryGetValue(input.Path, out string? hash) || hash != input.Sha256)))
@@ -448,7 +447,11 @@ public static partial class ProjectBuilder
                     }
                     else
                     {
-                        session.Replace(existing.Path, file.Bytes);
+                        // Older imports list only the logical text prefix as an editable replacement.
+                        bool preserveRecords = existing.Length == file.Bytes.Length &&
+                            session.ReadDosTextWithTrailingRecords(existing) is { } stored &&
+                            stored.AsSpan(0, file.Bytes.Length).SequenceEqual(file.Bytes);
+                        if (!preserveRecords) session.Replace(existing.Path, file.Bytes);
                         session.SetAttributes(existing.Path, type: file.Info.Type,
                             auxType: fs == "prodos" || TypesEqual(file.Info.Type, "BIN") ? file.Info.AuxType : null);
                     }

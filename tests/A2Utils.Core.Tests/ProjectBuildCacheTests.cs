@@ -17,6 +17,55 @@ namespace A2Utils.Core.Tests;
 public sealed class ProjectBuildCacheTests
 {
     [Fact]
+    public void Build_CaseDistinctBinaryIncludes_UsesEachFileAndInvalidatesChangedDependency()
+    {
+        using FixtureWorkspace workspace = new();
+        string firstPath = workspace.NewPath("Tiles.bin");
+        string secondPath = workspace.NewPath("tiles.bin");
+        File.WriteAllBytes(firstPath, [1]);
+        bool distinct = !File.Exists(secondPath);
+        if (distinct) File.WriteAllBytes(secondPath, [2]);
+        File.WriteAllText(workspace.NewPath("main.asm"), ".org $2000\n.incbin \"Tiles.bin\"\n.incbin \"tiles.bin\"");
+        string project = WriteProject(workspace, new()
+        {
+            Files = [new() { Source = "main.asm", Path = "MAIN", Kind = "asm" }]
+        });
+        string cache = workspace.NewPath("cache");
+        ProjectBuildResult first = ProjectBuildCache.Build(project, cache, workspace.NewPath("first.po"));
+        using (DiskSession disk = DiskSession.Open(first.OutputPath))
+            Assert.Equal(new byte[] { 1, distinct ? (byte)2 : (byte)1 }, disk.ReadFile("MAIN"));
+        if (distinct)
+        {
+            Assert.Contains(first.Inputs, input => input.Path == firstPath && input.Sha256 == ProgramFiles.Hash([1]));
+            Assert.Contains(first.Inputs, input => input.Path == secondPath && input.Sha256 == ProgramFiles.Hash([2]));
+        }
+
+        Assert.True(ProjectBuildCache.Build(project, cache, workspace.NewPath("hit.po")).CacheHit);
+        File.WriteAllBytes(secondPath, [3]);
+        ProjectBuildResult rebuilt = ProjectBuildCache.Build(project, cache, workspace.NewPath("new.po"));
+        Assert.False(rebuilt.CacheHit);
+        using DiskSession updated = DiskSession.Open(rebuilt.OutputPath);
+        Assert.Equal(new byte[] { distinct ? (byte)1 : (byte)3, 3 }, updated.ReadFile("MAIN"));
+    }
+
+    [Fact]
+    public void Build_LegacyCacheWithMissingIncludeFingerprint_RebuildsCurrentSource()
+    {
+        using FixtureWorkspace workspace = new();
+        string project = Setup(workspace);
+        string include = workspace.NewPath("part.inc");
+        ProjectBuildResult first = ProjectBuilder.Build(project, workspace.NewPath("first.po"));
+        string cache = workspace.NewPath("cache");
+        SeedLegacyEntry(cache, project, first with { Inputs = first.Inputs.Where(input => input.Path != include).ToArray() });
+        File.WriteAllText(include, "lda #$2b");
+
+        ProjectBuildResult rebuilt = ProjectBuildCache.Build(project, cache, workspace.NewPath("new.po"));
+        Assert.False(rebuilt.CacheHit);
+        Assert.NotEqual(first.Sha256, rebuilt.Sha256);
+        Assert.Contains(rebuilt.Inputs, input => input.Path == include);
+    }
+
+    [Fact]
     public void Build_UnpinnedCompilerDependencies_RebuildsWithoutCachingPartialEvidence()
     {
         using FixtureWorkspace workspace = new();
@@ -416,8 +465,10 @@ public sealed class ProjectBuildCacheTests
             .GetProperty("bootability").GetString());
     }
 
-    [Fact]
-    public void Build_GenuineInputInsideCache_IsRejectedBeforeOutputCommit()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Build_GenuineInputInsideCache_IsRejectedBeforeOutputCommit(bool trailingSeparator)
     {
         using FixtureWorkspace workspace = new();
         string cache = workspace.NewPath("cache");
@@ -433,10 +484,26 @@ public sealed class ProjectBuildCacheTests
         string output = workspace.NewPath("output.po");
 
         DiskException error = Assert.Throws<DiskException>(() =>
-            ProjectBuildCache.Build(project, cache, output));
+            ProjectBuildCache.Build(project, trailingSeparator ? cache + Path.DirectorySeparatorChar : cache, output));
 
         Assert.Equal("project.cache_input_alias", error.Code);
         Assert.False(File.Exists(output));
+    }
+
+    [Fact]
+    public void Build_OutputInsideCacheWithTrailingSeparator_PreservesDestination()
+    {
+        using FixtureWorkspace workspace = new();
+        string project = Setup(workspace);
+        string cache = workspace.NewPath("cache");
+        Directory.CreateDirectory(cache);
+        string output = Path.Combine(cache, "output.po");
+        File.WriteAllBytes(output, [1, 2, 3]);
+
+        DiskException error = Assert.Throws<DiskException>(() =>
+            ProjectBuildCache.Build(project, cache + Path.DirectorySeparatorChar, output, overwrite: true));
+        Assert.Equal("project.cache_alias", error.Code);
+        Assert.Equal(new byte[] { 1, 2, 3 }, File.ReadAllBytes(output));
     }
 
     [Fact]

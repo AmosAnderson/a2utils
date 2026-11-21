@@ -24,6 +24,7 @@ card ROM must be present in your configured ROM directory. No card ROM is bundle
 
 The profile allows `hard1`/`hard2` and optional `flop1`/`flop2` mounts, with at most
 two total images. The default `floppy` profile accepts only floppy devices.
+Convert 2IMG containers to raw sector images before mounting them on either 5.25-inch floppy drive.
 Choose `execution.diskDevice: "hard1"` (or `hard2`) in a project manifest to bind
 its build to that slot in an execution suite. Larger build images are rejected
 as floppy mounts during project preflight. The selected filesystem must be

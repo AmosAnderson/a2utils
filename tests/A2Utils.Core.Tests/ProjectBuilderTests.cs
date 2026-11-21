@@ -340,6 +340,25 @@ public sealed class ProjectBuilderTests
     }
 
     [Fact]
+    public void Build_EnhancedCompilerTargetWith6502Override_RefusesBeforeCompilation()
+    {
+        using FixtureWorkspace workspace = new();
+        File.WriteAllText(workspace.NewPath("main.c"), "int main(void) { return 0; }");
+        string project = Save(workspace, new()
+        {
+            Target = "apple2enh",
+            Cpu = "6502",
+            Cc65 = new() { Target = "apple2enh", Compiler = workspace.NewPath("missing-compiler") },
+            Files = [new() { Source = "main.c", Path = "MAIN", Kind = "cc65" }]
+        });
+        string output = workspace.NewPath("output.po");
+        File.WriteAllBytes(output, [1, 2, 3]);
+        Assert.Equal("project.cpu_target", Assert.Throws<DiskException>(() =>
+            ProjectBuilder.Build(project, output, overwrite: true)).Code);
+        Assert.Equal(new byte[] { 1, 2, 3 }, File.ReadAllBytes(output));
+    }
+
+    [Fact]
     public void Build_IncompatibleCpu_RefusesTarget()
     {
         using FixtureWorkspace workspace = new();

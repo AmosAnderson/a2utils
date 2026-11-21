@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Amos Anderson
 // SPDX-License-Identifier: GPL-2.0-only
 
-using System.Security.Cryptography;
+using System.Text.Json.Serialization;
 using A2Utils.Core.Backends;
 using A2Utils.Core.Programs;
 
@@ -10,7 +10,17 @@ namespace A2Utils.Core.Operations;
 public sealed record DiskEntrySnapshot(
     string Path, bool IsDirectory, string Type, ushort AuxType, byte Access,
     long Length, long StoredLength, long StorageSize, string? PayloadSha256,
-    string? StoredSha256, DateTime? Created, DateTime? Modified);
+    string? StoredSha256, DateTime? Created, DateTime? Modified)
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public long? ResourceForkLength { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ResourceForkSha256 { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public uint? HfsFileType { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public uint? HfsCreator { get; init; }
+}
 
 public sealed record DiskEntryDifference(
     string Path, string Action, DiskEntrySnapshot? Before, DiskEntrySnapshot? After,
@@ -176,14 +186,26 @@ public static class DiskDiff
             cancellationToken.ThrowIfCancellationRequested();
             string? payloadHash = null;
             string? storedHash = null;
-            if (!entry.IsDirectory)
+            string? resourceHash = null;
+            if (entry.HasResourceFork)
+            {
+                payloadHash = storedHash = ProgramFiles.Hash(session.ReadFile(entry.Path, DiskFileFork.Data));
+                resourceHash = ProgramFiles.Hash(session.ReadFile(entry.Path, DiskFileFork.Resource));
+            }
+            else if (!entry.IsDirectory)
             {
                 payloadHash = ProgramFiles.Hash(session.ReadFile(entry.Path));
                 storedHash = ProgramFiles.Hash(session.ReadFile(entry.Path, raw: true));
             }
             result.Add(entry.Path, new(entry.Path, entry.IsDirectory, entry.Type, entry.AuxType,
                 entry.Access, entry.Length, entry.StoredLength, entry.StorageSize, payloadHash,
-                storedHash, entry.Created, entry.Modified));
+                storedHash, entry.Created, entry.Modified)
+            {
+                ResourceForkLength = entry.ResourceForkLength,
+                ResourceForkSha256 = resourceHash,
+                HfsFileType = entry.HfsFileType,
+                HfsCreator = entry.HfsCreator
+            });
         }
         return result;
     }
@@ -201,6 +223,10 @@ public static class DiskDiff
         if (before.StorageSize != after.StorageSize) fields.Add("storageSize");
         if (before.PayloadSha256 != after.PayloadSha256) fields.Add("payload");
         if (before.StoredSha256 != after.StoredSha256) fields.Add("storedPayload");
+        if (before.ResourceForkLength != after.ResourceForkLength) fields.Add("resourceForkLength");
+        if (before.ResourceForkSha256 != after.ResourceForkSha256) fields.Add("resourceFork");
+        if (before.HfsFileType != after.HfsFileType) fields.Add("hfsFileType");
+        if (before.HfsCreator != after.HfsCreator) fields.Add("hfsCreator");
         if (before.Created != after.Created) fields.Add("created");
         if (before.Modified != after.Modified) fields.Add("modified");
         return fields;

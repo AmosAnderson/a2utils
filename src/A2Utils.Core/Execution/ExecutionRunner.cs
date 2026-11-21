@@ -144,7 +144,7 @@ public static partial class ExecutionRunner
                 else
                 {
                     observation = ParseObservation(ReadBounded(observations, 1024 * 1024),
-                        ReadBounded(Path.Combine(artifacts, "screen.txt"), 32768));
+                        ReadBounded(Path.Combine(artifacts, "screen.txt"), 32768), spec.Engine);
                     if (spec.DecodeIIeText || spec.TextColumns == 80)
                     {
                         observation = DecodeText(spec, observation);
@@ -228,7 +228,8 @@ public static partial class ExecutionRunner
 
     public static IReadOnlyList<ProgramDiagnostic> Evaluate(ExecutionSpec spec, ExecutionObservation observation)
     {
-        Validate(spec);
+        spec = ExecutionGraphicsMemory.Prepare(spec).Spec;
+        ValidatePrepared(spec);
         List<ProgramDiagnostic> diagnostics = [];
         if (observation.StopReason is "cpu_fault" or "cancelled" or "host_timeout")
             diagnostics.Add(new("execution.failed_stop", "error",

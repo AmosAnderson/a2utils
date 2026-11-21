@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: 2026 Amos Anderson
 // SPDX-License-Identifier: GPL-2.0-only
 
+using System.Text.Json.Serialization;
+
 namespace A2Utils.Core;
 
 public sealed record DiskDiagnostic(string Code, string Severity, string Message);
@@ -18,11 +20,21 @@ public sealed record DiskInfo(
     public DiskCapabilities Capabilities { get; init; } = new([], []);
 }
 
+public enum DiskFileFork { Data, Resource }
+
 public sealed record DiskEntry(
     string Path, string Name, bool IsDirectory, string Type, byte FileType,
     ushort AuxType, byte Access, bool IsLocked, long Length, long StoredLength,
     long StorageSize, byte[] RawName, DateTime? Created, DateTime? Modified,
-    bool IsDubious, bool HasResourceFork);
+    bool IsDubious, bool HasResourceFork)
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public long? ResourceForkLength { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public uint? HfsFileType { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public uint? HfsCreator { get; init; }
+}
 
 /// <summary>A stable diagnostic and CLI exit status without engine-specific types.</summary>
 public sealed class DiskException(string code, string message, int exitCode = 6,

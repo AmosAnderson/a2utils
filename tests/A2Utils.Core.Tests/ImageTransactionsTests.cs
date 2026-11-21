@@ -55,6 +55,49 @@ public sealed class ImageTransactionsTests : IDisposable
     }
 
     [Theory]
+    [InlineData(UnixFileMode.UserRead | UnixFileMode.UserWrite)]
+    [InlineData(UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.GroupRead | UnixFileMode.GroupWrite)]
+    public void Write_InPlaceOnUnix_PreservesSourceAndBackupPermissions(UnixFileMode permissions)
+    {
+        if (OperatingSystem.IsWindows()) return;
+        string source = Write("source.do", [1]);
+        File.SetUnixFileMode(source, permissions);
+
+        ImageWriteResult result = ImageTransactions.Write(source, null, true, false, temporary =>
+        {
+            if (!OperatingSystem.IsWindows())
+                Assert.Equal(UnixFileMode.UserRead | UnixFileMode.UserWrite, File.GetUnixFileMode(temporary));
+            File.WriteAllBytes(temporary, [2]);
+        });
+
+        Assert.Equal(permissions, File.GetUnixFileMode(source));
+        Assert.Equal(permissions, File.GetUnixFileMode(result.BackupPath!));
+        Assert.Equal([2], File.ReadAllBytes(source));
+        Assert.Equal([1], File.ReadAllBytes(result.BackupPath!));
+    }
+
+    [Fact]
+    public void Write_SourcePermissionsChangeDuringEdit_RefusesCommit()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        string source = Write("source.do", [1]);
+        UnixFileMode initial = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.GroupRead;
+        File.SetUnixFileMode(source, initial);
+
+        DiskException exception = Assert.Throws<DiskException>(() => ImageTransactions.Write(source, null, true, false, temporary =>
+        {
+            File.WriteAllBytes(temporary, [2]);
+            if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(source, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        }));
+
+        Assert.Equal("write.concurrent_change", exception.Code);
+        Assert.Equal([1], File.ReadAllBytes(source));
+        Assert.Equal(UnixFileMode.UserRead | UnixFileMode.UserWrite, File.GetUnixFileMode(source));
+        Assert.Empty(Directory.GetFiles(_directory, "*.bak"));
+        AssertNoTemporaryFiles();
+    }
+
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public void Write_EditFailure_PreservesInputAndExistingDestination(bool inPlace)

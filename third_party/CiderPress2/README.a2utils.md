@@ -30,7 +30,8 @@ vendor files with A2Utils style rules.
 
 Local patch (September 16, 2026): `DiskArc/FS/ProDOS_FileEntry.cs` synchronizes
 the redundant subdirectory-header creation date when `SaveChanges` updates
-the directory entry's creation date. This fixes project reproducibility across
+the directory entry's creation date. Renaming preserves the existing header
+date. This fixes project reproducibility across
 wall-clock minute boundaries. The source comment and architecture decision
 identify the patch; the other 207 upstream project files remain unchanged.
 

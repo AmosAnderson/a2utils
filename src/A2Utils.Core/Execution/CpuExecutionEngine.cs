@@ -48,7 +48,8 @@ public static class CpuExecutionEngine
             "CPU execution does not provide keyboard or interactive machine steps.");
         Require(spec.GamePort == "none" && spec.Audio is null && !spec.Screenshot && spec.ScreenshotAssertion is null,
             "CPU execution does not provide game-port, audio, or screenshot devices.");
-        Require(!spec.CheckBasicRuntime && spec.TextContains is not null && spec.TextContains.Count == 0
+        Require(!spec.CheckBasicRuntime && !spec.DecodeIIeText && spec.TextColumns == 40 && spec.TextPage == 1
+            && spec.TextContains is not null && spec.TextContains.Count == 0
             && spec.TextNotContains is not null && spec.TextNotContains.Count == 0,
             "CPU execution does not provide an Applesoft runtime or text screen.");
         Require(double.IsFinite(spec.EmulatedSeconds) && spec.EmulatedSeconds is > 0 and <= 3600
@@ -56,8 +57,12 @@ public static class CpuExecutionEngine
             "Execution deadlines must be finite values from greater than zero through 3600 seconds.");
 
         ExecutionRoutine routine = spec.Routine!;
-        Require(!string.IsNullOrWhiteSpace(routine.Source) && routine.Kind is "asm" or "binary",
-            "Routine requires source and kind asm or binary.");
+        Require(!string.IsNullOrWhiteSpace(routine.Source) && routine.Kind is "asm" or "binary" or "packaged",
+            "Routine requires a source of kind asm, binary, or packaged.");
+        if (routine.Kind == "packaged" || spec.PackagedRoutine is not null)
+            Require(routine.Kind == "packaged" && spec.PackagedRoutine is { } packaged &&
+                routine.Source == packaged.File.Path && routine.Origin == packaged.File.Origin,
+                "Bind a packaged routine to its project build before execution.");
         Require(routine.Origin is >= 0x0800 and < 0xc000 && routine.EntryPoint is null or >= 0x0800 and < 0xc000,
             "Routine origin and entry must be in main RAM $0800..$BFFF.");
         Require(routine.EntrySymbol is null || routine.EntryPoint is null && routine.Kind == "asm"
@@ -166,8 +171,13 @@ public static class CpuExecutionEngine
         {
             environment = ExecutionRunner.CaptureEnvironment(spec, artifacts, linked.Token);
             prepared = RoutineHarness.Prepare(spec, artifacts, linked.Token);
+            ExecutionSpec archived = spec.PackagedRoutine is null ? spec : spec with
+            {
+                Routine = spec.Routine! with { Kind = "binary", Source = "routine.bin" },
+                PackagedRoutine = null
+            };
             await File.WriteAllTextAsync(Path.Combine(artifacts, "spec.json"),
-                JsonSerializer.Serialize(spec, ExecutionSpec.JsonOptions), linked.Token);
+                JsonSerializer.Serialize(archived, ExecutionSpec.JsonOptions), linked.Token);
             await File.WriteAllTextAsync(Path.Combine(artifacts, "engine.json"), JsonSerializer.Serialize(new
             {
                 engine = spec.Engine,
@@ -185,6 +195,7 @@ public static class CpuExecutionEngine
             linked.Token.ThrowIfCancellationRequested();
             ExecutionRunner.ValidateExecutionEnvironment(spec, environment, linked.Token);
             RoutineHarness.ValidateInputs(prepared, linked.Token);
+            spec.PackagedRoutine?.ValidateImage(linked.Token);
             if (outcome.Fault is { } fault)
                 diagnostics.Add(new("execution.cpu_fault", "error", fault.Message,
                     Symbol: "$" + fault.ProgramCounter.ToString("X4", CultureInfo.InvariantCulture),
@@ -202,7 +213,7 @@ public static class CpuExecutionEngine
         }
         catch (DiskException exception)
         {
-            reason = "cpu_fault";
+            reason = exception.Code == "execution.disk_hash_mismatch" ? "disk_hash_mismatch" : "cpu_fault";
             diagnostics.AddRange(exception.Diagnostics.Count > 0
                 ? exception.Diagnostics : [new(exception.Code, "error", exception.Message)]);
         }
@@ -221,7 +232,7 @@ public static class CpuExecutionEngine
         bool passed = observation is not null && diagnostics.All(diagnostic => diagnostic.Severity != "error");
         ExecutionResult result = new(1, spec.Name, passed, reason, Version, observation?.EmulatedSeconds,
             observation?.Registers ?? new Dictionary<string, long>(), observation?.Memory ?? new Dictionary<int, string>(),
-            observation?.ScreenText, null, artifacts,
+            observation?.ScreenText, prepared is null ? null : spec.PackagedRoutine?.ImageSha256, artifacts,
             Directory.GetFiles(artifacts, "*", SearchOption.AllDirectories).Order(StringComparer.Ordinal).ToArray(), diagnostics)
         {
             BankMemory = observation?.BankMemory ?? [],

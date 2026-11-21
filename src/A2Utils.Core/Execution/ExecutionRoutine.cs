@@ -7,12 +7,13 @@ using A2Utils.Core.Programs;
 
 namespace A2Utils.Core.Execution;
 
-/// <summary>A subroutine invoked after power-on, using the real machine CPU and ROM.</summary>
+/// <summary>A subroutine invoked by the selected execution engine.</summary>
 public sealed record ExecutionRoutine
 {
+    private readonly int? _origin;
     public string Source { get; init; } = "";
     public string Kind { get; init; } = "asm";
-    public int Origin { get; init; } = 0x6000;
+    public int Origin { get => _origin ?? (Kind == "packaged" ? 0 : 0x6000); init => _origin = value; }
     public int? EntryPoint { get; init; }
     public string? EntrySymbol { get; init; }
     public double StartAfterSeconds { get; init; } = 1;
@@ -40,7 +41,9 @@ public static class RoutineHarness
         ExecutionRunner.Validate(spec);
         ExecutionRoutine routine = spec.Routine ?? throw new ArgumentException("A routine is required.", nameof(spec));
         AssemblyResult assembled;
-        if (routine.Kind == "asm")
+        if (spec.PackagedRoutine is { } packaged && routine.Kind == "packaged")
+            assembled = packaged.Read(cancellationToken);
+        else if (routine.Kind == "asm")
             assembled = Assembler.AssembleFile(routine.Source, (ushort)routine.Origin,
                 spec.Machine is "apple2ee" or "apple2c" ? CpuKind.Apple65C02 : CpuKind.Mos6502, cancellationToken);
         else
@@ -57,13 +60,18 @@ public static class RoutineHarness
             if (!assembled.Symbols.TryGetValue(symbol, out entry))
                 throw new DiskException("execution.routine_symbol", $"Routine entry symbol '{symbol}' is undefined.", 2);
         }
-        if (assembled.Origin < 0x0800 || assembled.Bytes.Length == 0 || (long)assembled.Origin + assembled.Bytes.Length > 0xc000
-            || entry < assembled.Origin || entry >= (long)assembled.Origin + assembled.Bytes.Length)
-            throw new DiskException("execution.routine_range", "Routine code and entry must fit main RAM $0800..$BFFF.", 2);
-        if (routine.Memory.Any(m => m.Address < assembled.Origin + assembled.Bytes.Length
-            && m.Address + MameAdapter.ParseHex(m.Hex).Length > assembled.Origin))
-            throw new DiskException("execution.routine_overlap", "Routine initial memory must not overwrite its code.", 2);
+        ValidateLayout(routine, assembled.Origin, assembled.Bytes.Length, entry);
         return new(assembled.Origin, entry, assembled.Bytes, assembled.DependencyHashes, assembled.Symbols, assembled.SourceMap);
+    }
+
+    internal static void ValidateLayout(ExecutionRoutine routine, int origin, int length, int entry)
+    {
+        long end = (long)origin + length;
+        if (origin < 0x0800 || length <= 0 || end > 0xc000 || entry < origin || entry >= end)
+            throw new DiskException("execution.routine_range", "Routine code and entry must fit main RAM $0800..$BFFF.", 2);
+        if (routine.Memory.Any(m => m.Address < end
+            && m.Address + MameAdapter.ParseHex(m.Hex).Length > origin))
+            throw new DiskException("execution.routine_overlap", "Routine initial memory must not overwrite its code.", 2);
     }
 
     public static PreparedRoutine Prepare(ExecutionSpec spec, string artifacts, CancellationToken cancellationToken = default)
@@ -78,6 +86,8 @@ public static class RoutineHarness
             prepared.InputHashes,
             prepared.Symbols,
             prepared.SourceMap,
+            Packaged = spec.PackagedRoutine is { } packaged
+                ? new { Program = packaged.File.Path, packaged.ImagePath, packaged.ImageSha256 } : null,
             Sha256 = ProgramFiles.Hash(prepared.Bytes),
             Length = prepared.Bytes.Length
         }, ExecutionSpec.JsonOptions);

@@ -124,8 +124,13 @@ if (args.Contains("-t"))
             ZEROPAGE              000080  000099  00001A  00001
             CODE                  000803  000804  000002  00001
             BSS                   000805  000904  000100  00001
+            Exports list by name:
+            ---------------------
+            _main                     000803 RLA    __HIMEM__                 009600 REA
+            __STACKSIZE__             000800 REA
             """;
-        labelText += "al 009600 .__HIMEM__\nal 000800 .__STACKSIZE__\n";
+        if (!args.Contains("-vm")) throw new InvalidOperationException("Compiler feedback requires a verbose linker map.");
+        labelText += "al 009600 .__HIMEM__\nal 000800 .__STACKSIZE__\nal 000804 .exit\nal 000805 .exit\n";
         Console.Error.WriteLine(main + "(3): Warning: controlled source warning");
     }
     if (source.Contains("A2_FAKE_OVERSIZE_CACHE_METADATA"))

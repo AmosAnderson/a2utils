@@ -142,6 +142,7 @@ public sealed partial class CliApplication
             targets = TargetProfiles.All.Select(profile => profile.Name),
             filesystems = new[] { "dos33", "prodos" },
             containers = new[] { "raw", "2mg" },
+            archives = new[] { "nufx" },
             sourceKinds = new[] { "asm", "basic", "basic-labels", "binary", "text", "applesingle", "cc65", "lores", "hires", "hires-color" },
             graphicsModes = new[] { "lores", "hires", "hires-color" },
             graphicsAssets = new
@@ -194,6 +195,8 @@ public sealed partial class CliApplication
                     immutableRunSubdirectories = true
                 },
                 cpuRoutineExecution = true,
+                packagedCpuRoutines = true,
+                observationReplay = true,
                 cpuInstructionTrace = true,
                 cpuProcessors = new[] { "6502", "apple65c02" },
                 diskDevices = new[] { "flop1", "flop2", "hard1", "hard2" },
@@ -212,7 +215,9 @@ public sealed partial class CliApplication
                 cpuDebugging = true,
                 cpuTraceTail = true,
                 imageCapabilities = true,
-                fileMigration = new { filesystems = new[] { "dos33", "prodos" }, types = new[] { "TXT", "BIN", "BAS" }, preflight = true },
+                sectorInspection = true,
+                proDosForkRestore = true,
+                fileMigration = new { batch = true, filesystems = new[] { "dos33", "prodos" }, types = new[] { "TXT", "BIN", "BAS" }, preflight = true },
                 diskPlanActions = new[] { "add", "replace", "delete", "rename", "mkdir", "attr", "copy", "move", "import", "restore" },
                 orderedStartup = true,
                 environmentSmoke = true,
@@ -260,7 +265,7 @@ public sealed partial class CliApplication
     private static readonly string[] SchemaNames =
     [
         "project", "project-resolution", "diagnostic", "execution", "execution-suite",
-        "environment", "disk-change-set", "result", "error", "envelope", .. ResultSchemas.Names
+        "environment", "disk-change-set", "migration-selection", "replay-expectations", "result", "error", "envelope", .. ResultSchemas.Names
     ];
 
     private static CliCommandCapability[] DescribeCommands(Command command, string prefix,
@@ -335,6 +340,7 @@ public sealed partial class CliApplication
             ("a2 asm compile" or "a2 asm decompile" or "a2 asm listing" or "a2 asm map", "--cpu") => ["6502", "65c02", "w65c02"],
             ("a2 asm compile" or "a2 asm decompile" or "a2 basic compile" or "a2 basic decompile", "--format") => ["raw", "dos"],
             ("a2 disk export", "--format") => ["binary", "text"],
+            ("a2 archive extract", "--part") => ["data", "resource", "disk"],
             ("a2 disk migrate", "--text-mode") => ["preserve", "convert"],
             ("a2 disk add" or "a2 disk replace" or "a2 disk import", "--format") => ["binary", "text"],
             ("a2 graphics encode" or "a2 graphics decode", "--mode") => ["lores", "hires", "hires-color"],
@@ -365,11 +371,17 @@ public sealed partial class CliApplication
             ("a2 disk attr", "--unlock") => (["--lock"], []),
             ("a2 disk add" or "a2 disk replace" or "a2 disk delete" or "a2 disk rename"
                 or "a2 disk mkdir" or "a2 disk attr" or "a2 disk copy" or "a2 disk move"
-                or "a2 disk import" or "a2 disk apply" or "a2 disk migrate", "--output") => (["--in-place"], []),
+                or "a2 disk import" or "a2 disk apply" or "a2 disk migrate" or "a2 disk migrate-batch", "--output") => (["--in-place"], []),
             ("a2 disk add" or "a2 disk replace" or "a2 disk delete" or "a2 disk rename"
                 or "a2 disk mkdir" or "a2 disk attr" or "a2 disk copy" or "a2 disk move"
-                or "a2 disk import" or "a2 disk apply" or "a2 disk migrate", "--in-place") => (["--output"], []),
-            ("a2 disk migrate", "--preflight") => (["--output", "--in-place", "--overwrite", "--allow-metadata-loss", "--expect-plan-sha256"], []),
+                or "a2 disk import" or "a2 disk apply" or "a2 disk migrate" or "a2 disk migrate-batch", "--in-place") => (["--output"], []),
+            ("a2 disk migrate" or "a2 disk migrate-batch", "--preflight") => (["--output", "--in-place", "--overwrite", "--allow-metadata-loss", "--expect-plan-sha256"], []),
+            ("a2 disk migrate-batch", "--all") => (["--selection"], []),
+            ("a2 disk migrate-batch", "--selection") => (["--all"], []),
+            ("a2 disk inspect", "--block") => (["--track", "--sector", "--offset"], []),
+            ("a2 disk inspect", "--offset") => (["--track", "--sector", "--block"], []),
+            ("a2 disk inspect", "--track") => (["--block", "--offset"], ["--sector"]),
+            ("a2 disk inspect", "--sector") => (["--block", "--offset"], ["--track"]),
             ("a2 env check", "--artifacts") => ([], ["--smoke"]),
             ("a2 asm decompile" or "a2 basic decompile", "--from-image") => (["--format"], []),
             ("a2 asm decompile" or "a2 basic decompile", "--format") => (["--from-image"], []),
@@ -379,6 +391,9 @@ public sealed partial class CliApplication
     private static string? ArgumentPathRole(string command, string argument) => argument switch
     {
         "PROJECT" or "SPEC" or "SUITE" or "PROFILE" or "BEFORE" or "AFTER" or "CHANGES" => "input-file",
+        "ARTIFACTS" => "input-directory",
+        "ARCHIVE" => "input-file",
+        "ENTRY" when command.StartsWith("a2 archive ", StringComparison.Ordinal) => "archive-entry",
         "IMAGE" => "input-file",
         "OUTPUT" => "output-file",
         "HOSTFILE" => "input-file",
@@ -394,7 +409,7 @@ public sealed partial class CliApplication
     {
         "--artifacts" => "output-directory",
         "--cache" => "cache-directory",
-        "--manifest" or "--from" or "--from-image" or "--environment" or "--source" or "--linker-config" => "input-file",
+        "--expect" or "--selection" or "--manifest" or "--from" or "--from-image" or "--environment" or "--source" or "--linker-config" => "input-file",
         "--rerun-failed" => "input-file-or-directory",
         "--project-root" or "--include" or "--toolchain-root" => "input-directory",
         "--compiler" => "executable",
@@ -409,6 +424,10 @@ public sealed partial class CliApplication
     {
         if (command is "a2 capabilities" or "a2 targets" or "a2 schema")
             return [];
+        if (command == "a2 replay") return ["reads-host-files"];
+        if (command == "a2 archive ls") return ["reads-host-files"];
+        if (command == "a2 archive extract") return ["reads-host-files", "writes-host-file"];
+        if (command == "a2 archive catalog") return ["reads-host-files", "uses-temporary-storage"];
         if (command == "a2 project resolve")
             return ["reads-host-files", "may-run-external-process", "uses-temporary-storage"];
         if (command == "a2 project import") return ["reads-disk-image", "creates-host-directory"];
@@ -424,7 +443,7 @@ public sealed partial class CliApplication
         if (command.StartsWith("a2 disk ", StringComparison.Ordinal))
         {
             string leaf = command[8..];
-            if (leaf is "info" or "ls" or "verify") return ["reads-disk-image"];
+            if (leaf is "info" or "ls" or "inspect" or "verify") return ["reads-disk-image"];
             if (leaf == "extract") return ["reads-disk-image", "creates-host-directory"];
             if (leaf == "diff") return ["reads-disk-images", "uses-temporary-storage"];
             if (leaf == "plan") return ["reads-disk-image", "reads-host-files", "uses-temporary-storage"];
@@ -434,6 +453,7 @@ public sealed partial class CliApplication
             if (leaf is "add" or "replace" or "import")
                 return ["reads-disk-image", "reads-host-files", "writes-host-file-or-disk-image"];
             if (leaf == "copy") return ["reads-disk-images", "writes-host-file-or-disk-image"];
+            if (leaf == "migrate-batch") return ["reads-disk-images", "reads-host-files", "may-write-disk-image", "uses-temporary-storage"];
             if (leaf == "migrate") return ["reads-disk-images", "may-write-disk-image", "uses-temporary-storage"];
             return ["reads-disk-image", "writes-host-file-or-disk-image"];
         }

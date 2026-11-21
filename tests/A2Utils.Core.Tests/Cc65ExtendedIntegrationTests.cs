@@ -102,9 +102,13 @@ public sealed class Cc65ExtendedIntegrationTests
         File.WriteAllText(header, "/* distribution fixture */");
         string library = Path.Combine(toolchain, "lib", "apple2.lib");
         File.WriteAllBytes(library, [1, 2, 3]);
+        string caseVariant = Path.Combine(toolchain, "lib", "Apple2.lib");
+        bool distinctLibrary = !File.Exists(caseVariant);
+        if (distinctLibrary) File.WriteAllBytes(caseVariant, [4, 5]);
         Cc65Result result = Cc65Compiler.Compile(workspace.NewPath("main.c"), Options() with { ToolchainRoot = toolchain }, workspace.DirectoryPath);
         Assert.Contains(result.ToolchainInputs, input => input.Path == header);
         Assert.Contains(result.ToolchainInputs, input => input.Path == library);
+        if (distinctLibrary) Assert.Contains(result.ToolchainInputs, input => input.Path == caseVariant);
         Assert.Contains(result.ToolchainInputs, input => input.Path == HostPath());
         Assert.DoesNotContain(result.Diagnostics, diagnostic => diagnostic.Code == "cc65.toolchain_partial");
     }

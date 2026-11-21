@@ -75,6 +75,15 @@ public sealed class DevelopmentEnvironmentTests : IDisposable
     }
 
     [Fact]
+    public void Apply_EnhancedMachineWith6502Override_SelectsBaseCompilerTarget()
+    {
+        string profile = WriteProfile(withCompiler: true);
+        ProjectManifest manifest = new() { Target = "apple2enh" };
+        Assert.Equal("apple2enh", DevelopmentEnvironment.Apply(manifest, profile).Cc65!.Target);
+        Assert.Equal("apple2", DevelopmentEnvironment.Apply(manifest with { Cpu = "6502" }, profile).Cc65!.Target);
+    }
+
+    [Fact]
     public async Task Check_MissingTools_ReportsStructuredActionableFailures()
     {
         EnvironmentCheckResult result = await DevelopmentEnvironment.CheckAsync(new() { MamePath = At("missing"), RomDirectory = At("no-roms") });

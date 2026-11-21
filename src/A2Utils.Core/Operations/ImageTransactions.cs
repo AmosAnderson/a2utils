@@ -69,8 +69,11 @@ public static class ImageTransactions
         string temporary = TemporaryPath(destination);
         try
         {
+            FileStreamOptions stageOptions = new() { Mode = FileMode.CreateNew, Access = FileAccess.Write, Share = FileShare.None };
+            if (inPlace && !OperatingSystem.IsWindows())
+                stageOptions.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
             using (FileStream input = new(source, FileMode.Open, FileAccess.Read, FileShare.Read))
-            using (FileStream staged = new(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            using (FileStream staged = new(temporary, stageOptions))
             {
                 input.CopyTo(staged);
                 staged.Flush(flushToDisk: true);
@@ -81,6 +84,8 @@ public static class ImageTransactions
             cancellationToken.ThrowIfCancellationRequested();
             validate?.Invoke(temporary);
             Flush(temporary);
+            if (inPlace && !OperatingSystem.IsWindows() && original.Permissions is { } mode)
+                File.SetUnixFileMode(temporary, mode);
             CheckPath(source);
             CheckPath(destination);
             EnsureUnchanged(source, original);
@@ -201,7 +206,8 @@ public static class ImageTransactions
         long length = stream.Length;
         DateTime modified = File.GetLastWriteTimeUtc(path);
         string hash = Convert.ToHexString(SHA256.HashData(stream));
-        return new Fingerprint(length, modified, hash);
+        UnixFileMode? permissions = OperatingSystem.IsWindows() ? null : File.GetUnixFileMode(stream.SafeFileHandle);
+        return new Fingerprint(length, modified, hash, permissions);
     }
 
     private static string TemporaryPath(string destination) =>
@@ -288,5 +294,5 @@ public static class ImageTransactions
         }
     }
 
-    private sealed record Fingerprint(long Length, DateTime Modified, string Hash);
+    private sealed record Fingerprint(long Length, DateTime Modified, string Hash, UnixFileMode? Permissions);
 }

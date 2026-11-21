@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:a2utils:schema:replay-expectations:1",
+  "title": "Offline observation expectations",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "memory": { "$ref": "#/$defs/memoryChecks" },
+    "memoryNotEqual": { "$ref": "#/$defs/memoryChecks" },
+    "registers": {
+      "type": "array", "maxItems": 128,
+      "items": {
+        "type": "object", "additionalProperties": false, "required": ["name", "value"],
+        "properties": {
+          "name": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{0,15}$" },
+          "value": { "type": "integer", "minimum": 0, "maximum": 65535 }
+        }
+      }
+    },
+    "textContains": { "$ref": "#/$defs/textChecks" },
+    "textNotContains": { "$ref": "#/$defs/textChecks" },
+    "graphicsMemory": {
+      "type": "array", "maxItems": 16,
+      "items": {
+        "type": "object", "additionalProperties": false, "required": ["expectedImage", "mode"],
+        "properties": {
+          "expectedImage": { "type": "string", "minLength": 1 },
+          "mode": { "enum": ["lores", "hires", "hires-color", "dhires-mono", "dhires-color"] },
+          "page": { "enum": [1, 2], "default": 1 },
+          "bank": { "enum": ["cpu", "main", "aux"], "default": "cpu" }
+        }
+      }
+    }
+  },
+  "anyOf": [
+    { "required": ["memory"], "properties": { "memory": { "minItems": 1 } } },
+    { "required": ["memoryNotEqual"], "properties": { "memoryNotEqual": { "minItems": 1 } } },
+    { "required": ["registers"], "properties": { "registers": { "minItems": 1 } } },
+    { "required": ["textContains"], "properties": { "textContains": { "minItems": 1 } } },
+    { "required": ["textNotContains"], "properties": { "textNotContains": { "minItems": 1 } } },
+    { "required": ["graphicsMemory"], "properties": { "graphicsMemory": { "minItems": 1 } } }
+  ],
+  "$defs": {
+    "memoryChecks": {
+      "type": "array", "maxItems": 1024,
+      "items": {
+        "type": "object", "additionalProperties": false, "required": ["address", "hex"],
+        "properties": {
+          "address": { "type": "integer", "minimum": 0, "maximum": 65535 },
+          "hex": { "type": "string", "pattern": "^ *(?:[A-Fa-f0-9] *[A-Fa-f0-9] *)+$" },
+          "bank": { "enum": ["cpu", "main", "aux", "lc1", "lc2", "aux-lc1", "aux-lc2"], "default": "cpu" }
+        }
+      }
+    },
+    "textChecks": {
+      "type": "array", "maxItems": 256,
+      "items": { "type": "string", "minLength": 1, "maxLength": 32768 }
+    }
+  }
+}

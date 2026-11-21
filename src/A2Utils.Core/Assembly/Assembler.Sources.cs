@@ -15,16 +15,14 @@ public static partial class Assembler
     private sealed class SourceDocument
     {
         public List<SourceLine> Lines { get; } = [];
-        public Dictionary<string, string> Hashes { get; } = new(PathComparer);
+        public Dictionary<string, string> Hashes { get; } = new(HostFiles.InputPathComparer);
         public IEnumerable<string> Dependencies => Hashes.Keys;
         public string Text => string.Join('\n', Lines.Select(line => line.Text));
         private int _characters;
         private int _binaryBytes;
-        private readonly Dictionary<string, byte[]> _files = new(PathComparer);
-        private readonly HashSet<string> _active = new(PathComparer);
+        private readonly Dictionary<string, byte[]> _files = new(HostFiles.InputPathComparer);
+        private readonly HashSet<string> _active = new(HostFiles.InputPathComparer);
         private IReadOnlyDictionary<string, byte[]> _generated = new Dictionary<string, byte[]>();
-        private static StringComparer PathComparer => OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
-            ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
 
         public static SourceDocument FromText(string source)
         {
@@ -43,15 +41,19 @@ public static partial class Assembler
             ArgumentException.ThrowIfNullOrWhiteSpace(path);
             cancellationToken.ThrowIfCancellationRequested();
             string fullPath = Path.GetFullPath(path);
+            string root = Path.GetDirectoryName(fullPath)!;
+            StringComparison comparison = HostFiles.DirectoryNameComparison(root);
             SourceDocument document = new();
             if (generatedInputs is not null)
             {
                 if (generatedInputs.Count > 512 || generatedInputs.Values.Any(bytes => bytes is null)
                     || generatedInputs.Values.Sum(bytes => (long)bytes.Length) > 32 * 1024 * 1024)
                     throw LocatedError(path, 1, "Generated assembly inputs exceed their count or size limit.", "assembly.include_limit");
-                document._generated = generatedInputs.ToDictionary(pair => Path.GetFullPath(pair.Key), pair => pair.Value.ToArray(), PathComparer);
+                document._generated = generatedInputs.ToDictionary(pair => Path.GetFullPath(pair.Key), pair => pair.Value.ToArray(),
+                    StringComparer.FromComparison(comparison));
             }
-            document.Expand(fullPath, Path.GetDirectoryName(fullPath)!, cancellationToken);
+            string rootPrefix = Path.EndsInDirectorySeparator(root) ? root : root + Path.DirectorySeparatorChar;
+            document.Expand(fullPath, rootPrefix, comparison, cancellationToken);
             return document;
         }
 
@@ -109,7 +111,7 @@ public static partial class Assembler
             return bytes;
         }
 
-        private void Expand(string path, string root, CancellationToken cancellationToken)
+        private void Expand(string path, string rootPrefix, StringComparison comparison, CancellationToken cancellationToken)
         {
             if (_active.Count >= 32)
                 throw LocatedError(path, 1, "Source includes exceed 32 levels.", "assembly.include_limit");
@@ -149,13 +151,12 @@ public static partial class Assembler
                     if (relative.Length == 0 || Path.IsPathRooted(relative))
                         throw LocatedError(path, number, "Include paths must be relative to their source file.", "assembly.include_path");
                     string target = Path.GetFullPath(relative, Path.GetDirectoryName(path)!);
-                    string inside = Path.GetRelativePath(root, target);
-                    if (inside == ".." || inside.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal) || Path.IsPathRooted(inside))
+                    if (!target.StartsWith(rootPrefix, comparison))
                         throw LocatedError(path, number, "Includes must stay inside the main source directory.", "assembly.include_path");
                     if (operation == ".INCLUDE")
                     {
                         Add(new SourceLine("; " + lines[index], path, number));
-                        Expand(target, root, cancellationToken);
+                        Expand(target, rootPrefix, comparison, cancellationToken);
                     }
                     else
                     {

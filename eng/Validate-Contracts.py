@@ -99,6 +99,11 @@ def main():
         malformed = copy.deepcopy(info)
         del malformed["capabilities"]
         reject("urn:a2utils:schema:disk-info-result:1", malformed)
+        run("disk", "inspect", fixture, "--track", 18, "--sector", 14)
+        run("archive", "ls", fixture.parent / "independent-files.shk")
+        run("archive", "extract", fixture.parent / "independent-files.shk", "DOCS:HELLO",
+            "--part", "resource", "--to", work / "hello.rsrc")
+        run("archive", "catalog", fixture.parent / "independent-disk.sdk")
         run("disk", "diff", fixture, fixture)
         changes = work / "changes.json"
         changes.write_text(json.dumps({"schemaVersion": 1, "changes": [
@@ -113,6 +118,12 @@ def main():
                         "--from", fixture, "--preflight")
         run("disk", "migrate", destination, "HELLO.BIN", "MIGRATED", "--from", fixture,
             "--output", work / "migrated.po", "--expect-plan-sha256", migration["planSha256"])
+        batch = run("disk", "migrate-batch", destination, "--from", fixture, "--all", "--preflight")
+        applied = run("disk", "migrate-batch", destination, "--from", fixture, "--all",
+                      "--expect-plan-sha256", batch["planSha256"], "--output", work / "batch.po")
+        blocked = run("disk", "migrate-batch", applied["write"]["outputPath"], "--from", fixture,
+                      "--all", "--preflight", codes=(3,))
+        assert not blocked["canApply"] and all(row["diagnostics"] for row in blocked["files"])
         project = work / "project"
         run("init", project, "--engine", "cpu")
         manifest = project / "project.a2.json"
@@ -121,6 +132,7 @@ def main():
         run("project", "resolve", manifest)
         run("build", manifest, "--test", "--artifacts", work / "build-test")
         execution = run("run", project / "execution.json", "--artifacts", work / "run")
+        run("replay", execution["artifactDirectory"])
         malformed = copy.deepcopy(execution)
         malformed["registers"]["PC"] = "wrong"
         reject("urn:a2utils:schema:execution-result:1", malformed)
@@ -133,6 +145,18 @@ def main():
         debug_spec = project / "debug.json"
         debug_spec.write_text(json.dumps(spec), encoding="utf-8")
         run("run", debug_spec, "--artifacts", work / "debug")
+        # A build-bound CPU case executes the BIN stored in this project's image.
+        spec = json.loads((project / "execution.json").read_text(encoding="utf-8"))
+        spec["routine"].update(kind="packaged", source="MAIN")
+        (project / "execution.json").write_text(json.dumps(spec), encoding="utf-8")
+        packaged = run("build", manifest, "--test", "--overwrite", "--artifacts", work / "packaged")
+        assert packaged["passed"]
+        case = packaged["tests"]["tests"][0]
+        assert case["inputSha256"] == packaged["build"]["sha256"]
+        checks = work / "expect.json"
+        checks.write_text(json.dumps({"schemaVersion": 1, "memory": [{"address": 769, "hex": "A55A"}]}),
+                          encoding="utf-8")
+        run("replay", case["artifactDirectory"], "--expect", checks)
     print(f"Validated {len(SCHEMAS)} schemas and {CHECKS} output/negative contract checks.")
 
 

@@ -73,8 +73,9 @@ maximum nesting depth of 32. `schemaVersion` is always required. The default
 `mame` engine requires `emulatorPath`, `machine`, and `romDirectory` (or an
 `environment` profile supplying them), plus `diskImage` or a nonempty `disks`
 array for standalone machine execution. MAME project tests can omit media; `build
---test` inserts the selected build mount. A CPU project test stays disk-free while
-retaining project-symbol binding. The `cpu` engine requires `machine` and `routine`
+--test` inserts the selected build mount. A CPU project test can load a single
+packaged BIN into main memory and use build symbols. See [project tests](projects.md).
+The `cpu` engine requires `machine` and `routine`
 and refuses machine peripherals and media. Omitted optional
 properties use these defaults:
 

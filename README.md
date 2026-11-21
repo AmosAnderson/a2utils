@@ -7,7 +7,7 @@ programs. Build projects into disk images, prepare graphics assets, test pure
 6502/65C02 routines in-process, and test full machines through an optional MAME
 installation. The reusable core library is independent of console output.
 
-The current version is **0.7.0-dev**, a development preview. The
+The current version is **0.8.0-dev**, a development preview. The
 [GitHub repository](https://github.com/AmosAnderson/a2utils) is private.
 
 The AI programming workflow now includes [setup profiles and starters](docs/setup.md),
@@ -18,12 +18,16 @@ Agents can also discover typed command contracts, inspect or import projects,
 preflight declarative disk changes, and invoke the CLI through its local MCP
 stdio server.
 
-Disk inspection now reports operation capabilities, and `disk migrate` previews
-and applies explicit DOS/ProDOS file mappings. Transactional plans also support
-copy/move/import/restore. CPU debugging, ordered project startup, typed result
-schemas, and optional `env check --smoke` connect the development workflow.
-See [disk workflows](docs/disk-images.md), [runtime debugging](docs/runtime-debugging.md),
-[projects](docs/projects.md), and [setup](docs/setup.md).
+Use `a2 archive ls` to list ShrinkIt files, `a2 archive extract` to recover a
+fork or disk image, and `a2 archive catalog` to browse a disk inside an SDK.
+[Read ShrinkIt archives](docs/shrinkit.md).
+
+Disk tools can show the host offsets of a sector or block, round-trip ProDOS
+resource forks, and preflight a whole DOS/ProDOS file migration before writing
+the destination. Project tests can execute the BIN from the built image and
+recheck captured observations offline.
+[Disk inspection](docs/disk-inspection.md) · [File preservation and migration](docs/disk-images.md) ·
+[Packaged CPU tests](docs/projects.md) · [Execution replay](docs/execution-replay.md).
 
 ## Download and run
 

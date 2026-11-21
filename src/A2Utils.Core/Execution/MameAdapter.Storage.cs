@@ -38,16 +38,17 @@ public static partial class MameAdapter
         long payloadLength = snapshot.Length;
         if (snapshot.AsSpan().StartsWith("2IMG"u8))
         {
+            if (!hard) throw StorageError("format", "MAME 5.25-inch floppy devices require a raw image. Convert the 2IMG container to raw before mounting it.");
             if (snapshot.Length < 64) throw StorageError("format", "The 2IMG header is truncated.");
             uint offset = BinaryPrimitives.ReadUInt32LittleEndian(snapshot.AsSpan(24));
             uint length = BinaryPrimitives.ReadUInt32LittleEndian(snapshot.AsSpan(28));
             payloadLength = length;
-            if (hard && (BinaryPrimitives.ReadUInt16LittleEndian(snapshot.AsSpan(8)) < 64 ||
+            if (BinaryPrimitives.ReadUInt16LittleEndian(snapshot.AsSpan(8)) < 64 ||
                 BinaryPrimitives.ReadUInt16LittleEndian(snapshot.AsSpan(10)) > 1 ||
                 BinaryPrimitives.ReadUInt32LittleEndian(snapshot.AsSpan(12)) != 1 ||
                 offset < BinaryPrimitives.ReadUInt16LittleEndian(snapshot.AsSpan(8)) ||
                 (long)offset + length != snapshot.Length ||
-                BinaryPrimitives.ReadUInt32LittleEndian(snapshot.AsSpan(20)) != length / 512))
+                BinaryPrimitives.ReadUInt32LittleEndian(snapshot.AsSpan(20)) != length / 512)
                 throw StorageError("format", "CFFA2 requires a complete block-order 2IMG payload with no trailing metadata or extra bytes.");
         }
         if (!hard)

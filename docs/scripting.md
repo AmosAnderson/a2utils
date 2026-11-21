@@ -25,8 +25,8 @@ informational text rather than result envelopes.
 
 Current envelopes retain those version-1 fields and add `contractVersion: 2`,
 `envelopeType`, and a resolvable `schemaId`. Result envelopes also identify the
-payload contract through `resultSchemaId`. Disk info/diff/plan/apply/migration,
-build/build-test, execution, suite results, suite selection, and project resolution
+payload contract through `resultSchemaId`. Disk info/inspection/diff/plan/apply/migration, ShrinkIt listing/extraction/catalog,
+build/build-test, execution, observation replay, suite results, suite selection, and project resolution
 name specific payload schemas. Other commands retain the generic result schema.
 Use `a2 schema result|error|envelope --json` to retrieve the bundled contracts.
 
@@ -38,7 +38,8 @@ against the specific `resultSchemaId`; validate the entire envelope against
 `schemaId`. Generic `result:2` is an envelope schema.
 
 Capabilities describe option-dependent outputs with union schemas:
-`build-command-result`, `test-command-result`, and `migration-command-result`.
+`build-command-result`, `test-command-result`, `migration-command-result`, and
+`batch-migration-command-result`.
 Each actual result names its precise variant. Schema IDs ending in `:1` version
 these new payload contracts independently of the existing envelope contract.
 

@@ -33,7 +33,7 @@ public static class DirectoryImport
         string destination = destinationPath.Trim('/');
         DiskInfo info = session.Info;
         bool dos = info.FileSystem == "dos33";
-        session.ValidateFileType(type);
+        session.ValidateFileType(type, auxType == 0 ? null : auxType);
         int entryLimit = dos ? 105 : (int)Math.Min(65535, info.SizeBytes / 512 * 13);
         if (dos && destination.Length != 0)
         {

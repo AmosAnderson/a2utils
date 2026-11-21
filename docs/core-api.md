@@ -21,6 +21,28 @@ The detailed guides remain the best place to learn the formats and workflows:
 - [automated execution](execution.md)
 - [library integration and development](development.md)
 
+## Disk inspection, archives, migration, and replay
+
+- `DiskInspection.Read(path, block:, track:, sector:, fileOffset:, ...)` returns
+  a `DiskInspectionResult`. Each `DiskInspectionRange` includes host and
+  payload offsets, logical addresses, hex, and ASCII. Supply one address form.
+- `ShrinkItArchive.Open(path)` returns a disposable archive snapshot. Its
+  `Listing` is a `ShrinkItListing` with `ShrinkItEntry` and `ShrinkItPart`
+  records. `Extract(destination, name:, index:, part:, overwrite:)` returns a
+  `ShrinkItExtraction` with the decoded hash. `Catalog(name:, index:, recursive:)`
+  returns a `ShrinkItDiskCatalog` for a disk record.
+- `DiskMigration.PlanBatch(sourceImage, destinationImage, selection)` returns a
+  `BatchMigrationPlan` with a `MigrationFilePlan` for each mapping.
+  Construct a `MigrationSelection` from `MigrationFile` records, load one with
+  `MigrationSelection.Load(path)`, or pass null to map every file to a root
+  filename. `ApplyBatch` accepts the same selection, an output or in-place
+  option, loss acceptance and an expected plan hash. Its `BatchMigrationResult`
+  contains the plan and the committed output and backup paths.
+- `ExecutionReplay.Check(artifactDirectory, expectationPath:, checkpoint:)` reads
+  the saved observation and compares it with archived assertions or a file of
+  `ReplayExpectations`. The `ExecutionReplayResult` reports the assertion count,
+  hashes and diagnostics. A checkpoint number starts at one.
+
 ## Conventions and failure behavior
 
 Namespace imports used throughout this reference are:
@@ -156,14 +178,18 @@ public sealed record DiskEntry(
     DateTime? Created,
     DateTime? Modified,
     bool IsDubious,
-    bool HasResourceFork);
+    bool HasResourceFork)
+{
+    public long? ResourceForkLength { get; init; }
+    public uint? HfsFileType { get; init; }
+    public uint? HfsCreator { get; init; }
+}
 ```
 
 `Length` is the logical data length, `StoredLength` is the preservation read
 length, and `StorageSize` is allocated space. `Type` is the filesystem-appropriate
 display alias while `FileType` is its numeric value. `RawName` preserves the
-catalog spelling. Timestamps are `null` when absent or invalid. Resource-fork
-content is not exposed by Core operations.
+catalog spelling. Timestamps are `null` when absent or invalid. A ProDOS extended file reports its resource fork length, including zero for an empty fork, and any nonzero HFS type and creator codes.
 
 ## Disk sessions
 
@@ -203,7 +229,9 @@ public sealed partial class DiskSession : IDisposable
         string? path = null,
         bool recursive = false);
     public byte[] ReadFile(string path, bool raw = false);
+    public byte[] ReadFile(string path, DiskFileFork fork);
     public IReadOnlyList<SparseExtent> GetSparseExtents(string path);
+    public IReadOnlyList<SparseExtent> GetSparseExtents(string path, DiskFileFork fork);
     public IReadOnlyList<DiskDiagnostic> Verify();
 
     public void Add(string name, byte[] data, string type, ushort auxType = 0);
@@ -240,6 +268,12 @@ public sealed partial class DiskSession : IDisposable
         DiskEntry metadata,
         byte[] rawData,
         IReadOnlyList<SparseExtent> dataExtents);
+    public void RestoreFile(
+        DiskEntry metadata,
+        byte[] rawData,
+        IReadOnlyList<SparseExtent> dataExtents,
+        byte[]? resourceData,
+        IReadOnlyList<SparseExtent>? resourceExtents);
     public void RestoreDirectoryMetadata(DiskEntry metadata);
 
     public void Flush();
@@ -293,14 +327,16 @@ of a directory, all descendants when `recursive` is true, or a one-element list
 when the path names a file. Omitting the path or using `/` selects the root;
 the volume root itself is not included.
 
-`ReadFile` requires a readable, undamaged data file without a resource fork.
-The default returns logical data. With `raw: true`, DOS returns its raw stored
+`ReadFile(path)` requires a readable, undamaged file with a single fork and returns logical data. With `raw: true`, DOS returns its raw stored
 file representation, including the applicable header and tail; ProDOS returns
-the data fork through EOF. Reads are limited to 32 MiB.
+the data fork through EOF. For extended files, pass `DiskFileFork.Data` or
+`DiskFileFork.Resource` to select a fork explicitly. The same choices are
+available to `GetSparseExtents`. Reading an absent resource fork raises
+`no_resource_fork`. Reads are limited to 32 MiB.
 
 `GetSparseExtents` describes allocated ranges in that same raw/preservation
 representation. `Verify` combines container and filesystem notes, reports hybrid
-filesystems, damaged entries, and unsupported forks, and never repairs anything.
+filesystems, damaged entries, and write restrictions on volumes with forked files, and never repairs anything.
 
 Typical failures include `file_not_found`, `ambiguous_name`, `not_a_directory`,
 `not_a_file`, `file_access_denied`, `damaged_entry`, `unsupported_forks`,
@@ -472,6 +508,8 @@ on Windows it also compares existing file identities.
 The method fingerprints input and any overwritten destination by length,
 timestamp, and SHA-256, copies the input, invokes `editTemporary`, invokes the
 optional `validate`, flushes, rechecks paths and fingerprints, then commits.
+On Unix the fingerprint includes the permission bits. An in-place edit uses a
+private staging file and preserves the original mode on the image and its backup.
 `overwrite` applies only to a separate existing output. The output parent must
 exist. Callback exceptions and cancellation prevent commit, and temporary cleanup
 is best effort. Supply a validation callback for application writes and dispose
@@ -728,7 +766,13 @@ public sealed record ExtractedFile(
     DiskEntry Entry,
     string? HostFile,
     string? Sha256,
-    IReadOnlyList<SparseExtent> DataExtents);
+    IReadOnlyList<SparseExtent> DataExtents)
+{
+    public ExtractedFork? ResourceFork { get; init; }
+}
+
+public sealed record ExtractedFork(
+    string HostFile, string Sha256, IReadOnlyList<SparseExtent> DataExtents);
 
 public sealed record ExtractionManifest(
     int SchemaVersion,
@@ -756,15 +800,16 @@ public static class FileTransfer
 
 `JsonOptions` uses camel-case property names, case-insensitive reads, and
 indented writes. `Extract` requires a new destination directory but creates
-missing parents. It writes version-1 `a2-manifest.json` plus flat, safely named
-`.a2raw` siblings, then renames its temporary directory into place. Files carry
+missing parents. It writes `a2-manifest.json` and flat `.a2raw` siblings, then
+renames its temporary directory into place. Selections with ProDOS extended
+files use version 2 and add a sibling `.a2rsrc` for each resource fork.
+Other selections retain version 1. Files carry
 raw stored bytes, SHA-256, sparse extents, and `DiskEntry` metadata. Directories
 have null payload/hash and empty extents. Selecting a ProDOS nested entry also
-includes directory metadata needed to restore its ancestors. Forked files are
-refused.
+includes directory metadata needed to restore its ancestors.
 
-`Restore` accepts only schema version 1 and the same filesystem type as the open
-destination session. It refuses duplicate or inconsistent image paths, unsafe
+`Restore` accepts schema versions 1 and 2 and requires the same filesystem type
+as the open destination session. It refuses duplicate or inconsistent image paths, unsafe
 payload paths, links, changed hashes/lengths, invalid extents, nonzero sparse
 holes, and raw-name representations that cannot be restored. It preflights all
 payloads before creating directories/files, then verifies restored bytes and
@@ -778,7 +823,7 @@ and honors cancellation while reading them.
 
 See [the manifest reference](disk-images.md#extract-and-restore-a-manifest) for
 the JSON fields and preservation boundary. Failures use codes including
-`destination_exists`, `linked_path`, `unsupported_fork`, `invalid_manifest`,
+`destination_exists`, `linked_path`, `invalid_manifest`,
 `invalid_manifest_path`, `filesystem_mismatch`, `payload_hash_mismatch`,
 `payload_length_mismatch`, and `invalid_sparse_extent`.
 
@@ -1533,6 +1578,7 @@ public sealed record ProjectBuildResult(
     IReadOnlyList<MemoryRegion> Memory,
     IReadOnlyList<ProgramDiagnostic> Diagnostics)
 {
+    public string? Order { get; init; }
     public IReadOnlyList<ProjectAssetReport> Assets { get; init; } = [];
     public bool CheckOnly { get; init; }
     public bool Preflight { get; init; }
@@ -1719,7 +1765,8 @@ then run with map, VICE-label, and ld65 v2 debug output. A nonzero compiler exit
 has already passed `AppleSingleProgram.Decode`, but consumers still decode it
 to obtain the data fork/type/auxiliary value. See [cc65 reproducibility limits](cc65.md).
 Located compiler diagnostics map staged sources back to original paths. Parsed
-VICE symbols and ld65 segments feed project symbols and runtime footprints.
+Verbose ld65 exports and unambiguous VICE labels feed project symbols. Linker
+segments supply runtime footprints.
 Validated debug file/line/span records feed stable original-source address ranges;
 unmapped external or generated-intermediate files are omitted. Debug input is
 limited to 4 MiB and 131,072 records, and mapped coverage is limited to 1 MiB.
@@ -2016,8 +2063,8 @@ public sealed record ExecutionGraphicsMemoryResult(
 
 `Load` strictly decodes JSON with camel-case names, required `schemaVersion`, no
 unknown/duplicate properties, and maximum depth 32. It resolves emulator, ROM,
-environment/lock, disk, routine-source, screenshot, and graphics-expectation
-paths relative to the specification file. JSON failures become
+environment/lock, disk, host routine-source, screenshot, and graphics-expectation
+paths relative to the specification file. Packaged routines retain their image paths. JSON failures become
 `execution.invalid_spec`; host read failures propagate. `ResolvePaths` performs
 the same path resolutions, including explicit disk mounts and step graphics, for
 a record constructed in code. `GetDisks` normalizes legacy single-image fields
@@ -2061,8 +2108,9 @@ public static class BuildExecution
 }
 ```
 
-`Bind` requires a full build/preflight hash, replaces the selected mount, resolves
-symbols, clears symbolic fields, and validates the resulting specification.
+`Bind` requires a full build/preflight hash. It binds the selected MAME mount or
+resolves a packaged CPU routine to the build's BIN, load address, and entry.
+It resolves symbolic assertions and validates the resulting specification.
 `ResolveAddress` resolves one exported symbol plus offset into a 16-bit address.
 `Locate` uses native assembly and cc65 source maps with final/unique MAME
 sampled PCs; the overload with a source specification also retains unique CPU
@@ -2368,6 +2416,11 @@ public static partial class ExecutionRunner
     public static ExecutionObservation ParseObservation(
         string text,
         string screenText);
+
+    public static ExecutionObservation ParseObservation(
+        string text,
+        string screenText,
+        string? engine);
 }
 ```
 
@@ -2390,12 +2443,17 @@ a failed `ExecutionResult` with stable diagnostics instead of throwing.
 or `disk_copy_mismatch`. The newly created
 artifact directory is retained on both pass and failure.
 
-`Evaluate` validates the selected engine's spec, compares completion, memory, register, and text
+`Evaluate` expands graphics-memory expectations into byte assertions, validates the
+selected engine's spec, compares completion, memory, register, and text
 assertions against an already parsed observation, and returns only failure
-diagnostics. It does not start either engine.
+diagnostics. The saved `spec.json` contains the encoded bytes, so it can replay the
+original graphics expectation after the PNG changes. `ConditionMatches` accepts
+either the original graphics condition and its PNG or the saved byte assertions.
 
 `ParseObservation` parses the strict tab-separated `A2EXEC1`/`END` adapter format,
-accepting one stop reason/time and unique register/memory records. It attaches
+accepting one stop reason/time and unique register/memory records. Pass the spec's
+`Engine` to validate the observed memory ranges against the MAME or flat CPU
+memory model. Omitting the engine accepts ranges valid for either model. It attaches
 the separately supplied screen text verbatim. Invalid, missing, or duplicate
 fields throw `InvalidDataException`.
 

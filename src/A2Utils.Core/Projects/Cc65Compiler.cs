@@ -148,7 +148,7 @@ public static class Cc65Compiler
             string map = Path.Combine(temporary, "program.map");
             string labels = Path.Combine(temporary, "program.lbl");
             string debug = Path.Combine(stage, "program.dbg");
-            List<string> arguments = ["-t", options.Target, "-g", "-o", binary, "-m", map, "-Ln", labels,
+            List<string> arguments = ["-t", options.Target, "-g", "-o", binary, "-vm", "-m", map, "-Ln", labels,
                 "-Wl", "--dbgfile,program.dbg"];
             if (linkerConfig is not null) arguments.AddRange(["-C", Path.Combine(stage, Path.GetRelativePath(root, linkerConfig))]);
             if (options.Optimize) arguments.Add("-O");
@@ -187,7 +187,7 @@ public static class Cc65Compiler
             {
                 CompilerPath = executable,
                 ToolchainInputs = toolchainInputs,
-                Symbols = Cc65Feedback.ParseLabels(labelText),
+                Symbols = Cc65Feedback.ParseLabels(labelText, mapText),
                 Segments = segments,
                 Debug = debugText.Replace(stage, ".", StringComparison.Ordinal),
                 SourceMap = sourceMap,
@@ -204,7 +204,7 @@ public static class Cc65Compiler
     private static IReadOnlyList<BuildInput> FingerprintToolchain(string executable, string? configuredRoot, string projectRoot,
         CancellationToken cancellationToken)
     {
-        Dictionary<string, BuildInput> inputs = new(PathComparer);
+        Dictionary<string, BuildInput> inputs = new(HostFiles.InputPathComparer);
         long total = 0;
         foreach (string path in EnumerateToolchainInputPaths(executable, configuredRoot, projectRoot, cancellationToken))
         {
@@ -218,13 +218,14 @@ public static class Cc65Compiler
         return inputs.Values.OrderBy(input => input.Path, StringComparer.Ordinal).ToArray();
     }
 
-    internal static IEnumerable<string> EnumerateInputPaths(Cc65Options options, string projectRoot,
-        CancellationToken cancellationToken)
+    internal static bool InputPathsMatch(Cc65Options options, string projectRoot,
+        IEnumerable<BuiltFile> files, Func<string, bool> hasInput, CancellationToken cancellationToken)
     {
-        foreach (string path in EnumerateProjectInputPaths(projectRoot, cancellationToken)) yield return path;
         string executable = ResolveCompiler(options.Compiler, projectRoot);
-        foreach (string path in EnumerateToolchainInputPaths(executable, options.ToolchainRoot,
-            projectRoot, cancellationToken)) yield return path;
+        return files.Where(file => file.Kind == "cc65").All(file => file.SourceMap is Cc65SourceMap map &&
+                HostFiles.InputPathComparer.Equals(executable, map.CompilerPath)) &&
+            EnumerateProjectInputPaths(projectRoot, cancellationToken).All(hasInput) &&
+            EnumerateToolchainInputPaths(executable, options.ToolchainRoot, projectRoot, cancellationToken).All(hasInput);
     }
 
     private static IEnumerable<string> EnumerateToolchainInputPaths(string executable, string? configuredRoot,

@@ -1532,28 +1532,27 @@ namespace DiskArc.FS {
                     //Debug.WriteLine("Wrote dirent");
                 }
                 if (IsDirectory) {
-                    // A2Utils local patch: keep the redundant creation date as well as the
-                    // filename synchronized with the directory entry.  Leaving the header's
-                    // creation date unchanged makes fixed-timestamp builds nondeterministic.
-                    // Compare the storage type / name length byte as well (the storage type
-                    // of a directory will never change).
-                    if (!RawData.CompareBytes(mBeforeBuf, direntOffset,
-                            mEditBuf, direntOffset, ProDOS.MAX_FILE_NAME_LEN + 1) ||
-                            !RawData.CompareBytes(mBeforeBuf, direntOffset + 0x18,
-                            mEditBuf, direntOffset + 0x18, 4)) {
+                    // A2Utils local patch: update each redundant field only when its
+                    // directory entry value changes.  Existing header dates can differ.
+                    bool nameChanged = !RawData.CompareBytes(mBeforeBuf, direntOffset,
+                            mEditBuf, direntOffset, ProDOS.MAX_FILE_NAME_LEN + 1);
+                    bool createWhenChanged = !RawData.CompareBytes(mBeforeBuf, direntOffset + 0x18,
+                            mEditBuf, direntOffset + 0x18, 4);
+                    if (nameChanged || createWhenChanged) {
 
                         // Get the first block in the directory file.
                         byte[] modData = new byte[BLOCK_SIZE];
                         FileSystem.ChunkAccess.ReadBlock(KeyBlock, modData, 0);
 
-                        int storageType = modData[4] & 0xf0;
-
-                        // Copy the new name and length byte over, fix the header storage
-                        // type, and write the block back.
-                        Array.Copy(mEditBuf, direntOffset, modData, 4,
-                            ProDOS.MAX_FILE_NAME_LEN + 1);
-                        modData[4] = (byte)((modData[4] & 0x0f) | storageType);
-                        RawData.SetU32LE(modData, 0x1c, mCreateWhen);
+                        if (nameChanged) {
+                            int storageType = modData[4] & 0xf0;
+                            Array.Copy(mEditBuf, direntOffset, modData, 4,
+                                ProDOS.MAX_FILE_NAME_LEN + 1);
+                            modData[4] = (byte)((modData[4] & 0x0f) | storageType);
+                        }
+                        if (createWhenChanged) {
+                            RawData.SetU32LE(modData, 0x1c, mCreateWhen);
+                        }
 
                         FileSystem.ChunkAccess.WriteBlock(KeyBlock, modData, 0);
                     }

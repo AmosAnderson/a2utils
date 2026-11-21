@@ -8,7 +8,12 @@ namespace A2Utils.Core.Execution;
 public static partial class ExecutionRunner
 {
     public static ExecutionObservation ParseObservation(string text, string screenText)
+        => ParseObservation(text, screenText, null);
+
+    /// <summary>Reads saved evidence using the selected engine's memory bounds. An unspecified engine accepts either memory model.</summary>
+    public static ExecutionObservation ParseObservation(string text, string screenText, string? engine)
     {
+        if (engine is not (null or "cpu" or "mame")) throw new ArgumentOutOfRangeException(nameof(engine));
         if (text.Length > 1024 * 1024) throw new InvalidDataException("The emulator observation exceeds 1 MiB.");
         string[] lines = text.Replace("\r", "", StringComparison.Ordinal).Split('\n', StringSplitOptions.RemoveEmptyEntries);
         if (lines.Length < 4 || lines[0] != "A2EXEC1" || lines[^1] != "END")
@@ -16,6 +21,7 @@ public static partial class ExecutionRunner
         Dictionary<string, long> registers = new(StringComparer.Ordinal);
         Dictionary<int, string> memory = [];
         Dictionary<(string, int), ExecutionMemory> banks = [];
+        int memoryBytes = 0;
         Dictionary<string, string> textPages = [];
         Dictionary<string, int> video = [];
         List<ExecutionInstruction> history = [];
@@ -87,10 +93,13 @@ public static partial class ExecutionRunner
 
         bool AddMemory(string bank, string address, string hex)
         {
-            if (!Integer(address, 0, 65535, out int offset) || hex.Length % 2 != 0 || !HexBytes().IsMatch(hex)
-                || !AppleIIeMemory.IsValidRange(bank, offset, hex.Length / 2)
-                || banks.Values.Sum(m => m.Hex.Length) + hex.Length > 131072
+            int length = hex.Length / 2;
+            if (!Integer(address, 0, 65535, out int offset) || length == 0 || hex.Length % 2 != 0 || !HexBytes().IsMatch(hex)
+                || offset + length > 65536 || memoryBytes + length > 65536
+                || engine == "cpu" && bank != "cpu"
+                || (engine == "mame" || bank != "cpu") && !AppleIIeMemory.IsValidRange(bank, offset, length)
                 || !banks.TryAdd((bank, offset), new(bank, offset, hex))) return false;
+            memoryBytes += length;
             return bank != "cpu" || memory.TryAdd(offset, hex);
         }
     }

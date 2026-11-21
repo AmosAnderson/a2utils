@@ -38,14 +38,14 @@ public static class ProjectWorkflow
             ?? throw new DiskException("project.execution_required", "Project testing requires execution.suite in the manifest.", 2);
         EnsureOutsideArtifacts(preview.OutputPath);
         foreach (BuildInput input in preview.Inputs) EnsureOutsideArtifacts(input.Path);
-        Dictionary<string, CapturedInput> executionInputs = new(PathComparer);
+        Dictionary<string, CapturedInput> executionInputs = new(HostFiles.InputPathComparer);
         ExecutionSuiteRunner.ExecutionSuiteSelection selection = ExecutionSuiteRunner.LoadSelection(
             settings.Suite, suiteOptions,
             (path, hash) => CaptureKnown(path, hash, 4 * 1024 * 1024), source =>
             {
+                _ = BuildExecution.Bind(source, preview, settings.DiskDevice);
                 if (!HasAssertions(source))
                     throw new DiskException("execution.invalid_suite", "Every test case needs an assertion, completion condition, or disk verification.", 2);
-                _ = BuildExecution.Bind(source, preview, settings.DiskDevice);
             });
         foreach (ExecutionSuiteRunner.ExecutionSuiteCase item in selection.Selected)
         {
@@ -73,6 +73,8 @@ public static class ProjectWorkflow
                 CaptureKnown(assertion.SourcePath, assertion.SourceSha256, 32 * 1024 * 1024);
             if (spec.Routine is not null)
             {
+                if (spec.PackagedRoutine is { } packaged)
+                    spec = spec with { PackagedRoutine = packaged with { ImagePath = staged.ImagePath } };
                 PreparedRoutine routine = RoutineHarness.Assemble(spec, cancellationToken);
                 foreach (var input in routine.InputHashes)
                     if (Capture(input.Key, Assembly.Assembler.MaximumSourceLength) != input.Value)
@@ -203,8 +205,6 @@ public static class ProjectWorkflow
     private static void WriteJson<T>(string path, T value)
         => File.WriteAllText(path, JsonSerializer.Serialize(value, ProjectJson.Options));
     private sealed record CapturedInput(string Sha256, int? MaximumBytes);
-    private static StringComparer PathComparer => OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
-        ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
     private static StringComparison PathComparison => OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
         ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
 }

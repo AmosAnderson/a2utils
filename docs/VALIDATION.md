@@ -1,5 +1,62 @@
 # Development preview validation
 
+## Disk preservation and execution evidence for 0.8.0-dev — November 21, 2026
+
+On macOS arm64 with .NET SDK 10.0.404, locked restore, the Release build
+with warnings as errors, and formatting verification passed. The full solution
+passed **1,608 tests** (1,388 Core and 220 CLI), with **zero failures**.
+The 15 optional real-MAME cases were skipped. Test reports are under
+`artifacts/feature-validation/final/`.
+
+- Native NuFX fixtures exercised a forked record, empty and omitted forks,
+  duplicate names, LZW/1 and LZW/2 decoding, checksum failures, and preservation
+  of existing output on failed extraction. The archived floppy decoded to the
+  exact SHA-256 of the independently encoded ProDOS-order DOS fixture.
+- Sector and block reads matched independently generated DOS- and ProDOS-order
+  images, including noncontiguous block halves, 2IMG padding and larger volumes.
+  Manifest restoration retained both ProDOS forks, including empty and sparse
+  resources, timestamps, and the exposed HFS type and creator. Logical diff
+  detected a change to only the resource fork.
+- Batch migration covered destination collisions, cumulative disk-full
+  failures, stale input or plan hashes, accepted metadata losses, an in-place
+  backup, and preservation of existing output on failure.
+- Built-image CPU cases covered DOS and ProDOS binaries, numeric and symbol
+  entry points, address and payload verification, and archived evidence.
+  A separate run imported a previously compiled cc65 AppleSingle binary,
+  called its mapped entry at $080F and returned 42 in 10 cycles.
+- Offline replay covered relocated run directories, archived checkpoints,
+  alternative register and memory values, banked subranges and PNG expectations.
+  Missing evidence and a recorded value that differs have distinct diagnostics.
+- The independent validator passed **34 schemas and 32 output/negative checks**.
+  A fresh local tool installation cataloged the SDK fixture, inspected a DOS
+  sector, and returned the embedded replay schema. All 208 vendored source
+  hashes matched the repository manifest.
+
+## Repository review fixes — November 21, 2026
+
+The fixes address the 25 findings reviewed against `1ac1cc4`. The following
+checks exercised the corrected behavior on macOS arm64 with .NET SDK 10.0.404.
+
+- The full solution passed 1,534 tests (1,324 Core and 210 CLI), with zero
+  failures. The 15 optional real-MAME cases were skipped on this host.
+- Rebuilding an unedited DOS project preserved random-access records, including
+  with a manifest from an older import. In-place disk edits preserved Unix modes
+  on the replacement image and its backup.
+- The independent ProDOS fixture retained its catalog spelling, creation and
+  modification times, and payload across extraction in Chicago, restoration in
+  UTC, and inspection in Tokyo. Both current and older offset-bearing manifests
+  passed. The disk-engine probes passed and all 208 vendored file hashes matched.
+- Four tests on case-sensitive APFS exercised assembly includes, generated input
+  names, cache invalidation, and cc65 distribution fingerprints.
+- Real cc65 revision `e11fb5c` compiled programs for `apple2` and `apple2enh`.
+  Testing exposed two additional adapter bugs involving line-zero debug records
+  and scoped VICE labels. The corrected adapter retained source locations and
+  exported symbols. Switching compiler paths rebuilt the project, switching back
+  reused the matching cached image, and an incompatible CPU setting was refused.
+- Locked restore, the Release build with warnings as errors, formatting, 24
+  schemas, 22 output and negative contract checks, 49 release automation checks,
+  and 46 offline packaging checks passed.
+
 ## Precommit review and 0.7.0-dev — October 20, 2026
 
 Reviewed the workflow-completion changes across disk preservation, startup and

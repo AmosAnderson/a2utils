@@ -4,6 +4,7 @@
 using System.Globalization;
 using System.Text.RegularExpressions;
 using A2Utils.Core.Assembly;
+using A2Utils.Core.Operations;
 using A2Utils.Core.Programs;
 
 namespace A2Utils.Core.Projects;
@@ -23,23 +24,68 @@ public static class Cc65Feedback
     private const int MaximumDebugRecords = 131072;
     private const long MaximumMappedBytes = 1024 * 1024;
 
-    public static IReadOnlyDictionary<string, int> ParseLabels(string text)
+    public static IReadOnlyDictionary<string, int> ParseLabels(string text) => ParseLabels(text, null);
+
+    internal static IReadOnlyDictionary<string, int> ParseLabels(string text, string? map)
     {
+        Dictionary<string, ulong>? exports = map is null ? null : ReadExports(map);
         Dictionary<string, int> labels = new(StringComparer.Ordinal);
+        if (exports is not null)
+            foreach (var (name, value) in exports)
+                if (value <= ushort.MaxValue) labels.Add(name, (int)value);
+        HashSet<string> ambiguous = new(StringComparer.Ordinal);
         foreach (string line in Lines(text))
         {
             if (string.IsNullOrWhiteSpace(line)) continue;
-            Match match = Regex.Match(line, @"^\s*al\s+([0-9a-fA-F]{1,8})\s+\.?([^\s]+)\s*$", RegexOptions.CultureInvariant);
+            Match match = Regex.Match(line, @"^\s*al\s+([0-9a-fA-F]{1,16})\s+\.?([^\s]+)\s*$", RegexOptions.CultureInvariant);
             if (!match.Success) throw Error("labels", "Unrecognized VICE label record.");
-            if (!int.TryParse(match.Groups[1].Value, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out int address) || address is < 0 or > 65535)
+            ulong value = ulong.Parse(match.Groups[1].Value, NumberStyles.HexNumber, CultureInfo.InvariantCulture);
+            if (value > ushort.MaxValue)
                 continue; // Linker constants may exceed the 16-bit CPU address space.
             string name = match.Groups[2].Value;
-            if (labels.TryGetValue(name, out int previous) && previous != address)
-                throw Error("labels", $"Ambiguous exported compiler label '{name}'.");
-            labels[name] = address;
-            if (labels.Count > 65536) throw Error("labels", "Compiler label count exceeds 65536.");
+            if (exports?.ContainsKey(name) == true || ambiguous.Contains(name)) continue;
+            if (labels.TryGetValue(name, out int previous) && previous != (int)value)
+            {
+                if (exports is null) throw Error("labels", $"Ambiguous exported compiler label '{name}'.");
+                // VICE flattens private names from every scope into one label file.
+                labels.Remove(name);
+                ambiguous.Add(name);
+            }
+            else labels[name] = (int)value;
+            if (labels.Count + ambiguous.Count > 65536) throw Error("labels", "Compiler label count exceeds 65536.");
         }
         return labels;
+    }
+
+    private static Dictionary<string, ulong>? ReadExports(string map)
+    {
+        Dictionary<string, ulong>? exports = null;
+        foreach (string line in Lines(map))
+        {
+            string row = line.Trim();
+            if (row == "Exports list by name:")
+            {
+                exports = new(StringComparer.Ordinal);
+                continue;
+            }
+            if (exports is null) continue;
+            if (row.EndsWith(':')) break;
+            if (row.Length == 0 || row.All(character => character == '-')) continue;
+            // ld65 emits up to two name/value/flags triples per row.
+            string[] fields = row.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+            if (fields.Length is not (3 or 6)) throw Error("map", "Malformed linker export list.");
+            for (int index = 0; index < fields.Length; index += 3)
+            {
+                string name = fields[index];
+                if (!ulong.TryParse(fields[index + 1], NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture, out ulong value))
+                    throw Error("map", "Invalid linker export value.");
+                if (exports.TryGetValue(name, out ulong previous) && previous != value)
+                    throw Error("labels", $"Ambiguous exported compiler label '{name}'.");
+                exports[name] = value;
+                if (exports.Count > 65536) throw Error("labels", "Compiler export count exceeds 65536.");
+            }
+        }
+        return exports;
     }
 
     public static IReadOnlyList<Cc65Segment> ParseSegments(string map, IReadOnlyDictionary<string, string>? kinds = null)
@@ -190,7 +236,7 @@ public static class Cc65Feedback
                         int file = Identifier(fields, "file");
                         long sourceLine = Number(fields, "line");
                         int[] lineSpans = fields.TryGetValue("span", out string? value) ? Identifiers(value) : [];
-                        if (sourceLine is < 1 or > int.MaxValue || !lines.TryAdd(id, new(file, (int)sourceLine, lineSpans)))
+                        if (sourceLine is < 0 or > int.MaxValue || !lines.TryAdd(id, new(file, (int)sourceLine, lineSpans)))
                             throw Error("debug", "Invalid or duplicate compiler debug line.");
                         break;
                     }
@@ -199,7 +245,7 @@ public static class Cc65Feedback
         if (!version) throw Error("debug", "Compiler debug output has no version record.");
 
         Dictionary<int, ResolvedFile?> resolvedFiles = [];
-        Dictionary<string, string[]> sourceLines = new(PathComparer);
+        Dictionary<string, string[]> sourceLines = new(HostFiles.InputPathComparer);
         List<AssemblySourceMapEntry> result = [];
         long mappedBytes = 0;
         foreach (DebugLine line in lines.OrderBy(pair => pair.Key).Select(pair => pair.Value))
@@ -218,7 +264,8 @@ public static class Cc65Feedback
                 if (span.Start > segment.Length || span.Length > segment.Length - span.Start ||
                     address > 65535 || span.Length > 65536 - address)
                     throw Error("debug", "Compiler debug span exceeds its 16-bit segment bounds.");
-                if (resolved is null || span.Length == 0) continue;
+                // ca65 uses line zero for positions outside any source file.
+                if (line.Line == 0 || resolved is null || span.Length == 0) continue;
                 mappedBytes += span.Length;
                 if (mappedBytes > MaximumMappedBytes)
                     throw Error("debug", "Compiler debug source ranges exceed the 1 MiB mapping limit.");
@@ -236,7 +283,7 @@ public static class Cc65Feedback
                 if (result.Count > 65536) throw Error("debug", "Compiler source-map entry count exceeds 65536.");
             }
         }
-        return result.Distinct().OrderBy(entry => entry.Address).ThenBy(entry => entry.File, PathComparer)
+        return result.Distinct().OrderBy(entry => entry.Address).ThenBy(entry => entry.File, HostFiles.InputPathComparer)
             .ThenBy(entry => entry.Line).ThenBy(entry => entry.Length).ToArray();
 
         ResolvedFile? Resolve(string name)
@@ -333,9 +380,6 @@ public static class Cc65Feedback
         if (text.Length > 4 * 1024 * 1024) throw Error("feedback_limit", "Compiler feedback exceeds 4 MiB.");
         return text.Split('\n').Select(line => line.TrimEnd('\r'));
     }
-
-    private static StringComparer PathComparer => OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
-        ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
 
     private sealed record DebugFile(string Name);
     private sealed record DebugSegment(int Start, int Length);

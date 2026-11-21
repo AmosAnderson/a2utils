@@ -54,6 +54,9 @@ public sealed record ExecutionSpec
     [JsonIgnore]
     internal ExecutionEnvironmentSnapshot? EnvironmentSnapshot { get; init; }
 
+    [JsonIgnore]
+    internal PackagedRoutine? PackagedRoutine { get; init; }
+
     public static JsonSerializerOptions JsonOptions { get; } = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -112,7 +115,7 @@ public sealed record ExecutionSpec
         Environment = Environment is null ? null : Resolve(Environment, directory),
         ToolchainLock = ToolchainLock is null ? null : Resolve(ToolchainLock, directory),
         DiskImage = Resolve(DiskImage, directory),
-        Routine = Routine is null ? null : Routine with { Source = Resolve(Routine.Source, directory) },
+        Routine = Routine is null || Routine.Kind == "packaged" ? Routine : Routine with { Source = Resolve(Routine.Source, directory) },
         ScreenshotAssertion = ScreenshotAssertion is { } screenshot
             ? screenshot with { ExpectedImage = Resolve(screenshot.ExpectedImage, directory) } : null,
         GraphicsMemory = GraphicsMemory?.Select(assertion => assertion is null ? null! : assertion with

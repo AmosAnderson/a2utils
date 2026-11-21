@@ -20,6 +20,12 @@ help, for example `a2 disk add --help`.
 | `capabilities --json` | Discover the typed command tree, defaults, constraints, path roles, side effects, result schemas, targets, and supported values. |
 | `targets --json` | Inspect machine profiles, platform symbols, and runtime memory reservations. |
 | `schema NAME --json` | Return an input/envelope schema or a typed command payload schema under `data`; discover names through `capabilities`. See [JSON contracts](scripting.md). |
+| `archive ls ARCHIVE` | [List ShrinkIt records, forks, and compression methods](shrinkit.md). |
+| `archive extract ARCHIVE [ENTRY] --to FILE` | Extract a data fork, resource fork, or disk image. Select with the exact name or `--index N`, and optionally `--part data\|resource\|disk`. |
+| `archive catalog ARCHIVE [ENTRY] [--index N] [--recursive]` | Read the filesystem catalog inside an archived disk. |
+| `disk inspect IMAGE` | [Dump hex and ASCII](disk-inspection.md) for `--block N`, `--track T --sector S`, or `--offset BYTE`. |
+| `disk migrate-batch IMAGE --from SOURCEIMAGE` | [Preflight and commit a whole selection](disk-images.md#batch-migration) with `--all` or `--selection FILE`. |
+| `replay ARTIFACTS [--expect FILE] [--checkpoint N]` | [Check a saved observation](execution-replay.md) against archived or alternative expectations. |
 | `disk diff BEFORE AFTER` | Compare logical entries, metadata, payload hashes, and physical byte ranges without changing either image. |
 | `disk plan IMAGE CHANGES` / `disk apply IMAGE CHANGES` | Preflight or atomically apply a strict declarative disk change set. |
 | `disk migrate IMAGE SOURCE DESTINATION --from SOURCEIMAGE` | [Migrate one TXT/BIN/Applesoft file between DOS and ProDOS](disk-images.md#migrate-files-between-dos-and-prodos), with explicit mapping and loss reporting. |

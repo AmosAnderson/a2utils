@@ -128,3 +128,15 @@ the program, then `BSAVE`s an eight-byte result.
 It checks memory and the saved file's bytes/type/load address after MAME exits,
 and verifies that the template's SHA-256 is unchanged. Missing configuration is
 reported as a skip. Process-contract tests do not count as real OS evidence.
+
+## ShrinkIt
+
+`python3 tests/TestData/Generate-ShrinkItFixtures.py` constructs native NuFX
+headers, record and thread CRCs, RLE-compressed chunks, and a nine-bit LZW dictionary using Python's
+standard library. The original archive members and the embedded DOS disk
+fixture are redistributable.
+
+| Fixture | Expected contents | SHA-256 |
+| --- | --- | --- |
+| `independent-files.shk` | Version 3 forked `DOCS:HELLO`, two records named `EMPTY`, version 1 LZW/1 `LEGACY` containing `6502` repeated 20 times, two extended records with omitted empty forks | `8173e4eae482bb8948d37e20d6c029bf7f48de273d76a4ade864a930039a3a48` |
+| `independent-disk.sdk` | Version 3 LZW/2 disk record `DOS.DISK` containing the complete `independent-dos33.po` | `6e7f98a86bb0d3fda964a627cc63a6d612313b1ae3a66fff22c6e7e29dcdb7a0` |

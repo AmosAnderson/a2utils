@@ -11,6 +11,23 @@ namespace A2Utils.Core.Tests;
 
 public sealed class DiskChangeSetTests
 {
+    [Theory]
+    [InlineData("TXT", 4660)]
+    [InlineData("BAS", 0)]
+    public void Plan_DosAddWithUnrepresentableAuxiliaryValue_RefusesWithoutChangingInput(string type, int aux)
+    {
+        using FixtureWorkspace workspace = new();
+        string input = workspace.CopyDisk();
+        byte[] image = File.ReadAllBytes(input);
+        string changes = WritePlan(workspace, new()
+        {
+            Changes = [new() { Action = "add", Path = "NEWFILE", Hex = "00", Type = type, AuxType = (ushort)aux }]
+        });
+        DiskException error = Assert.Throws<DiskException>(() => DiskChangeSetRunner.Plan(input, changes));
+        Assert.Equal("unsupported_attributes", error.Code);
+        Assert.Equal(image, File.ReadAllBytes(input));
+    }
+
     [Fact]
     public void PlanAndApply_MultipleChanges_CommitsOnceAndMatchesCandidateHash()
     {
@@ -38,6 +55,7 @@ public sealed class DiskChangeSetTests
             inPlace: false, overwrite: false, expectedInputSha256: plan.InputSha256,
             expectedPlanSha256: plan.PlanSha256);
         Assert.Equal(plan.CandidateSha256, applied.OutputSha256);
+        Assert.Equal(ProgramFiles.Hash(File.ReadAllBytes(applied.Write.OutputPath)), applied.OutputSha256);
         using DiskSession original = DiskSession.Open(input);
         using DiskSession output = DiskSession.Open(applied.Write.OutputPath);
         Assert.NotEqual(original.ReadFile("README"), output.ReadFile("README"));
@@ -74,6 +92,23 @@ public sealed class DiskChangeSetTests
         Assert.Equal(original, File.ReadAllBytes(input));
         using DiskSession output = DiskSession.Open(result.Write.OutputPath);
         Assert.True(output.GetEntry("/").IsLocked);
+    }
+
+    [Fact]
+    public void Apply_CancellationAfterInPlaceCommit_ReportsCommittedHashAndBackup()
+    {
+        using FixtureWorkspace workspace = new();
+        using CancellationTokenSource cancellation = new();
+        string input = workspace.CopyDisk();
+        byte[] original = File.ReadAllBytes(input);
+        string changes = WritePlan(workspace, new() { Changes = [new() { Action = "delete", Path = "README" }] });
+
+        DiskApplyResult result = DiskChangeSetRunner.ApplyCore(input, changes, null, inPlace: true, overwrite: false,
+            cancellationToken: cancellation.Token, afterCommit: cancellation.Cancel);
+
+        Assert.True(cancellation.IsCancellationRequested);
+        Assert.Equal(ProgramFiles.Hash(File.ReadAllBytes(input)), result.OutputSha256);
+        Assert.Equal(original, File.ReadAllBytes(result.Write.BackupPath!));
     }
 
     [Fact]

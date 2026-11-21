@@ -16,6 +16,8 @@ namespace A2Utils.Core.Projects;
 /// <summary>Opt-in content-addressed storage for complete, validated project images.</summary>
 public static class ProjectBuildCache
 {
+    // Earlier entries could omit a case-distinct assembly dependency and cannot be revalidated.
+    private const int CacheVersion = 2;
     private const int MaximumMetadataBytes = 8 * 1024 * 1024;
     private const int MaximumImageBytes = 34 * 1024 * 1024;
     private const int MaximumInputBytes = 64 * 1024 * 1024;
@@ -31,14 +33,15 @@ public static class ProjectBuildCache
         ArgumentException.ThrowIfNullOrWhiteSpace(cacheDirectory);
         ResolvedProjectManifest resolved = ProjectResolver.Load(manifestPath, outputPath,
             cancellationToken);
-        string cache = PrepareCache(cacheDirectory);
+        string cache = Path.TrimEndingDirectorySeparator(Path.GetFullPath(cacheDirectory));
         string destination = resolved.OutputPath;
         EnsureOutsideCache(destination, cache);
         EnsureInputsOutsideCache([new BuildInput(resolved.ManifestPath,
             ProgramFiles.Hash(resolved.ManifestBytes))], cache);
         ImageTransactions.EnsureDistinctPaths(resolved.ManifestPath, destination);
 
-        string manifestId = HashText(NormalizePath(resolved.ManifestPath));
+        PrepareCache(cache);
+        string manifestId = HashText($"v{CacheVersion}\n" + NormalizePath(resolved.ManifestPath));
         string entries = Path.Combine(cache, "entries", manifestId);
         string objects = Path.Combine(cache, "objects");
         PrepareDirectory(entries);
@@ -46,7 +49,7 @@ public static class ProjectBuildCache
 
         bool cacheable = !resolved.Manifest.Files.Any(file => file.Kind == "cc65")
             || resolved.Manifest.Cc65?.ToolchainRoot is not null;
-        Dictionary<string, InputObservation> observed = new(PathComparer);
+        Dictionary<string, InputObservation> observed = new(HostFiles.InputPathComparer);
         ProjectBuildResult? hit = cacheable ? TryRestore(resolved, destination, cache, entries,
             objects, overwrite, observed, cancellationToken) : null;
         if (hit is not null) return hit;
@@ -63,7 +66,7 @@ public static class ProjectBuildCache
             return built with { CacheHit = false };
 
         string contentKey = ComputeContentKey(resolved.ManifestPath, built);
-        CacheEntry entry = new(1, resolved.ManifestPath, contentKey,
+        CacheEntry entry = new(CacheVersion, resolved.ManifestPath, contentKey,
             built.Sha256.ToLowerInvariant(), built with { CacheHit = false });
         if (built.Inputs.Count > MaximumInputs)
             return built with { CacheHit = false };
@@ -183,11 +186,11 @@ public static class ProjectBuildCache
             }
         }
         if (!resolved.Manifest.Files.Any(file => file.Kind == "cc65")) return true;
-        HashSet<string> inputs = build.Inputs.Select(input => input.Path).ToHashSet(PathComparer);
+        HashSet<string> inputs = build.Inputs.Select(input => input.Path).ToHashSet(HostFiles.InputPathComparer);
         // Added headers can shadow older includes even when every previously captured
         // file is unchanged. Enumerate the same project and toolchain trees as compilation.
-        return Cc65Compiler.EnumerateInputPaths(resolved.Manifest.Cc65!, resolved.ProjectRoot,
-            cancellationToken).All(inputs.Contains);
+        return Cc65Compiler.InputPathsMatch(resolved.Manifest.Cc65!, resolved.ProjectRoot,
+            build.Files, inputs.Contains, cancellationToken);
     }
 
     private static bool MatchesResolvedInput(IReadOnlyList<BuildInput> inputs,
@@ -348,7 +351,7 @@ public static class ProjectBuildCache
     private static bool IsValidEntry(CacheEntry? entry, string manifestPath,
         string expectedContentKey)
     {
-        if (entry is null || entry.SchemaVersion != 1 || entry.Build is null ||
+        if (entry is null || entry.SchemaVersion != CacheVersion || entry.Build is null ||
             string.IsNullOrWhiteSpace(entry.ManifestPath) ||
             !Path.IsPathFullyQualified(entry.ManifestPath) ||
             string.IsNullOrEmpty(entry.ContentKey) || string.IsNullOrEmpty(entry.ImageSha256) ||
@@ -376,7 +379,7 @@ public static class ProjectBuildCache
             return false;
         }
 
-        HashSet<string> paths = new(PathComparer);
+        HashSet<string> paths = new(HostFiles.InputPathComparer);
         bool hasManifest = false;
         foreach (BuildInput input in entry.Build.Inputs)
         {
@@ -430,7 +433,7 @@ public static class ProjectBuildCache
             string hash = ProgramFiles.Hash(bytes);
             if (!hash.Equals(build.Sha256, StringComparison.OrdinalIgnoreCase))
                 throw Error("corrupt", "Cached project image SHA-256 does not match its metadata.", 6);
-            using DiskSession session = DiskSession.Open(path, inputFs: build.FileSystem);
+            using DiskSession session = DiskSession.Open(path, build.Order, build.FileSystem);
             DiskInfo info = session.Info;
             if (info.FileSystem != build.FileSystem || info.IsDubious ||
                 session.Verify().Any(diagnostic => diagnostic.Severity == "error"))
@@ -463,19 +466,17 @@ public static class ProjectBuildCache
                 .Select(input => new BuildInput(NormalizePath(input.Path),
                     input.Sha256.ToLowerInvariant())).ToArray()
         };
-        CacheKey key = new(1, NormalizePath(manifestPath), canonical);
+        CacheKey key = new(CacheVersion, NormalizePath(manifestPath), canonical);
         return ProgramFiles.Hash(JsonSerializer.SerializeToUtf8Bytes(key, ProjectJson.Options));
     }
 
-    private static string PrepareCache(string cacheDirectory)
+    private static void PrepareCache(string cache)
     {
-        string cache = Path.GetFullPath(cacheDirectory);
         ImageTransactions.ValidatePath(cache);
         if (File.Exists(cache)) throw Error("path", "The project cache path is an existing file.");
         PrepareDirectory(cache);
         PrepareDirectory(Path.Combine(cache, "entries"));
         PrepareDirectory(Path.Combine(cache, "objects"));
-        return cache;
     }
 
     private static void PrepareDirectory(string path)
@@ -489,8 +490,7 @@ public static class ProjectBuildCache
     {
         string full = Path.GetFullPath(destination);
         ImageTransactions.ValidatePath(full);
-        if (PathsEqual(full, cache) || full.StartsWith(cache + Path.DirectorySeparatorChar,
-            PathComparison))
+        if (IsInsideCache(full, cache))
             throw Error("alias", "The project output must be outside the build cache.", 6);
     }
 
@@ -506,10 +506,15 @@ public static class ProjectBuildCache
             {
                 continue;
             }
-            if (PathsEqual(full, cache) || full.StartsWith(cache + Path.DirectorySeparatorChar,
-                PathComparison))
+            if (IsInsideCache(full, cache))
                 throw Error("input_alias", "Project build inputs must be outside the build cache.", 6);
         }
+    }
+
+    private static bool IsInsideCache(string path, string cache)
+    {
+        string prefix = Path.EndsInDirectorySeparator(cache) ? cache : cache + Path.DirectorySeparatorChar;
+        return string.Equals(path, cache, PathComparison) || path.StartsWith(prefix, PathComparison);
     }
 
     private static string HashText(string value)
@@ -521,18 +526,16 @@ public static class ProjectBuildCache
     private static string NormalizePath(string path)
     {
         string full = Path.GetFullPath(path);
-        return OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
+        return OperatingSystem.IsWindows()
             ? full.ToUpperInvariant() : full;
     }
 
     private static bool PathsEqual(string first, string second)
-        => string.Equals(Path.GetFullPath(first), Path.GetFullPath(second), PathComparison);
+        => HostFiles.InputPathComparer.Equals(Path.GetFullPath(first), Path.GetFullPath(second));
 
     private static string CurrentToolVersion => typeof(ProjectBuildCache).Assembly
         .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "unknown";
 
-    private static StringComparer PathComparer => OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
-        ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
     private static StringComparison PathComparison => OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
         ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
 

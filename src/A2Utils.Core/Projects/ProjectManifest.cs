@@ -102,6 +102,8 @@ public sealed record ProjectBuildResult(string OutputPath, string Sha256, string
     IReadOnlyList<BuildInput> Inputs, IReadOnlyList<BuiltFile> Files,
     IReadOnlyList<MemoryRegion> Memory, IReadOnlyList<ProgramDiagnostic> Diagnostics)
 {
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Order { get; init; }
     public IReadOnlyList<ProjectAssetReport> Assets { get; init; } = [];
     public bool CheckOnly { get; init; }
     public bool Preflight { get; init; }

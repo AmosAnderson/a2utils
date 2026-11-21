@@ -68,7 +68,8 @@ capabilities are independent of the read-only inspection session: an ordinary
 healthy image can report `edit.supported: true` while `isReadOnly` is true.
 Entry access flags, allocation capacity, and host destination permissions still
 apply. `readFile` describes support for individual readable entries; `extractAll`
-also accounts for damaged or forked entries elsewhere in the volume.
+also accounts for damaged entries elsewhere in the volume. On ProDOS,
+`resourceForks` covers listing, extraction, comparison, and manifest restoration.
 
 ## Migrate files between DOS and ProDOS
 
@@ -105,6 +106,42 @@ DOS text with nonzero stored records beyond its logical EOF is refused; use
 stored-byte extraction to preserve such random-access files. Directories and
 resource forks remain outside this initial migration contract; choose each file
 and destination path explicitly. Same-filesystem preservation uses `disk copy`.
+
+## Batch migration
+
+`disk migrate-batch` stages every selected TXT, BIN, or Applesoft file on one
+private copy. Preflight lists each mapping, converted payload length and hash,
+metadata losses, and any errors. A successful plan reports free bytes after
+allocation and the SHA-256 of the verified destination. When a write fails,
+later entries whose fit could not be tested are marked `migration.fit_unchecked`.
+
+```sh
+a2 disk migrate-batch target.po --from source.do --all --preflight
+a2 disk migrate-batch target.po --from source.do --all --output migrated.po --expect-plan-sha256 HASH
+```
+
+`--all` selects files recursively and maps their literal filenames to the
+destination root. Flattened ProDOS paths are reported as a `directoryPath`
+loss. Use `--selection FILE` to resolve collisions, choose a
+destination directory that already exists, or convert the encoding of specific
+text files. A version 1 selection accepts up to 1,024 mappings.
+
+```json
+{
+  "schemaVersion": 1,
+  "files": [
+    { "source": "HELLO.BIN", "destination": "TOOLS/HELLO" },
+    { "source": "README", "destination": "README", "textMode": "convert" }
+  ]
+}
+```
+
+Use `a2 schema migration-selection --json` for the input contract. A preflight
+with blockers returns exit 3 and the structured plan on stdout in JSON mode.
+`--allow-metadata-loss` accepts the losses listed by a ready plan.
+`--expect-plan-sha256` pins the source, destination, file mappings, and staged
+result. `--in-place` creates one backup of the original destination.
+An existing host output requires `--overwrite`.
 
 ## Image paths and names
 
@@ -200,13 +237,13 @@ header as program data; use raw program output instead.
 | --- | --- | --- |
 | Use a file's logical bytes | `disk export ... --to FILE` | One binary payload, without metadata or DOS headers |
 | Edit a supported text file | `disk export ... --format text --to FILE` | BOM-free UTF-8 text with LF line endings |
-| Preserve files for same-filesystem restoration | `disk extract ... --to NEWDIR` | Stored `.a2raw` files plus metadata and hashes in a manifest |
+| Preserve files for same-filesystem restoration | `disk extract ... --to NEWDIR` | Stored `.a2raw` data and any `.a2rsrc` resource forks, with hashes and metadata |
 | Retain every disk byte and original allocation | Keep a complete copy of the original image | File extraction is not a whole-image backup |
 
 DOS binary and BASIC files have header-defined logical lengths. Text length is
 derived by the filesystem reader. DOS S/R/AA/BB types lack a reliable EOF, so
 logical export can include sector padding. ProDOS logical export follows the
-file's EOF. Resource forks are unsupported.
+file's EOF. Use `disk extract` on an extended file to save both forks.
 
 ### Edit text explicitly
 
@@ -252,23 +289,27 @@ parent directories. Selecting a ProDOS directory includes descendants, and
 selecting a nested file includes the necessary ancestor-directory metadata.
 No additional recursive flag is needed.
 
-The version-1 JSON manifest has these fields:
+The JSON manifest records the following fields.
 
 | Field | Meaning |
 | --- | --- |
-| `schemaVersion` | Currently `1`; unsupported versions are refused. |
+| `schemaVersion` | `1` for ordinary files and directories, `2` when the selection includes a resource fork. |
 | `fileSystem` | `dos33` or `prodos`; restore requires the same filesystem type. |
 | `entries` | File and directory records. |
 | `entries[].entry` | Original `path`, `name`, directory flag, symbolic/numeric type, `auxType`, access/lock state, logical/stored/allocation lengths, raw name, timestamps, and condition/fork flags. |
 | `entries[].hostFile` | Sibling `.a2raw` payload filename; `null` for directories. |
 | `entries[].sha256` | SHA-256 of the stored payload; `null` for directories. |
 | `entries[].dataExtents` | Ordered `{ "offset": ..., "length": ... }` ranges that contain allocated data; offsets/lengths are bytes. |
+| `entries[].resourceFork` | For ProDOS extended files, the resource payload's `hostFile`, `sha256`, and `dataExtents`. The byte length is `entry.resourceForkLength`; zero means an empty fork. |
 
 Raw names are JSON Base64 because the model stores a byte array. Payload names
 have a numeric prefix and a sanitized display name, such as
 `0001_HELLO.BIN.a2raw`; use `hostFile` rather than deriving the name yourself.
 The host directory remains flat even when the image contains subdirectories.
-Image paths and metadata live in the manifest.
+Image paths use the names and case stored in the catalog. ProDOS timestamps
+record local calendar and clock fields to the minute. An absent date is
+`null`. Restore retains the written clock fields even when an older manifest
+includes the exporting host's UTC offset.
 
 Keep the manifest and its payload siblings together. Restore checks hashes,
 stored lengths, raw names, unique paths, and ordered valid extents. Bytes
@@ -290,7 +331,10 @@ unused whole-disk bytes, or 2IMG wrapper metadata. Choose target volume options
 explicitly when creating it.
 
 DOS raw extraction preserves file headers and trailing sector bytes. ProDOS
-extraction records data-fork bytes through EOF and sparse extents. Copy and
+extraction records each fork through its own EOF, with an independent SHA-256
+and sparse extent list. Restore preserves the standard ProDOS catalog fields
+and any nonzero HFS file type and creator codes. Other Finder desktop fields
+in the extended key block are outside the manifest format. Copy and
 restore may convert ProDOS allocated all-zero blocks to sparse holes, changing
 allocation and `storageSize` while retaining logical bytes, EOF, and supported
 file metadata. Retain the original image when original physical allocation
@@ -425,7 +469,8 @@ not alter files, install boot code, resize the image, or translate programs.
 
 Raw-to-2IMG creates a new wrapper. 2IMG-to-2IMG keeps existing header extensions,
 comments, creator data, gaps, and trailing bytes, updating necessary layout
-fields. 2IMG-to-raw drops the wrapper and all nonpayload bytes and always
+fields. Conversion also accepts legacy headers that declare 52 bytes when their
+payload starts at byte 64 or later. 2IMG-to-raw drops the wrapper and all nonpayload bytes and always
 requires `--allow-metadata-loss`. A raw input of unknown filesystem needs an
 explicit `--input-order` for conversion. Larger images support ProDOS order
 only; output `--order dos` is restricted to 140 KiB images.
@@ -486,7 +531,7 @@ backup is the original disk: it represents the image immediately before that
 particular command.
 
 Writes are refused for damaged/dubious allocation, hybrid or embedded
-filesystems, volumes containing unsupported forked files, and protected images.
+filesystems, targets already containing forked files, and protected images.
 Write paths reject symbolic links/junctions and input/output aliases. These
 checks support ordinary local workflows; they do not promise atomic
 compare-and-swap against hostile writers or power-loss/network-filesystem

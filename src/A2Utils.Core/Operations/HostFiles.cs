@@ -3,12 +3,29 @@
 
 using System.Diagnostics;
 using System.Globalization;
+using System.Runtime.InteropServices;
 
 namespace A2Utils.Core.Operations;
 
 /// <summary>Shared host-filesystem checks and physical-path resolution.</summary>
 public static class HostFiles
 {
+    // Input fingerprints keep distinct spellings on Unix, where case sensitivity can vary by mount.
+    internal static StringComparison InputPathComparison => OperatingSystem.IsWindows()
+        ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+    internal static StringComparer InputPathComparer => StringComparer.FromComparison(InputPathComparison);
+
+    internal static StringComparison DirectoryNameComparison(string directory)
+    {
+        if (!OperatingSystem.IsMacOS()) return InputPathComparison;
+        const int darwinPcCaseSensitive = 11;
+        return PathConf(directory, darwinPcCaseSensitive) == 0
+            ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+    }
+
+    [DllImport("libc", EntryPoint = "pathconf")]
+    private static extern long PathConf([MarshalAs(UnmanagedType.LPUTF8Str)] string path, int name);
+
     /// <summary>Resolves directory links so generated temporary files pass the write link policy.</summary>
     internal static string ResolvePhysicalDirectory(string path)
         => ResolvePhysicalDirectory(path, new(OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()

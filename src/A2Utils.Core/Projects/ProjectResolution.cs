@@ -121,7 +121,7 @@ public static class ProjectResolver
         afterBuild?.Invoke();
         ProjectManifest manifest = resolved.Manifest;
         StringComparer imageComparer = StringComparer.OrdinalIgnoreCase;
-        StringComparer hostComparer = HostPathComparer;
+        StringComparer hostComparer = HostFiles.InputPathComparer;
 
         Dictionary<string, ProjectFile> declaredFiles = manifest.Files.ToDictionary(
             file => file.Path, imageComparer);
@@ -329,6 +329,9 @@ public static class ProjectResolver
         _ = TargetProfiles.ParseCpu(cpu);
         if (cpu == "w65c02" || cpu == "65c02" && profile.Cpu == "6502")
             throw Error("cpu_target", $"CPU '{cpu}' is incompatible with target '{profile.Name}'.");
+        if (cpu != "65c02" && manifest.Cc65?.Target == "apple2enh" &&
+            manifest.Files.Any(file => file.Kind == "cc65"))
+            throw Error("cpu_target", "The cc65 apple2enh target requires the 65C02 project CPU.");
         string fs = manifest.Disk.FileSystem;
         string order = manifest.Disk.Order ?? (fs == "dos33" ? "dos" : "prodos");
         string? template = manifest.Disk.Template is null ? null
@@ -363,7 +366,7 @@ public static class ProjectResolver
     private static string DependencyRole(string path, ResolvedProjectManifest resolved,
         ProjectManifest manifest)
     {
-        StringComparison comparison = HostPathComparison;
+        StringComparison comparison = HostFiles.InputPathComparison;
         if (path.Equals(resolved.ManifestPath, comparison)) return "manifest";
         if (path.Equals(manifest.Environment, comparison)) return "environment";
         if (path.Equals(manifest.ToolchainLock, comparison)) return "toolchain-lock";
@@ -386,7 +389,7 @@ public static class ProjectResolver
     {
         List<ProjectDependency> dependencies = [];
         List<ExecutionSpec> mameSpecs = [];
-        StringComparer comparer = HostPathComparer;
+        StringComparer comparer = HostFiles.InputPathComparer;
 
         ExecutionSuite suite = ExecutionSuite.Load(settings.Suite,
             (path, hash) => AddKnown("execution-suite", path, hash));
@@ -422,7 +425,7 @@ public static class ProjectResolver
                         $"Execution input changed while resolving: {assertion.SourcePath}", 6);
             if (spec.Engine == "mame") mameSpecs.Add(spec);
 
-            if (spec.Routine is not null)
+            if (spec.Routine is { Kind: not "packaged" })
             {
                 // A routine-only projection lets the existing harness validate and discover
                 // source/include inputs without binding project symbols or starting MAME.
@@ -489,11 +492,6 @@ public static class ProjectResolver
 
     private sealed record ResolvedExecutionInputs(IReadOnlyList<ProjectDependency> Dependencies,
         IReadOnlyList<ExecutionSpec> MameSpecs);
-
-    private static StringComparer HostPathComparer => OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
-        ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
-    private static StringComparison HostPathComparison => OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
-        ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
 
     private static DiskException Error(string code, string message)
         => new("project." + code, message, 2);

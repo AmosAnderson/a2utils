@@ -81,8 +81,11 @@ in-process routine run with no emulator, ROM, or disk.
 }
 ```
 
-`routine.asm` could contain `STA $0300` followed by `RTS`. `kind: "binary"`
-accepts raw payload bytes without a DOS header. An assembly `entrySymbol` or a
+`routine.asm` could contain `STA $0300` followed by `RTS`. Project CPU tests
+can use `kind: "packaged"` to run a BIN from the built image at its recorded
+load address. See [project tests](projects.md).
+
+`kind: "binary"` accepts raw payload bytes without a DOS header. An assembly `entrySymbol` or a
 numeric `entryPoint` can select an entry within the payload. Code must fit
 $0800..$BFFF. Initial memory writes must avoid code and `$0100..$02FF`, which the
 harness reserves for stack/return handling. MAME injection restricts them to main

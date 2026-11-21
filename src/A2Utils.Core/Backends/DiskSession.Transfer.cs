@@ -28,10 +28,17 @@ public sealed partial class DiskSession
     }
 
     /// <summary>Validates a data-file type without creating a file.</summary>
-    public void ValidateFileType(string type)
+    public void ValidateFileType(string type) => ValidateFileType(type, null);
+
+    internal byte ValidateFileType(string type, ushort? auxType)
     {
-        if (string.IsNullOrEmpty(type) || ParseType(type) == 0x0f)
+        byte fileType = ParseType(type ?? "");
+        if (fileType == 0x0f)
             throw new DiskException("invalid_file_type", "A supported data-file type is required; DIR is reserved for directories.", 2);
+        if (_fs is DOS && auxType.HasValue && fileType != 0x06 &&
+            auxType.Value != (fileType == 0xfc ? Basic.ApplesoftBasic.DefaultOrigin : 0))
+            throw new DiskException("unsupported_attributes", "The DOS file type cannot store the requested auxiliary value.", 3);
+        return fileType;
     }
 
     /// <summary>Creates missing ProDOS parent directories; existing directories are retained.</summary>
@@ -206,6 +213,14 @@ public sealed partial class DiskSession
             outputOffset += checked((int)extent.Length);
         }
         snapshot.Add(new(metadata, extents, allocated));
+    }
+
+    internal void ValidateNewFilePath(string path)
+    {
+        var (parent, name, target) = ResolveTransferTarget(path);
+        if (FindTransferChild(parent, name) is not null)
+            throw new DiskException("destination_exists", $"An entry already exists at {target}.");
+        RequireAccess(parent, AccessFlags.Write);
     }
 
     private (IFileEntry Parent, string Name, string Path) ResolveTransferTarget(string path)

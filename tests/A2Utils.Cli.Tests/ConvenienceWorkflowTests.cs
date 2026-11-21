@@ -16,6 +16,36 @@ public sealed class ConvenienceWorkflowTests : IDisposable
 
     public ConvenienceWorkflowTests() => Directory.CreateDirectory(_directory);
 
+    [Fact]
+    public async Task Build_PathSelectsPreviouslyFingerprintedCompiler_RebuildsWithSelectedCompiler()
+    {
+        string host = TestPaths.ExecutionHost();
+        string compilerName = Path.GetFileName(host);
+        string originalBin = Path.GetDirectoryName(host)!;
+        string installedBin = At(".toolchain/bin");
+        Directory.CreateDirectory(installedBin);
+        foreach (string path in Directory.EnumerateFiles(originalBin))
+            File.Copy(path, Path.Combine(installedBin, Path.GetFileName(path)));
+        File.WriteAllText(At("main.c"), "int main(void) { return 0; }");
+        File.WriteAllText(At("project.json"), JsonSerializer.Serialize(new ProjectManifest
+        {
+            Cc65 = new() { Compiler = compilerName, ToolchainRoot = ".toolchain" },
+            Files = [new() { Source = "main.c", Path = "MAIN", Kind = "cc65" }]
+        }, ProjectJson.Options));
+
+        foreach (var (bin, output, hit) in new[] {
+            (originalBin, "first.po", false), (installedBin, "second.po", false), (originalBin, "third.po", true) })
+        {
+            var result = await RunProcessAsync(["build", "project.json", "--cache", "cache", "--to", output, "--json"], bin);
+            Assert.True(result.Code == 0, result.Error);
+            using JsonDocument json = JsonDocument.Parse(result.Output);
+            JsonElement data = json.RootElement.GetProperty("data");
+            Assert.Equal(hit, data.GetProperty("cacheHit").GetBoolean());
+            Assert.Equal(Path.Combine(bin, compilerName),
+                data.GetProperty("files")[0].GetProperty("sourceMap").GetProperty("compilerPath").GetString());
+        }
+    }
+
     [Theory]
     [InlineData("project.a2.json", true)]
     [InlineData("only.a2.json", false)]
@@ -317,7 +347,10 @@ public sealed class ConvenienceWorkflowTests : IDisposable
         return (code, output.ToString(), error.ToString());
     }
 
-    private async Task<(int Code, string Output, string Error)> RunProcessAsync(params string[] arguments)
+    private Task<(int Code, string Output, string Error)> RunProcessAsync(params string[] arguments)
+        => RunProcessAsync(arguments, null);
+
+    private async Task<(int Code, string Output, string Error)> RunProcessAsync(string[] arguments, string? pathPrefix)
     {
         ProcessStartInfo start = new(Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") ?? "dotnet")
         {
@@ -326,6 +359,8 @@ public sealed class ConvenienceWorkflowTests : IDisposable
             RedirectStandardOutput = true,
             RedirectStandardError = true
         };
+        if (pathPrefix is not null)
+            start.Environment["PATH"] = pathPrefix + Path.PathSeparator + Environment.GetEnvironmentVariable("PATH");
         start.ArgumentList.Add(typeof(CliApplication).Assembly.Location);
         foreach (string argument in arguments) start.ArgumentList.Add(argument);
         using Process process = Process.Start(start)!;

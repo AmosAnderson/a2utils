@@ -42,7 +42,7 @@ public static class ProjectImporter
         string? inputFileSystem, Action<string>? afterCapture,
         CancellationToken cancellationToken)
     {
-        _ = TargetProfiles.Get(target);
+        TargetProfile profile = TargetProfiles.Get(target);
         string image = Path.GetFullPath(imagePath);
         string output = Path.GetFullPath(destination);
         ImageTransactions.ValidatePath(image);
@@ -84,15 +84,20 @@ public static class ProjectImporter
                     cancellationToken.ThrowIfCancellationRequested();
                     index++;
                     byte[] payload = disk.ReadFile(entry.Path);
-                    string? storageReason = ReferenceReason(entry, payload.Length, TargetProfiles.Get(target));
+                    string? storageReason = ReferenceReason(entry, payload.Length, profile);
+                    if (disk.ReadDosTextWithTrailingRecords(entry) is { } stored)
+                    {
+                        storageReason = "The DOS text file contains records after its logical EOF. The reference contains all stored bytes.";
+                        payload = stored;
+                    }
                     (string extensionName, string kind, byte[] contents) = storageReason is not null
                         ? (".bin", "binary", payload)
                         : Convert(entry, payload, disk.Info.FileSystem, disassembleBinaries,
-                            TargetProfiles.ParseCpu(TargetProfiles.Get(target).Cpu), cancellationToken, diagnostics);
+                            TargetProfiles.ParseCpu(profile.Cpu), cancellationToken, diagnostics);
                     string filename = $"{index:D4}_{SafeName(entry.Path)}{extensionName}";
-                    string? referenceReason = entry.IsLocked
+                    string? referenceReason = storageReason ?? (entry.IsLocked
                         ? "The template entry is locked; its source is exported for reference and omitted from replacements."
-                        : storageReason;
+                        : null);
                     bool editable = referenceReason is null;
                     string folder = editable ? "sources" : "reference";
                     string relative = folder + "/" + filename;
@@ -170,6 +175,8 @@ public static class ProjectImporter
 
     private static string? ReferenceReason(DiskEntry entry, int length, TargetProfile profile)
     {
+        if (length > ProjectBuilder.MaximumFileSourceBytes)
+            return "The payload exceeds the 4 MiB project source limit. Its bytes are exported for reference.";
         int? origin = entry.FileType switch
         {
             0x06 or 0xfc => entry.AuxType,
@@ -236,7 +243,7 @@ public static class ProjectImporter
     }
 
     private static string Readme(int editable, int references, string extension) => "# Imported Apple II project\n\n"
-        + "This project preserves the original image as a hash-pinned template. Editable entries are rebuilt and replaced transactionally; entries requiring a bank/loader declaration and locked entries remain untouched in the template and their exported files are under `reference/`. See `import-report.json` for each reference entry's reason.\n\n"
+        + "This project preserves the original image as a hash-pinned template. Builds replace the editable entries. The template supplies the entries exported under `reference/`. See `import-report.json` for each reference entry's reason.\n\n"
         + $"Editable files: {editable}. Reference files: {references}.\n\n"
         + "```sh\n"
         + "a2 project resolve project.a2.json --json\n"

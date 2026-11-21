@@ -73,7 +73,8 @@ and `debug.history`. Stop reasons are `breakpoint`, `watchpoint`, or
 Project runs write matching final, history, and sampled PCs to
 `source-locations.json`. When a MAME `trace.tsv` contains a mapped sampled PC,
 `trace-source.tsv` preserves the raw sample columns and adds program, memory bank,
-source file, line, and source text. Both inputs and derived evidence are capped at
+source file, line, source text, and mapping status. Samples matching multiple
+resident programs have status `ambiguous` and empty source columns. Both inputs and derived evidence are capped at
 16 MiB; absent mappings leave the raw trace usable and create no derived trace.
 CPU project runs instead copy unique traced instruction PCs and the CPU trace's
 exact routine source columns into `source-locations.json`; those rows use the

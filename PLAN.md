@@ -1,6 +1,21 @@
 Apple II disk image utility — implementation plan
 ================================================
 
+Disk preservation and execution evidence (November 21, 2026)
+-----------------------------------------------------------
+
+- Read native ShrinkIt NuFX file and disk archives, extract individual forks,
+  and inspect the DOS/ProDOS catalog inside an archived disk.
+- Inspect DOS sectors, ProDOS blocks, and their host-file offsets in raw and
+  sector-data 2IMG images.
+- Extract and restore both forks of supported ProDOS extended files, including
+  empty and sparse forks. Include resource changes in logical disk comparisons.
+- Preflight a multi-file DOS/ProDOS migration and commit the reviewed candidate
+  in one image transaction.
+- Test a BIN from the exact project build image with the in-process CPU engine.
+- Recheck register, memory, display-page, and text expectations against saved
+  final observations or interaction checkpoints.
+
 Workflow completion milestone (October 20, 2026)
 ------------------------------------------------
 
@@ -20,8 +35,8 @@ Workflow completion milestone (October 20, 2026)
   record results in `docs/VALIDATION.md`.
 
 Automatic auxiliary/language-card loading remains a follow-up requiring explicit
-RAM ownership and real-machine evidence. Resource-fork preservation and
-ShrinkIt/Binary II archives remain separate format milestones. Actual tool/platform
+RAM ownership and real-machine evidence. The November milestone adds ProDOS
+resource-fork preservation and native ShrinkIt reads. Binary II remains future work. Actual tool/platform
 release evidence and the existing public-distribution licensing gate are still
 required; this milestone does not acquire ROMs, OS media, or change licensing.
 
@@ -220,7 +235,7 @@ The first release should handle ordinary, unprotected 140 KiB DOS 3.3 disks. Ver
 | DOS 3.3 filesystem | Catalog, extract, create, add, replace, delete, rename, lock/unlock | Maintain full coverage | Nonstandard DOS variants |
 | ProDOS filesystem | Identify and report unsupported filesystem operations | Read/write, directories, metadata | Extended forked files |
 | Larger `.po` / `.hdv` images | Recognize as outside supported geometry | 800 KiB and single ProDOS volumes up to 65,535 blocks | Partitioned images |
-| `.nib`, `.woz`, `.d13`, DiskCopy, ShrinkIt | Explain that support is unavailable | Same | Separate format milestones |
+| `.nib`, `.woz`, `.d13`, DiskCopy | Explain that support is unavailable | Same | Separate format milestones |
 
 DOS-order and ProDOS-order describe how disk data is arranged in an image, independently of the filesystem inside it. A DOS filesystem can therefore reside in a ProDOS-order image. The 2IMG container records a payload format and can also contain comments and creator data. [CiderPress image-order explanation](https://github.com/fadden/ciderpress/blob/master/diskimg/README.md), [2IMG format notes](https://ciderpress2.com/formatdoc/TwoIMG-notes.html)
 
@@ -337,6 +352,6 @@ Build and test on Windows, Linux, and macOS only when a release version tag is p
 
 Completion criterion: a reproducible release with passing tests, installable artifacts, sample workflows, and no advertised write operation lacking preservation and failure-path coverage.
 
-Future work should be added as separate milestones: DOS 3.2/13-sector disks; other filesystems such as Pascal; NIB and WOZ inspection followed by carefully scoped editing; ShrinkIt and Binary II archives; Integer BASIC import and export; additional graphics formats and hardware-accurate rendering; sector inspection; and explicit filesystem repair/recovery. WOZ captures track-level information beyond sector images, including timing-related details, so it needs a dedicated design rather than another filename handler. [WOZ specification](https://applesaucefdc.com/woz/reference2/)
+Future work should be added as separate milestones: DOS 3.2/13-sector disks; other filesystems such as Pascal; NIB and WOZ inspection followed by carefully scoped editing; archive writing and Binary II archives; Integer BASIC import and export; additional graphics formats and hardware-accurate rendering; and explicit filesystem repair/recovery. WOZ captures track-level information beyond sector images, including timing-related details, so it needs a dedicated design rather than another filename handler. [WOZ specification](https://applesaucefdc.com/woz/reference2/)
 
 The first implementation task is the disk-engine evaluation and the `info` → `ls` → `extract` vertical slice on one known DOS 3.3 image. That establishes a useful utility and validates the architecture before enabling writes.

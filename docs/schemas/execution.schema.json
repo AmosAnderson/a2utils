@@ -1086,12 +1086,12 @@
         "kind": {
           "enum": [
             "asm",
-            "binary"
+            "binary",
+            "packaged"
           ]
         },
         "origin": {
           "type": "integer",
-          "minimum": 2048,
           "maximum": 49151
         },
         "entryPoint": {
@@ -1176,7 +1176,17 @@
       },
       "required": [
         "source"
-      ]
+      ],
+      "if": {
+        "required": ["kind"],
+        "properties": { "kind": { "const": "packaged" } }
+      },
+      "then": {
+        "properties": { "origin": { "anyOf": [{ "const": 0 }, { "minimum": 2048 }] } }
+      },
+      "else": {
+        "properties": { "origin": { "minimum": 2048 } }
+      }
     },
     "cycles": {
       "type": [
@@ -1515,6 +1525,22 @@
   "allOf": [
     {
       "if": {
+        "required": ["routine"],
+        "properties": {
+          "routine": {
+            "type": "object",
+            "required": ["kind"],
+            "properties": { "kind": { "const": "packaged" } }
+          }
+        }
+      },
+      "then": {
+        "required": ["engine"],
+        "properties": { "engine": { "const": "cpu" } }
+      }
+    },
+    {
+      "if": {
         "required": [
           "debug"
         ],
@@ -1776,6 +1802,15 @@
             "type": "null"
           },
           "checkBasicRuntime": {
+            "const": false
+          },
+          "textPage": {
+            "const": 1
+          },
+          "textColumns": {
+            "const": 40
+          },
+          "decodeIIeText": {
             "const": false
           },
           "textContains": {

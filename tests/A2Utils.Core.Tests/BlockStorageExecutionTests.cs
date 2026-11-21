@@ -83,6 +83,24 @@ public sealed class BlockStorageExecutionTests
     }
 
     [Fact]
+    public async Task Run_TwoImgOnFloppy_RejectsContainerBeforeLaunchingMame()
+    {
+        using FixtureWorkspace workspace = new();
+        string disk = workspace.NewPath("volume.po");
+        DiskSession.Create(disk, "prodos", container: "2mg", order: "prodos", blocks: 280);
+        byte[] original = File.ReadAllBytes(disk);
+        Directory.CreateDirectory(workspace.NewPath("roms"));
+
+        ExecutionResult result = await ExecutionRunner.RunAsync(Spec(disk) with
+        { StorageProfile = "floppy", DiskDevice = "flop1", RomDirectory = workspace.NewPath("roms") }, workspace.NewPath("run"));
+
+        Assert.False(result.Passed);
+        Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == "execution.storage_format");
+        Assert.False(File.Exists(workspace.NewPath("run/version.stdout.txt")));
+        Assert.Equal(original, File.ReadAllBytes(disk));
+    }
+
+    [Fact]
     public async Task Run_DosVolumeOnHardDisk_RejectsFilesystemBeforeEmulator()
     {
         using FixtureWorkspace workspace = new();

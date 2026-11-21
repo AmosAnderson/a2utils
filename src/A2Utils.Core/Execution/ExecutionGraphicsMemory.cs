@@ -35,11 +35,12 @@ internal static class ExecutionGraphicsMemory
         if (spec.GraphicsMemory is null) throw Invalid("graphicsMemory cannot be null.");
         if (spec.GraphicsMemory.Count > 16) throw Invalid("graphicsMemory accepts at most 16 display-page assertions.");
 
+        bool physicalMemory = AppleIIeMemory.IsIIeMachine(spec.Machine);
         List<PreparedGraphicsAssertion> prepared = [];
         List<MemoryAssertion> memory = spec.Memory?.ToList() ?? throw Invalid("memory cannot be null.");
         foreach (GraphicsMemoryAssertion assertion in spec.GraphicsMemory)
         {
-            PreparedGraphicsAssertion item = PrepareOne(assertion, spec.Machine, null, null, cancellationToken);
+            PreparedGraphicsAssertion item = PrepareOne(assertion, physicalMemory, null, null, cancellationToken);
             prepared.Add(item);
             memory.AddRange(item.Segments.Select(segment => new MemoryAssertion(segment.Address,
                 Convert.ToHexString(segment.Bytes), segment.Bank)));
@@ -55,23 +56,30 @@ internal static class ExecutionGraphicsMemory
                 steps[index] = step;
                 continue;
             }
-            if (condition.GraphicsMemory is null || condition.GraphicsMemory.Count > 8)
-                throw Invalid("A step condition accepts at most 8 graphicsMemory assertions.");
-            List<MemoryAssertion> stepMemory = condition.Memory?.ToList() ?? throw Invalid("Condition memory cannot be null.");
-            foreach (GraphicsMemoryAssertion assertion in condition.GraphicsMemory)
-            {
-                PreparedGraphicsAssertion item = PrepareOne(assertion, spec.Machine, index, step.Name, cancellationToken);
-                prepared.Add(item);
-                stepMemory.AddRange(item.Segments.Select(segment => new MemoryAssertion(segment.Address,
-                    Convert.ToHexString(segment.Bytes), segment.Bank)));
-            }
             steps[index] = step with
             {
-                Condition = condition with { Memory = stepMemory, GraphicsMemory = [] }
+                Condition = PrepareCondition(condition, physicalMemory, index, step.Name, prepared, cancellationToken)
             };
         }
 
         return new(spec with { Memory = memory, GraphicsMemory = [], Steps = steps }, prepared);
+    }
+
+    internal static ExecutionCondition PrepareCondition(ExecutionCondition condition, bool physicalMemory,
+        int? stepIndex = null, string? stepName = null, List<PreparedGraphicsAssertion>? prepared = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (condition.GraphicsMemory is null || condition.GraphicsMemory.Count > 8)
+            throw Invalid("A step condition accepts at most 8 graphicsMemory assertions.");
+        List<MemoryAssertion> memory = condition.Memory?.ToList() ?? throw Invalid("Condition memory cannot be null.");
+        foreach (GraphicsMemoryAssertion assertion in condition.GraphicsMemory)
+        {
+            PreparedGraphicsAssertion item = PrepareOne(assertion, physicalMemory, stepIndex, stepName, cancellationToken);
+            prepared?.Add(item);
+            memory.AddRange(item.Segments.Select(segment => new MemoryAssertion(segment.Address,
+                Convert.ToHexString(segment.Bytes), segment.Bank)));
+        }
+        return condition with { Memory = memory, GraphicsMemory = [] };
     }
 
     public static ExecutionResult Attach(ExecutionResult result, PreparedGraphicsExecution prepared,
@@ -109,7 +117,7 @@ internal static class ExecutionGraphicsMemory
         };
     }
 
-    private static PreparedGraphicsAssertion PrepareOne(GraphicsMemoryAssertion assertion, string machine,
+    internal static PreparedGraphicsAssertion PrepareOne(GraphicsMemoryAssertion assertion, bool physicalMemory,
         int? stepIndex, string? stepName, CancellationToken cancellationToken)
     {
         if (assertion is null || string.IsNullOrWhiteSpace(assertion.ExpectedImage))
@@ -127,7 +135,7 @@ internal static class ExecutionGraphicsMemory
         int address = assertion.Page == 1 ? 0x2000 : 0x4000;
         if (doubleHires)
         {
-            if (!AppleIIeMemory.IsIIeMachine(machine))
+            if (!physicalMemory)
                 throw Invalid("Double-hires graphicsMemory assertions require an Apple IIe or Apple IIc machine.");
             if (assertion.Bank != "cpu")
                 throw Invalid("Double-hires graphicsMemory assertions select main and auxiliary banks automatically; omit bank or use cpu.");
@@ -146,7 +154,7 @@ internal static class ExecutionGraphicsMemory
             : address;
         byte[] bytes = AppleGraphics.EncodePng(png, assertion.Mode);
         if (!AppleIIeMemory.IsValidRange(assertion.Bank, address, bytes.Length)
-            || assertion.Bank != "cpu" && !AppleIIeMemory.IsIIeMachine(machine))
+            || assertion.Bank != "cpu" && !physicalMemory)
             throw Invalid("The graphicsMemory page is outside the selected machine or memory bank.");
         return new(assertion, source, hash, [new(assertion.Bank, address, bytes)], bytes, stepIndex, stepName);
     }

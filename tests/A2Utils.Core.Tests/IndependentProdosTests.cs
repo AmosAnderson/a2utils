@@ -4,6 +4,7 @@
 using System.Buffers.Binary;
 using System.Diagnostics;
 using System.Security.Cryptography;
+using System.Text.Json.Nodes;
 using A2Utils.Core.Backends;
 using A2Utils.Core.Operations;
 
@@ -12,6 +13,77 @@ namespace A2Utils.Core.Tests;
 public sealed class IndependentProdosTests
 {
     private const string FixtureHash = "806223a7a89ea1581cb4628151b6e83a3d8db706dab306f60a1aec5efd544c0e";
+
+    [Fact]
+    public void Restore_LegacyManifestCaseAndTimeOffsets_PreservesCatalogNameAndClockFields()
+    {
+        using FixtureWorkspace workspace = new();
+        string extracted = workspace.NewPath("extracted");
+        using (DiskSession source = DiskSession.Open(FixtureWorkspace.FindFixture("independent-prodos.po")))
+            FileTransfer.Extract(source, extracted, "seed");
+        string manifestPath = Path.Combine(extracted, FileTransfer.ManifestName);
+        JsonNode manifest = JsonNode.Parse(File.ReadAllText(manifestPath))!;
+        JsonNode entry = manifest["entries"]![0]!["entry"]!;
+        Assert.Equal("1993-07-16T14:35:00", (string?)entry["created"]);
+        Assert.Equal("1994-02-03T08:09:00", (string?)entry["modified"]);
+        entry["path"] = "seed";
+        entry["created"] = "1993-07-16T14:35:00+13:00";
+        entry["modified"] = "1994-02-03T08:09:00-09:00";
+        File.WriteAllText(manifestPath, manifest.ToJsonString());
+
+        string path = workspace.NewPath("restored.po");
+        DiskSession.Create(path, "prodos", order: "prodos");
+        using (DiskSession target = DiskSession.Open(path, writable: true))
+            FileTransfer.Restore(target, manifestPath);
+        using DiskSession reopened = DiskSession.Open(path);
+        DiskEntry seed = Assert.Single(reopened.List());
+        Assert.Equal("SEED", seed.Path);
+        Assert.Equal(new DateTime(1993, 7, 16, 14, 35, 0), seed.Created);
+        Assert.Equal(new DateTime(1994, 2, 3, 8, 9, 0), seed.Modified);
+    }
+
+    [Fact]
+    public void Copy_UndatedProDosDirectoryAndFile_PreservesMissingDates()
+    {
+        using FixtureWorkspace workspace = new();
+        byte[] image = File.ReadAllBytes(FixtureWorkspace.FindFixture("independent-prodos.po"));
+        foreach (int entry in new[] { RootEntryOffset(5), 43 * 512 + 4 + 39 })
+        {
+            image.AsSpan(entry + 0x18, 4).Clear();
+            image.AsSpan(entry + 0x21, 4).Clear();
+        }
+        image.AsSpan(43 * 512 + 0x1c, 4).Clear();
+        string path = workspace.NewPath("undated.po");
+        File.WriteAllBytes(path, image);
+        using (DiskSession disk = DiskSession.Open(path, writable: true))
+            disk.Copy("FULLDIR", "COPY", recursive: true);
+        using DiskSession reopened = DiskSession.Open(path);
+        foreach (string copiedPath in new[] { "COPY", "COPY/F00" })
+        {
+            DiskEntry entry = reopened.GetEntry(copiedPath);
+            Assert.Null(entry.Created);
+            Assert.Null(entry.Modified);
+        }
+    }
+
+    [Fact]
+    public void Rename_DirectoryWithSeparateHeaderDate_PreservesHeaderDate()
+    {
+        using FixtureWorkspace workspace = new();
+        byte[] image = File.ReadAllBytes(FixtureWorkspace.FindFixture("independent-prodos.po"));
+        const int header = 43 * 512;
+        byte[] headerDate = [0x81, 0x28, 0, 0];
+        headerDate.CopyTo(image, header + 0x1c);
+        string path = workspace.NewPath("rename.po");
+        File.WriteAllBytes(path, image);
+        using (DiskSession disk = DiskSession.Open(path, writable: true))
+            disk.Rename("FULLDIR", "RENAMED");
+
+        byte[] result = File.ReadAllBytes(path);
+        Assert.Equal("RENAMED"u8.ToArray(), result.AsSpan(header + 5, 7).ToArray());
+        Assert.Equal(headerDate, result.AsSpan(header + 0x1c, 4).ToArray());
+        Validate(path);
+    }
 
     [Fact]
     public void Open_IndependentProdosFixture_ReadsKnownCatalogAllocationAndStorageBoundaries()

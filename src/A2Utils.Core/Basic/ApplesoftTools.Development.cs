@@ -51,7 +51,8 @@ public static partial class ApplesoftTools
                     analysis.Diagnostics.Add(Diagnostic("gosub_without_return", "warning",
                         "This source has GOSUB but no RETURN; verify that terminating or leaving the subroutine is intentional.", file, line, token));
 
-                if (token.Kind == "identifier" && index + 1 < tokens.Count && tokens[index + 1].Text == "("
+                if (token.Kind == "identifier" && (index == 0 || tokens[index - 1].Text != "FN")
+                    && index + 1 < tokens.Count && tokens[index + 1].Text == "("
                     && TryLiteralArguments(tokens, index + 2, out int[] values, out _))
                 {
                     string name = VariableIdentity(token.Text);
@@ -147,6 +148,6 @@ public static partial class ApplesoftTools
         return diagnostics;
     }
 
-    [GeneratedRegex(@"(?:^|[\r\n])\s*\?(NEXT WITHOUT FOR|SYNTAX|RETURN WITHOUT GOSUB|OUT OF DATA|ILLEGAL QUANTITY|OVERFLOW|OUT OF MEMORY|UNDEF'D STATEMENT|BAD SUBSCRIPT|REDIM'D ARRAY|DIVISION BY ZERO|TYPE MISMATCH|STRING TOO LONG|FORMULA TOO COMPLEX|CAN'T CONTINUE|UNDEF'D FUNCTION)\s+ERROR\s+IN\s+(\d{1,5})(?:\s|$)", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"(?:^|[\r\n])\s*\?(NEXT WITHOUT FOR|SYNTAX|RETURN WITHOUT GOSUB|OUT OF DATA|ILLEGAL QUANTITY|OVERFLOW|OUT OF MEMORY|UNDEF'D STATEMENT|BAD SUBSCRIPT|REDIM'D ARRAY|DIVISION BY ZERO|TYPE MISMATCH|STRING TOO LONG|FORMULA TOO COMPLEX|CAN'T CONTINUE|UNDEF'D FUNCTION)\s+ERROR\s+IN\s+(\d{1,5})(?=\s|$)", RegexOptions.CultureInvariant)]
     private static partial Regex BasicRuntimeError();
 }

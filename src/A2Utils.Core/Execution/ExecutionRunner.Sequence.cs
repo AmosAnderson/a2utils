@@ -9,6 +9,8 @@ public static partial class ExecutionRunner
 {
     public static bool ConditionMatches(ExecutionCondition condition, ExecutionObservation observation)
     {
+        if (condition.GraphicsMemory?.Count != 0)
+            condition = ExecutionGraphicsMemory.PrepareCondition(condition, physicalMemory: true);
         bool MemoryEquals(MemoryAssertion expected)
         {
             string? actual = expected.Bank == "cpu" ? observation.Memory.GetValueOrDefault(expected.Address)
@@ -33,7 +35,8 @@ public static partial class ExecutionRunner
             ExecutionStep step = spec.Steps[result.Index];
             if (step.Action is not ("wait" or "assert" or "capture")) continue;
             string prefix = Path.Combine(artifacts, $"checkpoint-{result.Index + 1:D3}");
-            ExecutionObservation checkpoint = ParseObservation(ReadBounded(prefix + ".tsv", 1024 * 1024), ReadBounded(prefix + ".txt", 32768));
+            ExecutionObservation checkpoint = ParseObservation(ReadBounded(prefix + ".tsv", 1024 * 1024),
+                ReadBounded(prefix + ".txt", 32768), spec.Engine);
             if (checkpoint.EmulatedSeconds != result.EmulatedSeconds || checkpoint.Steps.Count != 0 || checkpoint.Debug is not null || checkpoint.Cycles is not null)
                 throw new InvalidDataException("Checkpoint timing or content disagrees with its step.");
             if (step.Condition is not null && (result.Status == "pass") != ConditionMatches(step.Condition, checkpoint))

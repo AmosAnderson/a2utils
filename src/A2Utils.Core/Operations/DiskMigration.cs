@@ -29,7 +29,7 @@ public sealed record DiskMigrationPlan(int SchemaVersion, string SourceImage, st
 public sealed record DiskMigrationResult(ImageWriteResult Write, DiskMigrationPlan Plan);
 
 /// <summary>Explicit single-file DOS/ProDOS migration with immutable snapshots and a reviewable plan.</summary>
-public static class DiskMigration
+public static partial class DiskMigration
 {
     private const int MaximumImageBytes = 34 * 1024 * 1024;
 
@@ -60,20 +60,8 @@ public static class DiskMigration
             !expectedPlanSha256.Equals(plan.PlanSha256, StringComparison.OrdinalIgnoreCase))
             throw new DiskException("migration.plan_changed", "The migration differs from the expected plan.", 6);
         candidatePrepared?.Invoke();
-        Recheck(plan, cancellationToken);
-        ImageWriteResult write = ImageTransactions.Write(destinationImage, outputPath, inPlace, overwrite,
-            temporary =>
-            {
-                if (Hash(temporary, cancellationToken) != plan.DestinationSha256)
-                    throw new DiskException("migration.input_changed", "The destination image changed after planning.", 6);
-                File.WriteAllBytes(temporary, prepared.Candidate);
-            },
-            temporary =>
-            {
-                if (Hash(temporary, cancellationToken) != plan.CandidateSha256)
-                    throw new DiskException("migration.validation_failed", "The staged migration differs from its plan.", 4);
-                Recheck(plan, cancellationToken);
-            }, cancellationToken);
+        ImageWriteResult write = Commit(plan.SourceImage, plan.SourceSha256, plan.DestinationImage, plan.DestinationSha256,
+            plan.CandidateSha256, prepared.Candidate, outputPath, inPlace, overwrite, cancellationToken);
         return new(write, plan);
     }
 
@@ -85,8 +73,7 @@ public static class DiskMigration
         ImageTransactions.EnsureDistinctPaths(sourceImage, destinationImage);
         byte[] sourceBytes = ProgramFiles.ReadBytes(sourceImage, MaximumImageBytes, cancellationToken);
         byte[] destinationBytes = ProgramFiles.ReadBytes(destinationImage, MaximumImageBytes, cancellationToken);
-        string directory = Path.Combine(HostFiles.ResolvePhysicalDirectory(Path.GetTempPath()), "a2-migration-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(directory);
+        string directory = HostFiles.ResolvePhysicalDirectory(Directory.CreateTempSubdirectory("a2-migration-").FullName);
         try
         {
             string sourceSnapshot = Path.Combine(directory, "source.img");
@@ -100,51 +87,15 @@ public static class DiskMigration
             {
                 DiskInfo sourceInfo = source.Info;
                 DiskInfo destinationInfo = destination.Info;
-                if (sourceInfo.FileSystem == destinationInfo.FileSystem)
-                    throw new DiskException("migration.same_filesystem", "Use disk copy for matching filesystems.", 2);
-                if (sourceInfo.IsDubious || sourceInfo.Diagnostics.Any(item => item.Severity == "error"))
-                    throw new DiskException("corrupt_image", "Migration requires an undamaged source image.", 4);
-                DiskEntry entry = source.GetEntry(sourcePath);
-                if (entry.IsDirectory || entry.FileType is not (0x04 or 0x06 or 0xfc))
-                    throw new DiskException("migration.file_type", "Migration supports individual TXT, BIN, and Applesoft BAS files.", 3);
-                if (entry.FileType == 0xfc && entry.AuxType != ApplesoftBasic.DefaultOrigin)
-                    throw new DiskException("migration.basic_origin", "BASIC migration requires origin $0801; relocate the program explicitly first.", 3);
-                payload = source.ReadFile(sourcePath);
-                if (entry.FileType == 0x04 && sourceInfo.FileSystem == "dos33" &&
-                    source.ReadFile(sourcePath, raw: true).AsSpan(payload.Length).ContainsAnyExcept((byte)0))
-                    throw new DiskException("migration.text_records",
-                        "DOS text contains nonzero bytes after its logical EOF; use stored-byte extraction to preserve random-access records.", 3);
-                if (entry.FileType == 0x04 && options.TextMode == "convert")
-                    payload = AppleTextCodec.Encode(AppleTextCodec.Decode(payload), destinationInfo.FileSystem);
-                else if (entry.FileType != 0x04 && options.TextMode == "convert")
-                    throw new DiskException("migration.text_type", "Text conversion requires a TXT file.", 2);
-                if (destinationInfo.FileSystem == "dos33" && entry.FileType is 0x06 or 0xfc && payload.Length > ushort.MaxValue)
-                    throw new DiskException("migration.payload_length", "DOS program headers support at most 65,535 payload bytes.", 3);
-                List<string> losses = [];
-                if (destinationInfo.FileSystem == "dos33")
-                {
-                    if (entry.Created is not null) losses.Add("created");
-                    if (entry.Modified is not null) losses.Add("modified");
-                    if (entry.FileType == 0x04 && entry.AuxType != 0) losses.Add("auxType");
-                }
-                string type = entry.FileType switch { 0x04 => "TXT", 0x06 => "BIN", _ => "BAS" };
-                ushort aux = entry.FileType == 0x04 && destinationInfo.FileSystem == "dos33" ? (ushort)0 : entry.AuxType;
-                destination.Add(destinationPath, payload, type, aux);
-                destination.SetTimestamps(destinationPath, entry.Created ?? new DateTime(2000, 1, 1),
-                    entry.Modified ?? new DateTime(2000, 1, 1));
-                destination.SetAttributes(destinationPath, locked: entry.IsLocked);
-                DiskEntry result = destination.GetEntry(destinationPath);
-                if (destinationInfo.FileSystem == "dos33" && entry.Access != result.Access)
-                    losses.Add("access");
-                if (!destination.ReadFile(destinationPath).AsSpan().SequenceEqual(payload) ||
-                    result.FileType != entry.FileType || result.AuxType != aux || result.IsLocked != entry.IsLocked)
-                    throw new DiskException("migration.unrepresentable",
-                        "The destination cannot preserve the logical payload and mapped attributes.", 3);
+                ValidateMigrationImages(sourceInfo, destinationInfo);
+                MappedFile mapped = ReadMappedFile(source, sourcePath, destinationInfo.FileSystem, options.TextMode);
+                WriteMappedFile(destination, destinationPath, mapped);
+                payload = mapped.Payload;
                 plan = new(1, Path.GetFullPath(sourceImage), ProgramFiles.Hash(sourceBytes),
                     Path.GetFullPath(destinationImage), ProgramFiles.Hash(destinationBytes),
                     sourceInfo.FileSystem, destinationInfo.FileSystem, sourcePath, destinationPath,
-                    type, aux, entry.IsLocked, options.TextMode, payload.Length, ProgramFiles.Hash(payload),
-                    losses, destination.Info.FreeBytes, "");
+                    mapped.Type, mapped.Aux, mapped.Entry.IsLocked, options.TextMode, payload.Length, ProgramFiles.Hash(payload),
+                    mapped.Losses, destination.Info.FreeBytes, "");
             }
             using (DiskSession reopened = DiskSession.Open(candidatePath, options.DestinationOrder, options.DestinationFileSystem))
             {
@@ -164,11 +115,88 @@ public static class DiskMigration
         }
     }
 
-    private static void Recheck(DiskMigrationPlan plan, CancellationToken cancellationToken)
+    private static void ValidateMigrationImages(DiskInfo sourceInfo, DiskInfo destinationInfo)
     {
-        if (Hash(plan.SourceImage, cancellationToken) != plan.SourceSha256 ||
-            Hash(plan.DestinationImage, cancellationToken) != plan.DestinationSha256)
+        if (sourceInfo.FileSystem == destinationInfo.FileSystem)
+            throw new DiskException("migration.same_filesystem", "Use disk copy for matching filesystems.", 2);
+        if (sourceInfo.IsDubious || sourceInfo.Diagnostics.Any(item => item.Severity == "error"))
+            throw new DiskException("corrupt_image", "Migration requires an undamaged source image.", 4);
+    }
+
+    private sealed record MappedFile(DiskEntry Entry, byte[] Payload, string Type, ushort Aux, List<string> Losses);
+
+    private static MappedFile ReadMappedFile(DiskSession source, string sourcePath, string fileSystem, string textMode)
+    {
+        DiskEntry entry = source.GetEntry(sourcePath);
+        if (entry.IsDirectory || entry.FileType is not (0x04 or 0x06 or 0xfc))
+            throw new DiskException("migration.file_type", "Migration supports individual TXT, BIN, and Applesoft BAS files.", 3);
+        if (entry.FileType == 0xfc && entry.AuxType != ApplesoftBasic.DefaultOrigin)
+            throw new DiskException("migration.basic_origin", "BASIC migration requires origin $0801; relocate the program explicitly first.", 3);
+        byte[] payload = source.ReadFile(sourcePath);
+        if (source.ReadDosTextWithTrailingRecords(entry) is not null)
+            throw new DiskException("migration.text_records",
+                "DOS text contains nonzero bytes after its logical EOF; use stored-byte extraction to preserve random-access records.", 3);
+        if (entry.FileType == 0x04 && textMode == "convert")
+            payload = AppleTextCodec.Encode(AppleTextCodec.Decode(payload), fileSystem);
+        else if (entry.FileType != 0x04 && textMode == "convert")
+            throw new DiskException("migration.text_type", "Text conversion requires a TXT file.", 2);
+        if (fileSystem == "dos33" && entry.FileType is 0x06 or 0xfc && payload.Length > ushort.MaxValue)
+            throw new DiskException("migration.payload_length", "DOS program headers support at most 65,535 payload bytes.", 3);
+        List<string> losses = [];
+        if (fileSystem == "dos33")
+        {
+            if (entry.Created is not null) losses.Add("created");
+            if (entry.Modified is not null) losses.Add("modified");
+            if (entry.FileType == 0x04 && entry.AuxType != 0) losses.Add("auxType");
+            if (entry.Access != (entry.IsLocked ? 0x01 : 0xc3)) losses.Add("access");
+        }
+        string type = entry.FileType switch { 0x04 => "TXT", 0x06 => "BIN", _ => "BAS" };
+        ushort aux = entry.FileType == 0x04 && fileSystem == "dos33" ? (ushort)0 : entry.AuxType;
+        return new(entry, payload, type, aux, losses);
+    }
+
+    private static void WriteMappedFile(DiskSession destination, string destinationPath, MappedFile file)
+    {
+        var (entry, payload, type, aux, _) = file;
+        destination.Add(destinationPath, payload, type, aux);
+        destination.SetTimestamps(destinationPath, entry.Created ?? new DateTime(2000, 1, 1),
+            entry.Modified ?? new DateTime(2000, 1, 1));
+        destination.SetAttributes(destinationPath, locked: entry.IsLocked);
+        DiskEntry result = destination.GetEntry(destinationPath);
+        if (!destination.ReadFile(destinationPath).AsSpan().SequenceEqual(payload) ||
+            result.FileType != entry.FileType || result.AuxType != aux || result.IsLocked != entry.IsLocked)
+            throw new DiskException("migration.unrepresentable",
+                "The destination cannot preserve the logical payload and mapped attributes.", 3);
+    }
+
+    private static void Recheck(DiskMigrationPlan plan, CancellationToken cancellationToken)
+        => Recheck(plan.SourceImage, plan.SourceSha256, plan.DestinationImage, plan.DestinationSha256, cancellationToken);
+
+    private static void Recheck(string sourceImage, string sourceHash, string destinationImage, string destinationHash,
+        CancellationToken cancellationToken)
+    {
+        if (Hash(sourceImage, cancellationToken) != sourceHash || Hash(destinationImage, cancellationToken) != destinationHash)
             throw new DiskException("migration.input_changed", "A migration input changed after its snapshot was captured.", 6);
+    }
+
+    private static ImageWriteResult Commit(string sourceImage, string sourceHash, string destinationImage,
+        string destinationHash, string candidateHash, byte[] candidate, string? outputPath, bool inPlace,
+        bool overwrite, CancellationToken cancellationToken)
+    {
+        Recheck(sourceImage, sourceHash, destinationImage, destinationHash, cancellationToken);
+        return ImageTransactions.Write(destinationImage, outputPath, inPlace, overwrite,
+            temporary =>
+            {
+                if (Hash(temporary, cancellationToken) != destinationHash)
+                    throw new DiskException("migration.input_changed", "The destination image changed after planning.", 6);
+                File.WriteAllBytes(temporary, candidate);
+            },
+            temporary =>
+            {
+                if (Hash(temporary, cancellationToken) != candidateHash)
+                    throw new DiskException("migration.validation_failed", "The staged migration differs from its plan.", 4);
+                Recheck(sourceImage, sourceHash, destinationImage, destinationHash, cancellationToken);
+            }, cancellationToken);
     }
 
     private static string Hash(string path, CancellationToken cancellationToken)

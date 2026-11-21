@@ -47,10 +47,15 @@ public static partial class DiskChangeSetRunner
                     HashSet<string> captured = new(StringComparer.Ordinal) { primaryName };
                     foreach (ExtractedFile entry in manifest.Entries.Where(entry => !entry.Entry.IsDirectory))
                     {
-                        FileTransfer.ValidatePayloadName(entry.HostFile);
-                        if (captured.Add(entry.HostFile!))
-                            CaptureFile(Path.Combine(Path.GetDirectoryName(sourcePath)!, entry.HostFile!),
-                                entry.HostFile!, MaximumPayloadBytes);
+                        CapturePayload(entry.HostFile);
+                        if (entry.ResourceFork is not null) CapturePayload(entry.ResourceFork.HostFile);
+                    }
+
+                    void CapturePayload(string? name)
+                    {
+                        FileTransfer.ValidatePayloadName(name);
+                        if (captured.Add(name!))
+                            CaptureFile(Path.Combine(Path.GetDirectoryName(sourcePath)!, name!), name!, MaximumPayloadBytes);
                     }
                 }
             }

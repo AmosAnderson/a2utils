@@ -3,7 +3,9 @@
 [Documentation home](../../README.md) · [Disk workflows](../disk-images.md) · [Command reference](../cli-reference.md)
 
 The application distinguishes image container, payload order, filesystem, and
-geometry. Filename suffixes do not determine the filesystem.
+geometry. Filename suffixes do not determine the filesystem. Native NuFX archives
+can contain a sector image. Use `archive catalog` to inspect its filesystem or
+`archive extract` to recover the image. [ShrinkIt archives](../shrinkit.md).
 
 ## Filesystems, geometry, and containers
 
@@ -33,8 +35,9 @@ by the [independent fixtures](../../tests/TestData/README.md).
 
 2IMG conversion accepts container versions 0/1 with sector-data format 0
 (DOS order) or 1 (ProDOS order). Header payload ranges, block counts, and
-comment/creator-data ranges must be valid and nonoverlapping. A supplied input
-order must agree with the header.
+comment/creator-data ranges must be valid and nonoverlapping. Conversion also
+accepts legacy images declaring a 52-byte header with data at offset 64 or
+later. A supplied input order must agree with the header.
 
 ## Conversion and preservation
 
@@ -45,9 +48,8 @@ nonpayload bytes are discarded. Raw-to-2IMG creates a new header. Container
 conversion retains the original filesystem and geometry; it does not copy DOS
 files into a ProDOS volume, resize a volume, or add boot code.
 
-Extraction stores DOS raw file bytes and ProDOS data-fork bytes plus a versioned
-manifest. DOS headers and trailing sector bytes are retained. ProDOS file EOF
-defines the extracted byte count. Filesystem allocation locations and unused
+Extraction stores DOS raw file bytes and both ProDOS forks plus a versioned
+manifest. DOS headers and trailing sector bytes are retained. Each ProDOS fork has its own EOF, payload, and checksum. Filesystem allocation locations and unused
 whole-disk space are not part of file extraction; retain the original image
 when a complete disk-level copy is needed.
 
@@ -76,10 +78,9 @@ are described separately in [program tools](../programs.md).
 | Ambiguous raw order/filesystem | Explicit input overrides are required for the interpretation. |
 | 2IMG container write protection | Inspection/read operations; file mutation refused. |
 | Hybrid/embedded filesystem or damaged allocation | Writes refused; read/inspection results depend on the supported structure that can be opened. |
-| Resource-fork files | Forked-file operations refused; a volume containing them is not eligible for file mutations. |
+| Resource-fork files | List, diff, extract both forks and restore to a fresh ProDOS volume. Existing forked volumes remain protected against general file edits. |
 
-NIB/WOZ, 13-sector DOS, DiskCopy, partitions, hybrid writes, and forked-file
-operations are unsupported. Preserve such images for inspection with a tool
+NIB/WOZ, 13-sector DOS, DiskCopy, partitions, and hybrid writes are unsupported. Preserve such images for inspection with a tool
 that explicitly supports their structures. `verify` does not repair damage.
 Newly formatted images are data volumes without operating-system files or
 boot code. Successful structural verification is not a bootability or program

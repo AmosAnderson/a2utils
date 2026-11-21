@@ -40,8 +40,9 @@ internal static class ProjectRuntimeMemory
         foreach (var file in files)
         {
             List<MemoryRegion> regions = [];
-            if (file.Info.Origin is { } start)
-                regions.Add(new(file.Info.Path, start, file.Info.Length + (IsBasic(file.Info.Type) ? manifest.BasicWorkspaceBytes : 0), file.Info.MemoryBank));
+            MemoryRegion? payload = file.Info.Origin is { } start ? new(file.Info.Path, start,
+                file.Info.Length + (IsBasic(file.Info.Type) ? manifest.BasicWorkspaceBytes : 0), file.Info.MemoryBank) : null;
+            if (payload is not null) regions.Add(payload);
             foreach (MemoryRegion region in file.Info.RuntimeMemory) Validate(profile, region);
             regions.AddRange(file.Info.RuntimeMemory);
             foreach (MemoryRegion region in regions) Validate(profile, region);
@@ -57,8 +58,7 @@ internal static class ProjectRuntimeMemory
                         region.Length == declared.Length && region.MemoryBank == declared.MemoryBank && region.Kind == declared.Kind);
                     IEnumerable<MemoryRegion> existing = file.Item.RuntimeMemory.Take(index);
                     if (!repeatsCompilerAllocation)
-                        existing = existing.Concat(compilerRegions).Concat(file.Info.Origin is { } origin
-                            ? [new MemoryRegion("payload", origin, file.Info.Length, file.Info.MemoryBank)] : []);
+                        existing = existing.Concat(compilerRegions).Concat(payload is null ? [] : [payload]);
                     foreach (MemoryRegion other in existing)
                         if (Overlaps(declared, other)) throw Overlap(file.Info.Path + ":" + declared.Name, declared, other);
                 }

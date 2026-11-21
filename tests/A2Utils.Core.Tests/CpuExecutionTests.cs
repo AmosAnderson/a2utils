@@ -45,6 +45,25 @@ public sealed class CpuExecutionTests : IDisposable
     }
 
     [Fact]
+    public async Task ParseObservation_CpuFlatMemory_ReplaysCaptureAcrossAppleIoWindow()
+    {
+        string source = At("routine.asm");
+        File.WriteAllText(source, "lda #$33\nsta $c000\nrts\n");
+        ExecutionSpec spec = CpuSpec(source) with { ObserveMemory = [new(0xbfff, 2), new(0xffff, 1)] };
+        ExecutionResult result = await ExecutionRunner.RunAsync(spec, At("run"));
+        Assert.True(result.Passed);
+
+        string text = File.ReadAllText(At("run/observations.tsv"));
+        ExecutionObservation observation = ExecutionRunner.ParseObservation(text, "", spec.Engine);
+        Assert.Equal("0033", observation.Memory[0xbfff]);
+        Assert.Equal(ExecutionRunner.ParseObservation(text, "").Memory[0xbfff], observation.Memory[0xbfff]);
+        Assert.Empty(ExecutionRunner.Evaluate(spec, observation));
+        Assert.Throws<InvalidDataException>(() => ExecutionRunner.ParseObservation(text, "", "mame"));
+        Assert.Throws<InvalidDataException>(() => ExecutionRunner.ParseObservation(
+            "A2EXEC1\nSTOP\temulated_limit\nTIME\t0\nMEM\t65535\t0000\nEND\n", "", "cpu"));
+    }
+
+    [Fact]
     public async Task Run_Apple65C02Instructions_ExecuteWithDocumentedState()
     {
         string source = At("cmos.asm");
@@ -301,6 +320,12 @@ public sealed class CpuExecutionTests : IDisposable
             ExecutionRunner.Validate(spec with { Keys = [new(0, "X")] })).Code);
         Assert.Equal("execution.invalid_spec", Assert.Throws<DiskException>(() =>
             ExecutionRunner.Validate(spec with { Machine = "" })).Code);
+        Assert.Equal("execution.invalid_spec", Assert.Throws<DiskException>(() =>
+            ExecutionRunner.Validate(spec with { DecodeIIeText = true })).Code);
+        Assert.Equal("execution.invalid_spec", Assert.Throws<DiskException>(() =>
+            ExecutionRunner.Validate(spec with { TextColumns = 80 })).Code);
+        Assert.Equal("execution.invalid_spec", Assert.Throws<DiskException>(() =>
+            ExecutionRunner.Validate(spec with { TextPage = 2 })).Code);
     }
 
     private static ExecutionSpec CpuSpec(string source) => new()

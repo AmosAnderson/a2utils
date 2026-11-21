@@ -17,6 +17,30 @@ public sealed class DiskSessionTests
     private static readonly byte[] BinaryPayload = [0x00, 0x7f, 0x80, 0xff, 0x0d];
     private static readonly byte[] TextPayload = [0xc1, 0xb2, 0xd5, 0xd4, 0xc9, 0xcc, 0xd3, 0x8d];
 
+    [Theory]
+    [InlineData(320)]
+    [InlineData(400)]
+    [InlineData(640)]
+    [InlineData(800)]
+    public void Create_RawProDosSectorGeometries_ReopenInBlockOrder(int blocks)
+    {
+        using FixtureWorkspace workspace = new();
+        string path = workspace.NewPath("volume.raw");
+        DiskSession.Create(path, "prodos", blocks: blocks, order: "prodos");
+        using (DiskSession disk = DiskSession.Open(path, writable: true))
+        {
+            Assert.Equal("prodos", disk.Info.Order);
+            Assert.Equal(blocks * 512, disk.Info.SizeBytes);
+            disk.Add("PAYLOAD", BinaryPayload, "BIN");
+        }
+        using (DiskSession disk = DiskSession.Open(path))
+            Assert.Equal(BinaryPayload, disk.ReadFile("PAYLOAD"));
+
+        string blank = workspace.NewPath("blank.raw");
+        File.WriteAllBytes(blank, new byte[blocks * 512]);
+        Assert.Equal("prodos", DiskSession.Inspect(blank).Order);
+    }
+
     [Fact]
     public void BootSectors_LargerSectorAddressableImage_RejectsReadAndWrite()
     {
@@ -376,13 +400,16 @@ public sealed class DiskSessionTests
         Assert.Equal(image, File.ReadAllBytes(path));
     }
 
-    [Fact]
-    public void Convert_TwoImgWithMetadata_PreservesHeaderCommentsCreatorDataAndGaps()
+    [Theory]
+    [InlineData(52)]
+    [InlineData(64)]
+    public void Convert_TwoImgWithMetadata_PreservesHeaderCommentsCreatorDataAndGaps(int headerLength)
     {
         using FixtureWorkspace workspace = new();
         string source = workspace.NewPath("metadata.2mg");
         string output = workspace.NewPath("converted.2mg");
         byte[] image = TwoImgFixture(writeProtected: true);
+        BinaryPrimitives.WriteUInt16LittleEndian(image.AsSpan(8), (ushort)headerLength);
         File.WriteAllBytes(source, image);
 
         ImageConverter.Convert(source, output, "2mg", "prodos");
@@ -391,6 +418,40 @@ public sealed class DiskSessionTests
         BinaryPrimitives.WriteUInt32LittleEndian(expected.AsSpan(12), 1);
         File.ReadAllBytes(FixtureWorkspace.FindFixture("independent-dos33.po")).CopyTo(expected, 64);
         Assert.Equal(expected, File.ReadAllBytes(output));
+        Assert.Equal(image, File.ReadAllBytes(source));
+    }
+
+    [Fact]
+    public void ExtractRestore_LegacyDosName_PreservesRawNameAndRefusesDuplicate()
+    {
+        using FixtureWorkspace workspace = new();
+        string source = workspace.CopyDisk();
+        byte[] image = File.ReadAllBytes(source);
+        const int nameOffset = (17 * 16 + 15) * 256 + 0x0b + 35 + 3;
+        image[nameOffset] = 0xb1; // Replace the first letter of README with a high-ASCII '1'.
+        File.WriteAllBytes(source, image);
+        string extracted = workspace.NewPath("extracted");
+        using (DiskSession disk = DiskSession.Open(source))
+            FileTransfer.Extract(disk, extracted, "1EADME");
+
+        string manifest = Path.Combine(extracted, FileTransfer.ManifestName);
+        string target = workspace.NewPath("target.do");
+        DiskSession.Create(target, "dos33");
+        using (DiskSession disk = DiskSession.Open(target, writable: true))
+        {
+            disk.Add("A2RESTORE0", BinaryPayload, "BIN");
+            FileTransfer.Restore(disk, manifest);
+        }
+        byte[] restored = File.ReadAllBytes(target);
+        using (DiskSession disk = DiskSession.Open(target, writable: true))
+        {
+            Assert.Equal(image.AsSpan(nameOffset, 6).ToArray(), disk.GetEntry("1EADME").RawName);
+            Assert.Equal(TextPayload, disk.ReadFile("1EADME"));
+            Assert.Equal(BinaryPayload, disk.ReadFile("A2RESTORE0"));
+            DiskException error = Assert.Throws<DiskException>(() => FileTransfer.Restore(disk, manifest));
+            Assert.Equal("destination_exists", error.Code);
+        }
+        Assert.Equal(restored, File.ReadAllBytes(target));
         Assert.Equal(image, File.ReadAllBytes(source));
     }
 
@@ -463,7 +524,10 @@ public sealed class DiskSessionTests
             disk.Add(filePath, BinaryPayload, "BIN", 0x6000);
             disk.SetAttributes(filePath, locked: true);
             original = Assert.Single(disk.List(directoryPath));
-            FileTransfer.Extract(disk, extracted, filePath);
+            Assert.Equal(filePath, disk.GetEntry(filePath.ToLowerInvariant()).Path);
+            Assert.Equal(filePath, Assert.Single(disk.List(directoryPath.ToLowerInvariant())).Path);
+            ExtractionManifest manifest = FileTransfer.Extract(disk, extracted, filePath.ToLowerInvariant());
+            Assert.Equal(filePath, Assert.Single(manifest.Entries, file => !file.Entry.IsDirectory).Entry.Path);
         }
 
         string target = workspace.NewPath("target.po");

@@ -24,7 +24,7 @@ public sealed record DiskCapabilities(IReadOnlyList<DiskOperationCapability> Ope
             writeReasons.Add("unsafe_allocation");
         string[] readReasons = known ? [] : ["unrecognized_filesystem"];
         string[] extractionReasons = readReasons.Concat(info.Diagnostics
-            .Where(item => item.Code is "unsupported_forks" or "damaged_entry")
+            .Where(item => item.Code == "damaged_entry")
             .Select(item => item.Code)).Distinct(StringComparer.Ordinal).ToArray();
         string[] directoryReasons = writeReasons.Concat(info.FileSystem == "dos33"
             ? new[] { "unsupported_directories" } : []).ToArray();
@@ -40,8 +40,9 @@ public sealed record DiskCapabilities(IReadOnlyList<DiskOperationCapability> Ope
             Operation("edit", writeReasons),
             Operation("createDirectories", directoryReasons),
             Operation("updateAttributes", writeReasons),
+            Operation("inspect", info.Order == "unknown" ? ["unknown_order"] : []),
             Operation("convert", info.Order == "unknown" ? ["unknown_order"] : []),
-            Operation("resourceForks", ["unsupported_forks"])
+            Operation("resourceForks", info.FileSystem == "prodos" ? [] : ["unsupported_forks"])
         ],
             info.FileSystem switch
             {

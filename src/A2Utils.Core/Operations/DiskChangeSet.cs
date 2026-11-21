@@ -135,7 +135,7 @@ public static partial class DiskChangeSetRunner
         bool inPlace, bool overwrite, string? expectedInputSha256 = null,
         string? expectedPlanSha256 = null, string? inputOrder = null,
         string? inputFileSystem = null, CancellationToken cancellationToken = default,
-        Action? candidateValidated = null)
+        Action? candidateValidated = null, Action? afterCommit = null)
     {
         if (expectedInputSha256 is not null && !IsSha256(expectedInputSha256))
             throw new DiskException("disk_plan.invalid", "--expect-sha256 must contain exactly 64 hexadecimal characters.", 2);
@@ -175,7 +175,8 @@ public static partial class DiskChangeSetRunner
                 if (candidateHash != plan.CandidateSha256)
                     throw new DiskException("disk_plan.nonreproducible", "Applied changes differ from the preflight candidate.", 6);
             }, cancellationToken);
-        return new(write, plan, HashFile(write.OutputPath, cancellationToken));
+        afterCommit?.Invoke();
+        return new(write, plan, plan.CandidateSha256);
     }
 
     private static PreparedChangeSet Prepare(string imagePath, string changeSetPath,
@@ -317,6 +318,7 @@ public static partial class DiskChangeSetRunner
             switch (change.Action)
             {
                 case "add":
+                    session.ValidateFileType(change.Type!, change.AuxType);
                     if (change.Parents)
                     {
                         string? parent = change.Path.Contains('/') ? change.Path[..change.Path.LastIndexOf('/')] : null;
@@ -352,6 +354,7 @@ public static partial class DiskChangeSetRunner
                         }, cancellationToken);
                     break;
                 case "import":
+                    session.ValidateFileType(change.Type ?? "TXT", change.AuxType);
                     HashSet<string> existing = session.List(recursive: true)
                         .Select(entry => entry.Path).ToHashSet(StringComparer.Ordinal);
                     WithMaterializedSource(operation.Source!, root =>

@@ -37,6 +37,8 @@ public sealed class ExecutionGraphicsMemoryTests : IDisposable
         Assert.True(File.Exists(comparison.ExpectedPreview));
         Assert.True(File.Exists(comparison.ActualPreview));
         Assert.True(File.Exists(comparison.DifferenceImage));
+        ExecutionObservation saved = ExecutionRunner.ParseObservation(File.ReadAllText(At("run/observations.tsv")), "", spec.Engine);
+        Assert.Empty(ExecutionRunner.Evaluate(spec, saved));
         using JsonDocument json = JsonDocument.Parse(File.ReadAllText(At("run/result.json")));
         Assert.True(json.RootElement.GetProperty("graphicsMemory")[0].GetProperty("passed").GetBoolean());
     }
@@ -64,6 +66,13 @@ public sealed class ExecutionGraphicsMemoryTests : IDisposable
         Assert.Equal("cpu:$0400", comparison.FirstMismatch);
         Assert.True(comparison.Pixels!.DifferentPixels > 0);
         Assert.Contains(result.Diagnostics, item => item.Code == "execution.graphics_memory");
+        ExecutionObservation saved = ExecutionRunner.ParseObservation(File.ReadAllText(At("failed/observations.tsv")), "", spec.Engine);
+        Assert.Contains(ExecutionRunner.Evaluate(spec, saved), item => item.Code == "execution.memory_assertion"
+            && item.Symbol == "$0400");
+        File.Delete(expected);
+        ExecutionSpec archived = ExecutionSpec.Load(At("failed/spec.json"));
+        Assert.Contains(ExecutionRunner.Evaluate(archived, saved), item => item.Code == "execution.memory_assertion"
+            && item.Symbol == "$0400");
     }
 
     [Fact]
@@ -116,6 +125,13 @@ public sealed class ExecutionGraphicsMemoryTests : IDisposable
         Assert.Collection(memory,
             auxiliary => { Assert.Equal("aux", auxiliary.Bank); Assert.Equal(0x4000, auxiliary.Address); Assert.Equal(16384, auxiliary.Hex.Length); },
             main => { Assert.Equal("main", main.Bank); Assert.Equal(0x4000, main.Address); Assert.Equal(16384, main.Hex.Length); });
+        ExecutionCondition original = spec.Steps[0].Condition!;
+        ExecutionObservation observation = new("sequence_complete", 0, new Dictionary<string, long>(), new Dictionary<int, string>(), "");
+        Assert.False(ExecutionRunner.ConditionMatches(original, observation));
+        Assert.True(ExecutionRunner.ConditionMatches(original, observation with
+        {
+            BankMemory = memory.Select(range => new ExecutionMemory(range.Bank, range.Address, range.Hex)).ToArray()
+        }));
     }
 
     [Fact]

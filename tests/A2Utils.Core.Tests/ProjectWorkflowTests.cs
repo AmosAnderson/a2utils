@@ -247,6 +247,18 @@ public sealed class ProjectWorkflowTests : IDisposable
     }
 
     [Fact]
+    public void Run_NullAssertionsArray_ReturnsValidationErrorBeforeReplacingOutput()
+    {
+        Setup();
+        Write(At("case.json"), ExecutionSpec.Load(At("case.json")) with { GraphicsMemory = null! });
+        File.WriteAllText(At("build.po"), "keep");
+        DiskException error = Assert.Throws<DiskException>(() =>
+            ProjectWorkflow.Run(At("project.json"), At("evidence"), overwrite: true));
+        Assert.Contains("graphicsMemory", error.Message);
+        Assert.Equal("keep", File.ReadAllText(At("build.po")));
+    }
+
+    [Fact]
     public void Run_InvalidGraphicsExpectation_RefusesBeforeReplacingOutput()
     {
         Setup();
@@ -483,6 +495,30 @@ public sealed class ProjectWorkflowTests : IDisposable
         Assert.Equal("lda #$2a", location.Source);
         Assert.Equal("executed instruction", location.Observation);
         Assert.Equal("cpu", location.MemoryBank);
+    }
+
+    [Fact]
+    public void WriteSourceTrace_OverlappingPrograms_ReportAmbiguityInEitherManifestOrder()
+    {
+        Setup();
+        ProjectBuildResult build = ProjectBuilder.Build(At("project.json"), preflight: true);
+        BuiltFile main = Assert.Single(build.Files);
+        BuiltFile other = main with { Path = "OTHER", MemoryBank = "aux" };
+        foreach (bool reverse in new[] { false, true })
+        {
+            string directory = At(reverse ? "reverse" : "forward");
+            Directory.CreateDirectory(directory);
+            File.WriteAllText(Path.Combine(directory, "trace.tsv"), "seconds\tPC\n0.1\t8192\n");
+            ExecutionResult result = new(1, "sample", true, "emulated_limit", "0.289", 1,
+                new Dictionary<string, long>(), new Dictionary<int, string>(), "", build.Sha256, directory, [], []);
+            ProjectBuildResult ordered = build with { Files = reverse ? [other, main] : [main, other] };
+
+            string output = Assert.IsType<string>(BuildExecution.WriteSourceTrace(ordered, result));
+
+            Assert.Equal("0.1\t8192\t\t\t\t\t\tambiguous", File.ReadAllLines(output)[1]);
+            Assert.Equal(new[] { "MAIN", "OTHER" }, BuildExecution.Locate(ordered, result)
+                .Select(location => location.Program).Order(StringComparer.Ordinal));
+        }
     }
 
     [Fact]

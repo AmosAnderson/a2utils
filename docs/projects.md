@@ -70,6 +70,13 @@ Imported BASIC retains its load address, and optional BASIC lint checks are disa
 so existing programs can rebuild. Enable `checkBasic` on a file to check it while
 editing. BASIC or text that cannot be converted without changing its payload or
 metadata remains binary, with the reason recorded in the import report.
+DOS text with stored records after its logical EOF and files larger than the
+4 MiB project source limit are exported under `reference/`. The template supplies
+those entries when building, and DOS record references include all stored bytes.
+In earlier imports, rebuilding an unchanged DOS text source preserves stored
+records after its logical EOF. Editing the source replaces the entire disk file.
+To keep a file supplied by the template, including an oversized source from an
+earlier import, remove its replacement from the manifest's `files` list.
 BIN/BAS/SYS payloads whose load range does not fit the target's ordinary main RAM
 are exported under `reference/` and preserved in the template. The report explains
 why they were excluded from replacements; declare the intended memory bank and
@@ -120,8 +127,11 @@ Normal CLI builds can opt into a content-addressed image cache with
 The cache accepts a hit only when all recorded input hashes and the tool version
 match, validates the cached image before a transactional restore, and reports the
 hit in `ProjectBuildResult.CacheHit` and the CLI's `cacheHit` JSON field. The cache
-also checks cc65 project and toolchain directory membership; added inputs trigger
-a rebuild. cc65 builds without `toolchainRoot` always build uncached, because
+also checks the selected cc65 executable path and project and toolchain directory
+membership. Changing the compiler selection or adding inputs triggers a rebuild.
+Cache format 2 records case-distinct assembly inputs separately on case-sensitive
+volumes. The first build with this format regenerates older cache entries from source.
+cc65 builds without `toolchainRoot` always build uncached, because
 external headers, libraries, and compiler environment overrides are not fully
 fingerprinted; `cc65.toolchain_partial` explains the missing configuration.
 Generated asset paths retain the same collision and output-alias checks
@@ -157,7 +167,7 @@ are decimal numbers (8192 is `$2000`).
 | --- | --- |
 | `schemaVersion` | Required; must be `1`. |
 | `target` | `apple2e`; one of `apple2plus`, `apple2e`, `apple2enh`, or `apple2c`. |
-| `cpu` | Target default; optional `6502` or `65c02`. A 65C02 CPU requires an enhanced target. |
+| `cpu` | Defaults to the target CPU. Accepts `6502` or `65c02`. A 65C02 CPU requires an enhanced target. Compiling with the cc65 `apple2enh` target requires the effective project CPU to be `65c02`. |
 | `output` | `build.po`; output path relative to the manifest, unless CLI `--to` overrides it. |
 | `timestamp` | `2000-01-01T00:00:00`; reproducible file/directory/volume date in 1980–2039 at whole-minute precision. Use UTC or no offset, never a local offset. |
 | `disk` | Defaults to a 140 KiB ProDOS raw data volume as described below. |
@@ -280,9 +290,39 @@ OS/data disks. The runner pins every mounted image to its input hash and creates
 isolated copies for
 each case. Any image path or hash on the selected build mount is replaced by the
 build output. If no additional disks are needed, omit `diskImage` and `disks`; the
-workflow inserts only the selected build mount. A CPU-engine case remains disk-free,
-but can still use `symbolicMemory` resolved from the project build. Standalone MAME
-`run`/`test` requires media; the CPU engine does not.
+workflow inserts only the selected build mount. CPU cases can use project symbols
+and run a host routine or a single BIN from the built image in flat main memory.
+
+For example, this project test loads the packaged `MAIN` and calls its exported
+`update` subroutine. A routine can use an assembly label or a cc65 export.
+
+```json
+{
+  "schemaVersion": 1,
+  "name": "update packaged MAIN",
+  "engine": "cpu",
+  "machine": "apple2ee",
+  "routine": { "kind": "packaged", "source": "MAIN", "entrySymbol": "update" },
+  "registers": [{ "name": "A", "value": 42 }]
+}
+```
+
+`source` names the file's path in the project image. The runner uses its BIN
+load address. Omit `origin` or use zero to derive it from the package. An explicit
+nonzero origin must match. Use `entryPoint` for a numeric address, or omit both
+entry fields to use the project's entry point (which defaults to the load address).
+The payload and entry must fit in main RAM at `$0800..$BFFF`. The routine runs
+with the same register, memory, cycle-budget and return conventions as a host
+CPU routine. Calls into ROM, DOS, ProDOS or other packaged files require a
+full-machine test.
+
+Preflight reads the file from the staged image before replacing the destination.
+Execution checks the committed image SHA-256, catalog type, load address, payload
+length and payload SHA-256 against the build, then rechecks the image hash after
+the routine runs. The case records the image hash
+in `result.json` and the program path and both hashes in `routine.json`.
+`routine.bin` contains the executed bytes, and the saved `spec.json` uses this
+sibling binary with its resolved entry point.
 
 Project test execution uses the same suite selection and scheduling model as
 `a2 test`: filters match stable case names or suite-relative paths, `jobs` bounds
@@ -328,7 +368,8 @@ path. Symbol names follow the assembler's case-insensitive matching; `offset`
 defaults to zero and the resolved address must fit the 16-bit observable range.
 Use either `until` or `symbolicUntil`. Ordinary `run`/`test` refuse unresolved
 symbolic assertions; `build --test` resolves them using this build's symbols.
-cc65 VICE labels provide exported build symbols. Its ld65 debug file also provides
+cc65's verbose linker map supplies exported build symbols, and unambiguous VICE
+labels supply additional names. Its ld65 debug file also provides
 typed source ranges for project files when the compiler emits line/span records.
 
 Breakpoint/watchpoint addresses in `debug` also accept `program`, `symbol`, and
@@ -342,12 +383,15 @@ specifications, `suite-result.json`, and `project-result.json`. Each case also
 receives `source-locations.json`, mapping final and sampled PCs to resident native
 assembly or cc65 source when available. A MAME run with trace samples and at least
 one mapping also receives bounded `trace-source.tsv`, which retains each sampled
-row and adds program, bank, file, line, and source columns. Multiple matches are
-retained in `source-locations.json` for overlapping regions. These are source
+row and adds program, bank, file, line, source, and `mappingStatus` columns.
+A status of `matched` identifies a program. An `ambiguous` sample leaves its
+source columns empty when multiple resident programs map that PC.
+`source-locations.json` lists the candidates. PCs without a mapping are marked
+`unmapped`. These are source
 annotations of observations, not instruction traces.
-Traced CPU project runs add each unique executed routine address directly from
-the CPU trace's source columns, labeled with the routine source path and `cpu`
-memory bank; they do not claim that the separately built disk image was executed.
+Traced CPU project runs add each mapped executed address from the CPU trace's
+source columns, labeled with the host routine path or packaged program path and
+the `cpu` memory bank.
 Symbolic memory failures include their program/symbol name and a source location
 when the address maps to emitted assembly. Exit status is 0 for passing tests,
 1 for behavioral failure, and 6 for execution cancellation.

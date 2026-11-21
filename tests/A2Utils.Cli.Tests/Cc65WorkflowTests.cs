@@ -31,8 +31,10 @@ public sealed class Cc65WorkflowTests : IDisposable
         File.WriteAllText(At("extra.c"), "// A2_FAKE_OPTIONS A2_FAKE_FEEDBACK\nint extra(void) { return 2; }\n");
         Directory.CreateDirectory(At("include"));
         File.WriteAllText(At("include/local.h"), "#define LOCAL 1\n");
-        Directory.CreateDirectory(At(".toolchain/include"));
-        File.WriteAllText(At(".toolchain/include/system.h"), "#define SYSTEM 1\n");
+        string toolchainInclude = Path.Combine(At(".toolchain"), "include");
+        Directory.CreateDirectory(toolchainInclude);
+        string systemHeader = Path.Combine(toolchainInclude, "system.h");
+        File.WriteAllText(systemHeader, "#define SYSTEM 1\n");
         File.WriteAllText(At("custom.cfg"), "MEMORY { MAIN: start=$0803,size=$1000,file=%O; } SEGMENTS { CODE: load=MAIN,type=ro; }");
         var result = Run("cc", "compile", At("main.c"), "--compiler", HostPath(),
             "--source", At("helper.c"), "--source", At("extra.c"), "--include", At("include"), "--define", "FEATURE=1",
@@ -46,7 +48,7 @@ public sealed class Cc65WorkflowTests : IDisposable
         Assert.NotEmpty(data.GetProperty("sourceMap").EnumerateArray());
         Assert.Contains(data.GetProperty("diagnostics").EnumerateArray(), diagnostic => diagnostic.GetProperty("severity").GetString() == "warning");
         Assert.Contains(data.GetProperty("inputs").EnumerateArray(), input => input.GetProperty("path").GetString() == "custom.cfg");
-        Assert.Contains(data.GetProperty("toolchainInputs").EnumerateArray(), input => input.GetProperty("path").GetString() == At(".toolchain/include/system.h"));
+        Assert.Contains(data.GetProperty("toolchainInputs").EnumerateArray(), input => input.GetProperty("path").GetString() == systemHeader);
         Assert.False(File.Exists(At("helper.o")));
         Assert.Contains("A2_FAKE_OPTIONS", File.ReadAllText(At("helper.c")));
     }

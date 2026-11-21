@@ -15,8 +15,7 @@ public sealed class HostFilesTests
         string physical = workspace.NewPath("physical");
         string nested = Path.Combine(physical, "nested");
         Directory.CreateDirectory(nested);
-        string alias = Path.Combine(physical, "alias");
-        CreateDirectoryLink(alias, physical);
+        string alias = CreateAncestorAlias(physical);
 
         try
         {
@@ -32,33 +31,32 @@ public sealed class HostFilesTests
         }
     }
 
-    private static void CreateDirectoryLink(string path, string target)
+    private static string CreateAncestorAlias(string target)
     {
+        string alias = Path.Combine(target, "alias");
         if (!OperatingSystem.IsWindows())
         {
-            Directory.CreateSymbolicLink(path, target);
-            return;
+            Directory.CreateSymbolicLink(alias, target);
+            return alias;
         }
 
         // Junctions exercise directory-link traversal without Windows symlink privileges.
-        ProcessStartInfo start = new("powershell.exe")
+        ProcessStartInfo start = new(Path.Combine(Environment.SystemDirectory, "cmd.exe"))
         {
+            WorkingDirectory = target,
+            Arguments = "/d /c mklink /J alias .",
             UseShellExecute = false,
             CreateNoWindow = true,
-            RedirectStandardOutput = true,
             RedirectStandardError = true
         };
-        start.ArgumentList.Add("-NoProfile");
-        start.ArgumentList.Add("-NonInteractive");
-        start.ArgumentList.Add("-Command");
-        start.ArgumentList.Add($"New-Item -ItemType Junction -Path '{path.Replace("'", "''")}' " +
-            $"-Value '{target.Replace("'", "''")}' -ErrorAction Stop | Out-Null");
         using Process process = Process.Start(start)!;
-        if (!process.WaitForExit(10000))
+        Task<string> error = process.StandardError.ReadToEndAsync();
+        if (!process.WaitForExit(TimeSpan.FromSeconds(30)))
         {
             process.Kill(entireProcessTree: true);
             throw new TimeoutException("Creating the test junction timed out.");
         }
-        Assert.True(process.ExitCode == 0, process.StandardError.ReadToEnd());
+        Assert.True(process.ExitCode == 0, error.GetAwaiter().GetResult());
+        return alias;
     }
 }

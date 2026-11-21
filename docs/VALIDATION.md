@@ -1,5 +1,15 @@
 # Development preview validation
 
+## Windows release retry for 0.8.0-dev.1 — November 21, 2026
+
+The Windows job for `v0.8.0-dev` failed two tests. The cc65 CLI test compared
+a native Windows path with a fixture string containing mixed separators. It
+now checks the path used to create the header. The physical-directory test
+timed out while starting PowerShell to create a junction. It now creates the
+junction directly with `cmd.exe /d /c mklink /J` in the fixture directory and
+still verifies traversal through the same link twice. Linux and macOS passed
+the original workflow. [Original release run](https://github.com/AmosAnderson/a2utils/actions/runs/44882277742).
+
 ## Disk preservation and execution evidence for 0.8.0-dev — November 21, 2026
 
 On macOS arm64 with .NET SDK 10.0.404, locked restore, the Release build

@@ -76,14 +76,14 @@ public sealed class ExecutionTests : IDisposable
     {
         using CancellationTokenSource cancellation = new();
         Task<ExecutionResult> task = ExecutionRunner.RunAsync(Spec("cancel"), At("result"), cancellation.Token);
-        Stopwatch elapsed = Stopwatch.StartNew();
-        while (!File.Exists(At("result/child.pid")) && elapsed.Elapsed < TimeSpan.FromSeconds(10))
+        string childPid = At("result/child.pid");
+        while (!task.IsCompleted && !File.Exists(childPid))
             await Task.Delay(20);
-        cancellation.Cancel();
+        if (File.Exists(childPid)) cancellation.Cancel();
         ExecutionResult result = await task;
         Assert.Equal("cancelled", result.StopReason);
         AssertExited(At("result/parent.pid"));
-        AssertExited(At("result/child.pid"));
+        AssertExited(childPid);
     }
 
     [Fact]

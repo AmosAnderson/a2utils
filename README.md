@@ -7,7 +7,7 @@ programs. Build projects into disk images, prepare graphics assets, test pure
 6502/65C02 routines in-process, and test full machines through an optional MAME
 installation. The reusable core library is independent of console output.
 
-The current version is **0.8.0-dev.2**, a development preview.
+The current version is **0.8.0-dev.3**, a development preview.
 
 The AI programming workflow now includes [setup profiles and starters](docs/setup.md),
 [runtime memory checks](docs/runtime-memory.md), [project graphics assets and visual tests](docs/project-assets.md),
@@ -30,7 +30,7 @@ recheck captured observations offline.
 
 ## Download and run
 
-Build `0.8.0-dev.2` from source. Public binary releases are on hold while the
+Build `0.8.0-dev.3` from source. Public binary releases are on hold while the
 project resolves redistribution rights for boot code embedded in its disk
 libraries. [Build from source](#build-from-source) · [Licensing](#preview-status-and-licensing)
 

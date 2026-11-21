@@ -66,7 +66,7 @@ Windows x64, Linux x64, and Apple Silicon macOS. See the dated
 
 ## Download a tagged release
 
-Public binaries for `0.8.0-dev.2` are on hold pending review of embedded Apple
+Public binaries for `0.8.0-dev.3` are on hold pending review of embedded Apple
 boot code. To use this revision, follow [the source build steps below](#build-and-inspect-the-sample-image).
 
 For an available tagged release, download the archive for your system from
@@ -107,13 +107,13 @@ Build and install the preview package into this checkout:
 
 ```sh
 dotnet pack src/A2Utils.Cli -c Release --no-restore -o artifacts/packages
-dotnet tool install A2Utils.Tool --version 0.8.0-dev.2 --add-source artifacts/packages --tool-path artifacts/tools --configfile NuGet.Config
+dotnet tool install A2Utils.Tool --version 0.8.0-dev.3 --add-source artifacts/packages --tool-path artifacts/tools --configfile NuGet.Config
 ```
 
 For an already installed preview, substitute `update` for `install`:
 
 ```sh
-dotnet tool update A2Utils.Tool --version 0.8.0-dev.2 --add-source artifacts/packages --tool-path artifacts/tools --configfile NuGet.Config --no-cache
+dotnet tool update A2Utils.Tool --version 0.8.0-dev.3 --add-source artifacts/packages --tool-path artifacts/tools --configfile NuGet.Config --no-cache
 ```
 
 The package ID is `A2Utils.Tool`; its executable is `a2`. Installation is local

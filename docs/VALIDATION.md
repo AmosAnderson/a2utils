@@ -1,5 +1,13 @@
 # Development preview validation
 
+## Linux cancellation test on v0.8.0-dev.2 — November 21, 2026
+
+The Linux cancellation test could stop its helper after the child process ID
+appeared and before the parent process ID reached disk. In `0.8.0-dev.3`, the
+helper writes the parent ID first and atomically renames the completed child ID
+file. The test waits for that file before cancelling and verifies that both
+processes exit. [v0.8.0-dev.2 release run](https://github.com/AmosAnderson/a2utils/actions/runs/44954219420)
+
 ## Binary redistribution review for 0.8.0-dev.2 — November 21, 2026
 
 Version `0.8.0-dev.2` adopts MIT for original A2Utils material. Inspection of

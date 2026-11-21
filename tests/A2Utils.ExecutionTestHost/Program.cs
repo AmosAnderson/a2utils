@@ -90,7 +90,7 @@ if (args.Contains("-t"))
             ArgumentList = { "--child" }
         })!;
         string marker = source.Split('\n').Single(line => line.StartsWith("// PID "))[7..].Trim();
-        File.WriteAllText(marker, compilerChild.Id.ToString());
+        PublishChildPid(marker, compilerChild.Id);
         await Task.Delay(Timeout.Infinite);
     }
     string binary = args[Array.IndexOf(args, "-o") + 1];
@@ -206,8 +206,8 @@ if (mode is "hang" or "cancel")
         CreateNoWindow = true,
         ArgumentList = { "--child" }
     })!;
-    File.WriteAllText("child.pid", child.Id.ToString());
     File.WriteAllText("parent.pid", Environment.ProcessId.ToString());
+    PublishChildPid("child.pid", child.Id);
     await Task.Delay(Timeout.Infinite);
 }
 if (mode == "failure")
@@ -286,3 +286,11 @@ File.WriteAllText("observations.tsv", "A2EXEC1\nSTOP\temulated_limit\nTIME\t3.01
 File.WriteAllText("screen.txt", "HELLO APPLE II");
 Console.WriteLine("Controlled process fixture completed; this is not an emulator run.");
 return 0;
+
+static void PublishChildPid(string path, int pid)
+{
+    // Tests can cancel the process tree as soon as this file appears.
+    string temporary = path + ".tmp";
+    File.WriteAllText(temporary, pid.ToString());
+    File.Move(temporary, path);
+}
